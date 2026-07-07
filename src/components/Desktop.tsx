@@ -36,7 +36,6 @@ const Desktop: React.FC = () => {
     updateItem,
     removeItem,
     moveItemTo,
-    swapDesktopItems,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -81,16 +80,13 @@ const Desktop: React.FC = () => {
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, swapDesktopItems, moveItemTo, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, mergeToFolder,
     moveFromFolderToDesktop,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
   });
-  // useLayoutEffect 保证每次渲染提交后立即同步 latestRef，
-  // 确保 pointer 事件处理器始终拿到最新 data/currentPage
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, swapDesktopItems, moveItemTo, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, mergeToFolder,
       moveFromFolderToDesktop,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
     };
@@ -196,7 +192,7 @@ const Desktop: React.FC = () => {
         setFolderRenameId(null);
       }
 
-      const { data: d, currentPage: cp, swapDesktopItems: swap,
+      const { data: d, currentPage: cp,
               moveItemTo: moveTo, moveFromFolderToDesktop: moveOut } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
@@ -246,10 +242,19 @@ const Desktop: React.FC = () => {
         const src = findItem(d.pages, g.source.itemId);
         if (!src) return;
         if (isWidget || !targetItemId || targetItemId === g.source.itemId) {
+          // 空格子或自身格子 → 移动
           moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
         } else {
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
-          if (tgt) swap(g.source.itemId, src.page, src.row, String(src.col), tgt.id, tgt.page, tgt.row, String(tgt.col));
+          if (!tgt) return;
+          // iOS 风格：拖到有图标的格子上松手 → 合并为文件夹（不交换位置）
+          if (tgt.type === 'widget' || tgt.type === 'system') {
+            // widget / 系统图标不可合并 → 回弹，不做任何操作
+            return;
+          }
+          const { mergeToFolder: merge } = latestRef.current;
+          merge(g.source.itemId, targetItemId);
+          toast.success('已创建文件夹');
         }
       }
     };
