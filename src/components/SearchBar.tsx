@@ -1,10 +1,9 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import { Search, Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 
 const SearchBar: React.FC = () => {
   const [query, setQuery] = useState('');
-  const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
@@ -33,13 +32,10 @@ const SearchBar: React.FC = () => {
     [query],
   );
 
+  // 固定使用聚焦状态样式
   const formCls = isNeu
-    ? `flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 ${
-        focused ? 'neu-raised-focused' : 'neu-raised'
-      }`
-    : `flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 ${
-        focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
-      }`;
+    ? 'flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 neu-raised-focused'
+    : 'flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
 
   const formStyle = isNeu
     ? {}
@@ -62,8 +58,6 @@ const SearchBar: React.FC = () => {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           placeholder="搜索或输入网址后回车"
           className={inputCls}
           style={{ fontSize: 16 }}
