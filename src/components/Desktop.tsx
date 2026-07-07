@@ -36,6 +36,7 @@ const Desktop: React.FC = () => {
     updateItem,
     removeItem,
     moveItemTo,
+    swapDesktopItems,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -82,13 +83,13 @@ const Desktop: React.FC = () => {
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
     };
@@ -150,6 +151,7 @@ const Desktop: React.FC = () => {
       // widget 不参与合并，只有普通 app/folder 之间才合并
       if (hoverId && hoverId !== g.source.itemId && g.source.type === 'desktop') {
         if (hoverId !== mergeHoverIdRef.current) {
+          // 悬停目标变化 → 重置计时器，对新目标重新计时
           clearMergeTimer();
           mergeHoverIdRef.current = hoverId;
           mergeTimerRef.current = setTimeout(() => {
@@ -158,7 +160,7 @@ const Desktop: React.FC = () => {
             const { data: d, mergeToFolder: merge } = latestRef.current;
             const dragItem = d.pages.flat().find(it => it.id === cur.source.itemId);
             const target = d.pages.flat().find(it => it.id === hoverId);
-            // widget 不合并
+            // widget / system 不合并
             if (dragItem?.type === 'widget' || target?.type === 'widget') return;
             if (target && target.type !== 'system') {
               merge(cur.source.itemId, hoverId);
@@ -168,21 +170,20 @@ const Desktop: React.FC = () => {
               setIsDragging(false);
               setDragSource(null);
               setDragOverItem(null);
+              dragOverItemRef.current = null;
               mergeHoverIdRef.current = null;
             }
           }, MERGE_DELAY);
         }
-      } else if (hoverId === g.source.itemId || g.source.type !== 'desktop') {
-        // 回到自身格子或非桌面拖拽时才取消计时器；
-        // hoverId=null（空白区）时保持计时器继续，避免手指微抖频繁重置
+        // hoverId 未变化 → 继续等待计时器，无需任何操作
+      } else {
+        // 离开有效合并目标（到空白、回到自身、非桌面拖拽）→ 清除计时器
         clearMergeTimer();
       }
     };
 
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
-      // 在任何清理前捕获松手瞬间的悬停目标（onMove 同步写入，比 pointerup 坐标更可靠）
-      const dropTargetId = dragOverItemRef.current;
       dragOverItemRef.current = null;
       ghostRef.current = null;
       setGhost(null);
@@ -190,7 +191,7 @@ const Desktop: React.FC = () => {
       setDragSource(null);
       setDragOverItem(null);
       clearEdgeTimer();
-      clearMergeTimer();
+      clearMergeTimer(); // 若 800ms 计时器还未触发，取消它（快速松手走交换分支）
       if (!g) return;
 
       // 文件夹拖出：无论是否命中有效格子都关闭文件夹
@@ -200,73 +201,63 @@ const Desktop: React.FC = () => {
       }
 
       const { data: d, currentPage: cp,
-              moveItemTo: moveTo, moveFromFolderToDesktop: moveOut } = latestRef.current;
+              moveItemTo: moveTo,
+              swapDesktopItems: swap,
+              moveFromFolderToDesktop: moveOut } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
-      if (g.source.type === 'folder') {
-        // 坐标检测：文件夹拖出落点
-        let cell: HTMLElement | null = null;
-        const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
-        for (const cellEl of allCells) {
-          const r = cellEl.getBoundingClientRect();
-          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-            cell = cellEl; break;
-          }
+      // 几何矩形检测落点格子（含空格子），不受 z-index/pointer-events 影响
+      let cell: HTMLElement | null = null;
+      const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
+      for (const cellEl of allCells) {
+        const r = cellEl.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+          cell = cellEl; break;
         }
-        if (!cell) return;
-        const targetRow = Number(cell.dataset.row);
-        const rawPage = Number(cell.dataset.page);
-        const targetPage = isNaN(rawPage) ? cp : rawPage;
-        const targetCol = Number(cell.dataset.col);
+      }
+      if (!cell) return; // 落在间隙/边距外 → 原位回弹
+
+      const targetRow = Number(cell.dataset.row);
+      const rawPage = Number(cell.dataset.page);
+      const targetPage = isNaN(rawPage) ? cp : rawPage;
+      const targetCol = isWidget ? 0 : Number(cell.dataset.col);
+      const targetItemId = cell.dataset.itemid ?? null;
+
+      if (!isWidget) {
+        // widget 独占整行，不允许其他图标放入该行
+        const widgetOnRow = d.pages[targetPage]?.find(it => it.row === targetRow && it.type === 'widget');
+        if (widgetOnRow) return;
+        if (targetItemId) {
+          const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
+          if (tgt?.type === 'widget') return; // widget 格子不可放置
+        }
+      }
+
+      // ── 文件夹拖出到桌面 ──
+      if (g.source.type === 'folder') {
         if (g.source.folderId) {
           moveOut(g.source.folderId, g.source.itemId, targetPage, targetRow, targetCol);
         }
         return;
       }
 
+      // ── 桌面图标拖拽 ──
       if (g.source.type === 'desktop') {
         const src = findItem(d.pages, g.source.itemId);
         if (!src) return;
 
-        // iOS 风格：松手时正悬停在另一个图标上 → 合并为文件夹
-        // 使用 dragOverItemRef（onMove 同步写入的最后悬停目标），比 pointerup 坐标更可靠
-        if (!isWidget && dropTargetId && dropTargetId !== g.source.itemId) {
-          const tgt = d.pages.flat().find(it => it.id === dropTargetId);
-          if (tgt && tgt.type !== 'widget' && tgt.type !== 'system') {
-            const { mergeToFolder: merge } = latestRef.current;
-            merge(g.source.itemId, dropTargetId);
-            toast.success('已创建文件夹');
-            return;
-          }
+        if (isWidget || !targetItemId || targetItemId === g.source.itemId) {
+          // 落在空格或自身格 → 移动
+          moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
+        } else {
+          // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
+          const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
+          if (!tgt || tgt.type === 'widget' || tgt.type === 'system') return;
+          swap(
+            g.source.itemId, src.page, src.row, String(src.col),
+            tgt.id, tgt.page, tgt.row, String(tgt.col),
+          );
         }
-
-        // 悬停在空白格子或自身 → 坐标检测落点，移动到该格子
-        let cell: HTMLElement | null = null;
-        const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
-        for (const cellEl of allCells) {
-          const r = cellEl.getBoundingClientRect();
-          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-            cell = cellEl; break;
-          }
-        }
-        if (!cell) return; // 落在间隙 → 原位回弹
-
-        const targetRow = Number(cell.dataset.row);
-        const rawPage = Number(cell.dataset.page);
-        const targetPage = isNaN(rawPage) ? cp : rawPage;
-        const targetCol = isWidget ? 0 : Number(cell.dataset.col);
-
-        if (!isWidget) {
-          const widgetOnRow = d.pages[targetPage]?.find(it => it.row === targetRow && it.type === 'widget');
-          if (widgetOnRow) return;
-          const cellItemId = cell.dataset.itemid ?? null;
-          if (cellItemId) {
-            const tgt = d.pages[targetPage]?.find(it => it.id === cellItemId);
-            if (tgt?.type === 'widget') return;
-          }
-        }
-
-        moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
       }
     };
 
