@@ -443,7 +443,7 @@ const Desktop: React.FC = () => {
   const renderGrid = () => {
     if (loading) {
       return (
-        <div className={`grid grid-cols-${gridCols} gap-x-4 gap-y-5`}>
+        <div className={`grid grid-cols-${gridCols} gap-x-4 gap-y-4`}>
           {Array.from({ length: gridCols * 4 }).map((_, i) => <SkeletonIcon key={`sk-${i}`} />)}
         </div>
       );
@@ -524,7 +524,7 @@ const Desktop: React.FC = () => {
 
     return (
       <div
-        className="grid gap-x-3 gap-y-4"
+        className="grid gap-x-3 gap-y-3"
         style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
       >
         {cells}
