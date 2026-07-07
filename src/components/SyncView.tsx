@@ -7,6 +7,7 @@ import {
   Upload, Download, LogOut, Loader2, CheckCircle2, AlertCircle, Github, X, CloudUpload, CloudDownload,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getPanelTheme } from '@/lib/panelTheme';
 
 interface SyncViewProps {
   open: boolean;
@@ -26,7 +27,10 @@ const DEFAULT_CONFIG: SyncConfig = {
 };
 
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
-  const { data, importData } = useDesktop();
+  const { data, importData, settings } = useDesktop();
+  const isNeu = settings.style === 'neumorphism';
+  const t = getPanelTheme(isNeu);
+
   const [config, setConfig] = useState<SyncConfig>(DEFAULT_CONFIG);
   const [verifying, setVerifying] = useState(false);
   const [syncing, setSyncing] = useState<'upload' | 'download' | null>(null);
@@ -121,17 +125,16 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
   if (!open) return null;
 
-  const fieldCls = 'w-full rounded-xl bg-white/10 border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60';
-
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-t-3xl bg-[rgba(20,20,30,0.95)] backdrop-blur-2xl border-t border-white/10 animate-slide-up"
+        className={`w-full max-w-lg rounded-t-3xl ${t.sheetBg} ${t.sheetBorder} animate-slide-up`}
+        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 拖拽条 */}
         <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-white/20" />
+          <div className={`w-10 h-1 rounded-full ${t.handle}`} />
         </div>
 
         <div className="px-5 py-4 space-y-4 max-h-[85vh] overflow-y-auto">
@@ -139,12 +142,16 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                <Github className="w-4 h-4 text-emerald-400" />
+                <Github className="w-4 h-4 text-emerald-500" />
               </div>
-              <h2 className="text-base font-semibold text-white">云同步设置</h2>
+              <h2 className={`text-base font-semibold ${t.textPrimary}`}>云同步设置</h2>
             </div>
-            <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-              <X className="w-4 h-4 text-white/60" />
+            <button
+              type="button"
+              onClick={onClose}
+              className={`w-8 h-8 rounded-full ${t.closeBtn} ${t.closeBtnHover} flex items-center justify-center transition-colors`}
+            >
+              <X className={`w-4 h-4 ${t.textMuted}`} />
             </button>
           </div>
 
@@ -152,13 +159,13 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           {loggedIn && config.owner && (
             <div className="flex items-center gap-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 px-4 py-3">
               <div className="w-9 h-9 rounded-full bg-emerald-500/30 flex items-center justify-center shrink-0">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-emerald-300">已配置同步</p>
-                <p className="text-xs text-emerald-400/70 truncate">用户: {config.owner} | 仓库: {config.repo || '未选择'}</p>
+                <p className="text-sm font-medium text-emerald-600">已配置同步</p>
+                <p className="text-xs text-emerald-500/70 truncate">用户: {config.owner} | 仓库: {config.repo || '未选择'}</p>
               </div>
-              <button type="button" onClick={handleLogout} className="shrink-0 flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors">
+              <button type="button" onClick={handleLogout} className={`shrink-0 flex items-center gap-1 text-xs ${t.textDim} hover:${t.textMuted} transition-colors`}>
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -166,20 +173,20 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
           {/* Token */}
           <div className="space-y-1.5">
-            <label className="text-sm text-white/60">GitHub 个人访问令牌 (Token)</label>
+            <label className={t.labelCls}>GitHub 个人访问令牌 (Token)</label>
             <input
               type="password"
               value={config.token}
               onChange={(e) => setConfig((p) => ({ ...p, token: e.target.value }))}
               placeholder="ghp_xxxxxxxxxxxx"
-              className={fieldCls}
+              className={t.inputCls}
             />
             {!loggedIn && (
               <button
                 type="button"
                 onClick={handleVerify}
                 disabled={verifying}
-                className="w-full mt-2 rounded-xl bg-primary py-2.5 text-sm font-medium text-white flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full mt-2 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Github className="w-4 h-4" />}
                 验证并连接
@@ -189,43 +196,43 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
           {/* 仓库名称 */}
           <div className="space-y-1.5">
-            <label className="text-sm text-white/60">仓库名称 (例如: my-desktop-data)</label>
+            <label className={t.labelCls}>仓库名称 (例如: my-desktop-data)</label>
             <input
               value={config.repo}
               onChange={(e) => saveConfig({ ...config, repo: e.target.value })}
               placeholder="my-desktop-data"
-              className={fieldCls}
+              className={t.inputCls}
             />
           </div>
 
           {/* 数据文件名 */}
           <div className="space-y-1.5">
-            <label className="text-sm text-white/60">数据文件名</label>
+            <label className={t.labelCls}>数据文件名</label>
             <input
               value={config.fileName}
               onChange={(e) => saveConfig({ ...config, fileName: e.target.value })}
               placeholder="desktop_backup.json"
-              className={fieldCls}
+              className={t.inputCls}
             />
           </div>
 
           {/* 自动同步间隔 */}
           <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">自动同步间隔</span>
+            <span className={t.labelCls}>自动同步间隔</span>
             <select
               value={config.syncInterval}
               onChange={(e) => saveConfig({ ...config, syncInterval: e.target.value as SyncConfig['syncInterval'] })}
-              className="rounded-xl bg-white/10 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-primary/60"
+              className={t.selectCls}
             >
               {INTERVAL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value} className="bg-[#1a1a2e]">{o.label}</option>
+                <option key={o.value} value={o.value} className={isNeu ? 'bg-white' : 'bg-[#1a1a2e]'}>{o.label}</option>
               ))}
             </select>
           </div>
 
           {/* 状态提示 */}
           {statusMsg && (
-            <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+            <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
               {statusMsg.type === 'success'
                 ? <CheckCircle2 className="w-4 h-4 shrink-0" />
                 : <AlertCircle className="w-4 h-4 shrink-0" />}
@@ -234,7 +241,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           )}
 
           {/* 分割线 */}
-          <div className="h-px bg-white/10" />
+          <div className={`h-px ${t.divider}`} />
 
           {/* 操作按钮 */}
           <div className="grid grid-cols-2 gap-3">
@@ -261,8 +268,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           {/* 同步时间信息 */}
           {config.lastSyncAt && (
             <div className="text-center space-y-0.5 pb-2">
-              <p className="text-xs text-white/30">上次同步: {formatDate(config.lastSyncAt)}</p>
-              {nextSyncLabel() && <p className="text-xs text-white/20">预计下次同步: {nextSyncLabel()}</p>}
+              <p className={`text-xs ${t.textDim}`}>上次同步: {formatDate(config.lastSyncAt)}</p>
+              {nextSyncLabel() && <p className={`text-xs ${t.textDim} opacity-60`}>预计下次同步: {nextSyncLabel()}</p>}
             </div>
           )}
         </div>

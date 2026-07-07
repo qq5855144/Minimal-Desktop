@@ -4,6 +4,8 @@ import { Input } from '@/components/ui/input';
 import type { DesktopItem } from '@/types';
 import { probeFavicon, guessNameFromUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon } from '@/lib/iconCache';
+import { useDesktop } from '@/contexts/DesktopContext';
+import { getPanelTheme } from '@/lib/panelTheme';
 import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, ChevronLeft } from 'lucide-react';
 
 interface AddEditDialogProps {
@@ -21,6 +23,9 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   open, onOpenChange, item, onAdd, onEdit, onDelete,
 }) => {
   const isEdit = !!item;
+  const { settings } = useDesktop();
+  const isNeu = settings.style === 'neumorphism';
+  const t = getPanelTheme(isNeu);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [iconSource, setIconSource] = useState<IconSource>('auto');
@@ -142,37 +147,38 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={handleClose}>
       <div
-        className="w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up bg-[rgba(20,20,30,0.92)] backdrop-blur-2xl border-t border-white/10"
+        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up ${t.sheetBg} ${t.sheetBorder}`}
+        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 拖拽把手 */}
         <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-white/20" />
+          <div className={`w-10 h-1 rounded-full ${t.handle}`} />
         </div>
 
         <div className="px-5 py-4 space-y-4">
           {/* 标题行 */}
           <div className="flex items-center gap-2">
             {isEdit && (
-              <button type="button" onClick={handleClose} className="flex items-center gap-1 text-white/50 text-sm">
+              <button type="button" onClick={handleClose} className={`flex items-center gap-1 text-sm ${t.backText}`}>
                 <ChevronLeft className="w-4 h-4" />
               </button>
             )}
-            <h2 className="text-base font-semibold text-white">{isEdit ? '编辑应用' : '添加应用'}</h2>
+            <h2 className={`text-base font-semibold ${t.textPrimary}`}>{isEdit ? '编辑应用' : '添加应用'}</h2>
           </div>
 
           {/* 图标预览 + 名称/URL */}
           <div className="flex gap-3 items-start">
             {/* 图标预览区 */}
             <div className="relative shrink-0">
-              <div className="w-[60px] h-[60px] rounded-[22%] flex items-center justify-center overflow-hidden ios-icon-shadow bg-white/10">
+              <div className={`w-[60px] h-[60px] rounded-[22%] flex items-center justify-center overflow-hidden ios-icon-shadow ${t.iconPlaceholder}`}>
                 {fetching ? (
-                  <Loader2 className="w-6 h-6 text-white/40 animate-spin" />
+                  <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
                 ) : effectiveIcon ? (
                   <img src={effectiveIcon} alt="" className="w-full h-full object-cover"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 ) : (
-                  <Globe className="w-7 h-7 text-white/40" />
+                  <Globe className={`w-7 h-7 ${t.textDim}`} />
                 )}
               </div>
               {/* 刷新按钮（auto 模式） */}
@@ -181,10 +187,10 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                   type="button"
                   onClick={handleRefreshIcon}
                   disabled={fetching || !url.trim()}
-                  className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[rgba(30,30,45,0.95)] border border-white/20 flex items-center justify-center shadow-sm disabled:opacity-30 hover:bg-white/10 transition-colors"
+                  className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm disabled:opacity-30 transition-colors`}
                   title="重新获取图标"
                 >
-                  <RefreshCw className="w-2.5 h-2.5 text-white/70" />
+                  <RefreshCw className={`w-2.5 h-2.5 ${t.textMuted}`} />
                 </button>
               )}
             </div>
@@ -196,21 +202,25 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                 onChange={(e) => setName(e.target.value)}
                 placeholder="应用名称"
                 maxLength={20}
-                className="h-9 text-sm bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50"
+                className={`h-9 text-sm ${isNeu
+                  ? 'bg-white/80 border-gray-200 text-gray-800 placeholder:text-gray-400'
+                  : 'bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50'}`}
               />
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 onBlur={handleUrlBlur}
                 placeholder="网站 URL（如 github.com）"
-                className="h-9 text-sm bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50"
+                className={`h-9 text-sm ${isNeu
+                  ? 'bg-white/80 border-gray-200 text-gray-800 placeholder:text-gray-400'
+                  : 'bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50'}`}
               />
             </div>
           </div>
 
           {/* 图标来源选择器 */}
           <div className="space-y-2">
-            <div className="flex gap-1 p-0.5 bg-white/8 rounded-xl">
+            <div className={`flex gap-1 p-0.5 ${t.tabBg} rounded-xl`}>
               {iconSourceTabs.map(({ key, icon, label }) => (
                 <button
                   key={key}
@@ -218,8 +228,8 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                   onClick={() => setIconSource(key)}
                   className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 ${
                     iconSource === key
-                      ? 'bg-white/20 text-white shadow-sm'
-                      : 'text-white/40 hover:text-white/70'
+                      ? `${t.tabActive} ${t.tabActiveText} shadow-sm`
+                      : `${t.tabInactiveText} hover:${t.textMuted}`
                   }`}
                 >
                   {icon}{label}
@@ -229,7 +239,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
 
             {/* 来源说明/输入 */}
             {iconSource === 'auto' && (
-              <p className="text-xs px-1 text-white/40">
+              <p className={`text-xs px-1 ${t.textDim}`}>
                 {fetching ? '正在探测图标…' :
                  autoFavicon ? '✓ 已成功获取网站图标' :
                  probeFailed ? '⚠ 未能获取图标，可手动切换到 URL 或本地' :
@@ -241,14 +251,16 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                 value={customIconUrl}
                 onChange={(e) => setCustomIconUrl(e.target.value)}
                 placeholder="图标图片 URL"
-                className="h-9 text-sm bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50"
+                className={`h-9 text-sm ${isNeu
+                  ? 'bg-white/80 border-gray-200 text-gray-800 placeholder:text-gray-400'
+                  : 'bg-white/10 border-white/15 text-white placeholder:text-white/30 focus-visible:ring-primary/50'}`}
               />
             )}
             {iconSource === 'local' && (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center gap-2 px-3 h-9 rounded-xl border border-dashed border-white/20 text-sm text-white/40 hover:bg-white/8 transition-colors"
+                className={`w-full flex items-center gap-2 px-3 h-9 rounded-xl border border-dashed ${isNeu ? 'border-gray-300 text-gray-400 hover:bg-gray-100' : 'border-white/20 text-white/40 hover:bg-white/8'} text-sm transition-colors`}
               >
                 <Upload className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">{localIconData ? '已上传（点击更换）' : '点击选择本地图片'}</span>
@@ -259,7 +271,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center gap-2 px-5 py-3 border-t border-white/8">
+        <div className={`flex items-center gap-2 px-5 py-3 border-t ${t.itemBorder}`}>
           {isEdit && onDelete && (
             <Button size="sm" variant="destructive" onClick={handleDelete} className="gap-1">
               <Trash2 className="w-3.5 h-3.5" />删除
@@ -269,7 +281,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="px-4 py-2 rounded-xl text-sm text-white/60 hover:bg-white/10 transition-colors"
+            className={`px-4 py-2 rounded-xl text-sm ${t.textMuted} ${t.closeBtn} ${t.closeBtnHover} transition-colors`}
           >
             取消
           </button>
@@ -286,6 +298,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
       </div>
     </div>
   );
+
 };
 
 export default AddEditDialog;
