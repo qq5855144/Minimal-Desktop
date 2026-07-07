@@ -4,6 +4,8 @@ import svgr from "vite-plugin-svgr";
 import path from "path";
 
 export default defineConfig({
+  // GitHub Pages 部署路径：https://<user>.github.io/Minimal-Desktop/
+  base: process.env.NODE_ENV === 'production' ? '/Minimal-Desktop/' : '/',
   plugins: [
     react(),
     svgr({

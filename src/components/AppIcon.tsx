@@ -259,7 +259,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()}
-        className={`flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} transition-transform active:scale-95`}
+        className={`flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} transition-transform ${ghost ? '' : 'active:scale-95'}`}
       >
         {renderIconContent()}
         <span

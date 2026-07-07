@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { useDesktop, MAX_ROWS, MAX_COLS } from '@/contexts/DesktopContext';
+import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
 import type { DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
@@ -11,8 +11,8 @@ import SyncView from './SyncView';
 import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
 import { toast } from 'sonner';
 
-// 仅在屏幕最边缘 8px 的极窄区域才触发翻页，避免与边缘列拖拽冲突
-const EDGE_THRESHOLD = 8;
+// 屏幕左右边缘 24px 内触发翻页（8px 太窄，移动端难以精确触达）
+const EDGE_THRESHOLD = 24;
 const EDGE_DELAY = 900;
 const MERGE_DELAY = 800;
 
@@ -148,31 +148,48 @@ const Desktop: React.FC = () => {
       // 同步更新 ref，供 onUp 在清理前读取（state 异步，ref 同步）
       dragOverItemRef.current = hoverId;
 
-      // widget 不参与合并，只有普通 app/folder 之间才合并
-      if (hoverId && hoverId !== g.source.itemId && g.source.type === 'desktop') {
+      // 仅桌面图标参与悬停合并；widget/system/dock(page=-1)全部排除
+      const isDesktopDrag = g.source.type === 'desktop';
+      const isValidMergeTarget =
+        hoverId !== null &&
+        hoverId !== g.source.itemId &&
+        isDesktopDrag;
+
+      if (isValidMergeTarget) {
         if (hoverId !== mergeHoverIdRef.current) {
           // 悬停目标变化 → 重置计时器，对新目标重新计时
           clearMergeTimer();
-          mergeHoverIdRef.current = hoverId;
+          // hoverId 此处已由 isValidMergeTarget 确保非 null
+          const hoverIdNonNull = hoverId!;
+          mergeHoverIdRef.current = hoverIdNonNull;
           mergeTimerRef.current = setTimeout(() => {
             const cur = ghostRef.current;
             if (!cur) return;
             const { data: d, mergeToFolder: merge } = latestRef.current;
             const dragItem = d.pages.flat().find(it => it.id === cur.source.itemId);
-            const target = d.pages.flat().find(it => it.id === hoverId);
-            // widget / system 不合并
+            const target = d.pages.flat().find(it => it.id === hoverIdNonNull);
+            // widget / system 不参与合并
             if (dragItem?.type === 'widget' || target?.type === 'widget') return;
-            if (target && target.type !== 'system') {
-              merge(cur.source.itemId, hoverId);
-              toast.success('已创建文件夹');
-              ghostRef.current = null;
-              setGhost(null);
-              setIsDragging(false);
-              setDragSource(null);
-              setDragOverItem(null);
-              dragOverItemRef.current = null;
-              mergeHoverIdRef.current = null;
+            if (!target || target.type === 'system') return;
+            // 阻止 folder 拖入 folder（避免无限嵌套）
+            if (dragItem?.type === 'folder' && target.type === 'folder') {
+              toast.error('暂不支持文件夹嵌套');
+              return;
             }
+            // 检查目标文件夹容量
+            if (target.type === 'folder' && (target.children?.length ?? 0) >= MAX_FOLDER_APPS) {
+              toast.error('文件夹已满，最多容纳 9 个图标');
+              return;
+            }
+            merge(cur.source.itemId, hoverIdNonNull);
+            toast.success(target.type === 'folder' ? `已添加到「${target.name}」` : '已创建文件夹');
+            ghostRef.current = null;
+            setGhost(null);
+            setIsDragging(false);
+            setDragSource(null);
+            setDragOverItem(null);
+            dragOverItemRef.current = null;
+            mergeHoverIdRef.current = null;
           }, MERGE_DELAY);
         }
         // hoverId 未变化 → 继续等待计时器，无需任何操作
@@ -215,7 +232,21 @@ const Desktop: React.FC = () => {
           cell = cellEl; break;
         }
       }
-      if (!cell) return; // 落在间隙/边距外 → 原位回弹
+      // 落在格子间隙或边缘外：用 findFirstEmpty 兜底（常见于翻页后指针漂移）
+      if (!cell) {
+        const { data: d2, currentPage: cp2, gridCols: gc } = latestRef.current;
+        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc);
+        if (!slot) return;
+        if (g.source.type === 'folder' && g.source.folderId) {
+          const { moveFromFolderToDesktop: moveOut2 } = latestRef.current;
+          moveOut2(g.source.folderId, g.source.itemId, slot.page, slot.row, slot.col);
+        } else if (g.source.type === 'desktop') {
+          const { moveItemTo: moveTo2 } = latestRef.current;
+          const src2 = findItem(d2.pages, g.source.itemId);
+          if (src2) moveTo2(g.source.itemId, src2.page, slot.page, slot.row, slot.col);
+        }
+        return;
+      }
 
       const targetRow = Number(cell.dataset.row);
       const rawPage = Number(cell.dataset.page);
@@ -635,7 +666,7 @@ const Desktop: React.FC = () => {
           style={
             ghost.item.type === 'widget'
               ? { left: ghost.x - 120, top: ghost.y - 28 }
-              : { left: ghost.x - 36, top: ghost.y - 36 }
+              : { left: ghost.x, top: ghost.y, transform: 'translate(-50%, -50%)' }
           }
         >
           {ghost.item.type === 'widget' ? (

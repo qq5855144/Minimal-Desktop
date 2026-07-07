@@ -60,6 +60,13 @@ const FolderView: React.FC<FolderViewProps> = ({
     if (triggerRenameId === folder.id) setEditing(true);
   }, [triggerRenameId, folder.id]);
 
+  // 卸载时清理可能残留的拖拽状态（文件夹关闭时若有拖拽仍在进行）
+  useEffect(() => {
+    return () => {
+      if (ghostDomRef.current) ghostDomRef.current.style.display = 'none';
+    };
+  }, []);
+
   const handleRename = useCallback(() => {
     const trimmed = name.trim();
     if (trimmed) { renameFolder(folder.id, trimmed); setEditing(false); onRenameDone?.(); }
@@ -161,13 +168,22 @@ const FolderView: React.FC<FolderViewProps> = ({
       }
     };
 
+    // pointercancel：系统手势/多指打断时清理文件夹内部拖拽状态
+    const onCancel = () => {
+      cleanup();
+      if (ghostDomRef.current) ghostDomRef.current.style.display = 'none';
+      resetDrag();
+    };
+
     const cleanup = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
     };
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
   }, [resetDrag]);
 
   const handleChildPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
