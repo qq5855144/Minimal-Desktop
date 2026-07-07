@@ -175,9 +175,13 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           <div className="space-y-1.5">
             <label className={t.labelCls}>GitHub 个人访问令牌 (Token)</label>
             <input
-              type="password"
+              type="text"
               value={config.token}
               onChange={(e) => setConfig((p) => ({ ...p, token: e.target.value }))}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               placeholder="ghp_xxxxxxxxxxxx"
               className={t.inputCls}
             />
