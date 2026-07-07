@@ -460,7 +460,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetIdx = ti;
         }
       }
-      if (!source || !target || source.type === 'system' || target.type === 'system') return prev;
+      if (!source || !target) return prev;
       // 如果 target 已是文件夹
       if (target.type === 'folder' && target.children) {
         if (target.children.length >= MAX_FOLDER_APPS) return prev;

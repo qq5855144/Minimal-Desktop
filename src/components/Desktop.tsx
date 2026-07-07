@@ -298,7 +298,7 @@ const Desktop: React.FC = () => {
         } else {
           // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
-          if (!tgt || tgt.type === 'widget' || tgt.type === 'system') return;
+          if (!tgt || tgt.type === 'widget') return;
           swap(
             g.source.itemId, src.page, src.row, String(src.col),
             tgt.id, tgt.page, tgt.row, String(tgt.col),
