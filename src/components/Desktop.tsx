@@ -62,6 +62,8 @@ const Desktop: React.FC = () => {
   const [ghost, setGhost] = useState<GhostState | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
   const mergeHoverIdRef = useRef<string | null>(null);
+  // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
+  const dragOverItemRef = useRef<string | null>(null);
 
   // 响应式列数：优先使用用户设置(4/5)，桌面端最大 MAX_COLS
   const [screenMd, setScreenMd] = useState<boolean>(
@@ -142,6 +144,8 @@ const Desktop: React.FC = () => {
         }
       }
       setDragOverItem(hoverId ?? null);
+      // 同步更新 ref，供 onUp 在清理前读取（state 异步，ref 同步）
+      dragOverItemRef.current = hoverId;
 
       // widget 不参与合并，只有普通 app/folder 之间才合并
       if (hoverId && hoverId !== g.source.itemId && g.source.type === 'desktop') {
@@ -177,6 +181,9 @@ const Desktop: React.FC = () => {
 
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
+      // 在任何清理前捕获松手瞬间的悬停目标（onMove 同步写入，比 pointerup 坐标更可靠）
+      const dropTargetId = dragOverItemRef.current;
+      dragOverItemRef.current = null;
       ghostRef.current = null;
       setGhost(null);
       setIsDragging(false);
@@ -196,42 +203,21 @@ const Desktop: React.FC = () => {
               moveItemTo: moveTo, moveFromFolderToDesktop: moveOut } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
-      // 几何矩形检测落点格子（包含空格子），同样不受 z-index/pointer-events 影响
-      let cell: HTMLElement | null = null;
-      const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
-      for (const cellEl of allCells) {
-        const r = cellEl.getBoundingClientRect();
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          cell = cellEl;
-          break;
-        }
-      }
-
-      let targetRow: number, targetPage: number, targetCol: number, targetItemId: string | null;
-
-      if (cell) {
-        targetRow = Number(cell.dataset.row);
-        const rawPage = Number(cell.dataset.page);
-        targetPage = isNaN(rawPage) ? cp : rawPage;
-        targetCol = isWidget ? 0 : Number(cell.dataset.col);
-        targetItemId = cell.dataset.itemid ?? null;
-      } else {
-        // 未命中有效格子（如松手在内边距/间隙区域）→ 原位回弹，不移动
-        return;
-      }
-
-      if (!isWidget) {
-        const widgetOnRow = d.pages[targetPage]?.find(
-          (it) => it.row === targetRow && it.type === 'widget',
-        );
-        if (widgetOnRow) return;
-        if (targetItemId) {
-          const tgt = d.pages[targetPage]?.find((it) => it.id === targetItemId);
-          if (tgt?.type === 'widget') return;
-        }
-      }
-
       if (g.source.type === 'folder') {
+        // 坐标检测：文件夹拖出落点
+        let cell: HTMLElement | null = null;
+        const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
+        for (const cellEl of allCells) {
+          const r = cellEl.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+            cell = cellEl; break;
+          }
+        }
+        if (!cell) return;
+        const targetRow = Number(cell.dataset.row);
+        const rawPage = Number(cell.dataset.page);
+        const targetPage = isNaN(rawPage) ? cp : rawPage;
+        const targetCol = Number(cell.dataset.col);
         if (g.source.folderId) {
           moveOut(g.source.folderId, g.source.itemId, targetPage, targetRow, targetCol);
         }
@@ -241,21 +227,46 @@ const Desktop: React.FC = () => {
       if (g.source.type === 'desktop') {
         const src = findItem(d.pages, g.source.itemId);
         if (!src) return;
-        if (isWidget || !targetItemId || targetItemId === g.source.itemId) {
-          // 空格子或自身格子 → 移动
-          moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
-        } else {
-          const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
-          if (!tgt) return;
-          // iOS 风格：拖到有图标的格子上松手 → 合并为文件夹（不交换位置）
-          if (tgt.type === 'widget' || tgt.type === 'system') {
-            // widget / 系统图标不可合并 → 回弹，不做任何操作
+
+        // iOS 风格：松手时正悬停在另一个图标上 → 合并为文件夹
+        // 使用 dragOverItemRef（onMove 同步写入的最后悬停目标），比 pointerup 坐标更可靠
+        if (!isWidget && dropTargetId && dropTargetId !== g.source.itemId) {
+          const tgt = d.pages.flat().find(it => it.id === dropTargetId);
+          if (tgt && tgt.type !== 'widget' && tgt.type !== 'system') {
+            const { mergeToFolder: merge } = latestRef.current;
+            merge(g.source.itemId, dropTargetId);
+            toast.success('已创建文件夹');
             return;
           }
-          const { mergeToFolder: merge } = latestRef.current;
-          merge(g.source.itemId, targetItemId);
-          toast.success('已创建文件夹');
         }
+
+        // 悬停在空白格子或自身 → 坐标检测落点，移动到该格子
+        let cell: HTMLElement | null = null;
+        const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
+        for (const cellEl of allCells) {
+          const r = cellEl.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+            cell = cellEl; break;
+          }
+        }
+        if (!cell) return; // 落在间隙 → 原位回弹
+
+        const targetRow = Number(cell.dataset.row);
+        const rawPage = Number(cell.dataset.page);
+        const targetPage = isNaN(rawPage) ? cp : rawPage;
+        const targetCol = isWidget ? 0 : Number(cell.dataset.col);
+
+        if (!isWidget) {
+          const widgetOnRow = d.pages[targetPage]?.find(it => it.row === targetRow && it.type === 'widget');
+          if (widgetOnRow) return;
+          const cellItemId = cell.dataset.itemid ?? null;
+          if (cellItemId) {
+            const tgt = d.pages[targetPage]?.find(it => it.id === cellItemId);
+            if (tgt?.type === 'widget') return;
+          }
+        }
+
+        moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
       }
     };
 
@@ -457,7 +468,7 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={currentPage}
               data-itemid={item.id}
-              className={`relative transition-all duration-150 ${dragOverItem === item.id ? 'scale-110 z-10' : ''}`}
+              className={`relative transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
             >
               <AppIcon
                 item={item}
