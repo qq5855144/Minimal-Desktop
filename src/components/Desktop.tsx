@@ -220,7 +220,8 @@ const Desktop: React.FC = () => {
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
               swapDesktopItems: swap,
-              moveFromFolderToDesktop: moveOut } = latestRef.current;
+              moveFromFolderToDesktop: moveOut,
+              gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
       // 几何矩形检测落点格子（含空格子），不受 z-index/pointer-events 影响
@@ -251,7 +252,9 @@ const Desktop: React.FC = () => {
       const targetRow = Number(cell.dataset.row);
       const rawPage = Number(cell.dataset.page);
       const targetPage = isNaN(rawPage) ? cp : rawPage;
-      const targetCol = isWidget ? 0 : Number(cell.dataset.col);
+      // 截断 col：防止旧数据 col >= gridCols 导致 item 落入不可见列消失
+      const rawCol = isWidget ? 0 : Number(cell.dataset.col);
+      const targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
 
       if (!isWidget) {
@@ -444,7 +447,7 @@ const Desktop: React.FC = () => {
     if (loading) {
       return (
         <div className={`grid grid-cols-${gridCols} gap-x-4 gap-y-4`}>
-          {Array.from({ length: gridCols * 4 }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
+          {Array.from({ length: gridCols * MAX_ROWS }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
         </div>
       );
     }
