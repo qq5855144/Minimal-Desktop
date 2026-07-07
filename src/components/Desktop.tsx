@@ -233,10 +233,22 @@ const Desktop: React.FC = () => {
           cell = cellEl; break;
         }
       }
-      // 落在格子间隙或边缘外：用 findFirstEmpty 兜底（常见于翻页后指针漂移）
+      // 落在行/列间隙时（gap 区域无命中），改为找中心点最近的格子，
+      // 避免触发 findFirstEmpty 把图标甩到第一行
       if (!cell) {
-        const { data: d2, currentPage: cp2, gridCols: gc, gridRows: gr } = latestRef.current;
-        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc, gr);
+        let minDist = Infinity;
+        for (const cellEl of allCells) {
+          const r = cellEl.getBoundingClientRect();
+          const cx = (r.left + r.right) / 2;
+          const cy = (r.top + r.bottom) / 2;
+          const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
+          if (dist < minDist) { minDist = dist; cell = cellEl; }
+        }
+      }
+      // 极端情况（指针完全飞出屏幕外）：findFirstEmpty 兜底
+      if (!cell) {
+        const { data: d2, currentPage: cp2, gridCols: gc2, gridRows: gr } = latestRef.current;
+        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc2, gr);
         if (!slot) return;
         if (g.source.type === 'folder' && g.source.folderId) {
           const { moveFromFolderToDesktop: moveOut2 } = latestRef.current;
