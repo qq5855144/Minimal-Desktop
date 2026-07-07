@@ -1,0 +1,208 @@
+/* stylelint-disable */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* iOS 风格桌面设计系统 */
+
+/* ── 全局屏蔽浏览器默认行为（长按菜单、文字选中、图片拖拽、iOS 气泡） ── */
+*, *::before, *::after {
+  -webkit-touch-callout: none;   /* iOS Safari 长按图片/链接气泡 */
+  -webkit-user-drag: none;       /* Safari 图片原生拖拽 */
+}
+
+/* ── 输入框恢复浏览器默认长按 / 文字选择 / 粘贴菜单 ── */
+input, textarea, [contenteditable="true"] {
+  -webkit-touch-callout: default !important; /* iOS 恢复长按复制粘贴气泡 */
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  touch-action: auto !important;             /* auto 保留浏览器长按选词等全部原生行为 */
+}
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+    --background: 240 6% 96%;
+    --foreground: 240 6% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 6% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 6% 11%;
+    --primary: 211 100% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 80%;
+    --secondary-foreground: 240 6% 11%;
+    --muted: 240 5% 91%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 82%;
+    --input: 240 5% 82%;
+    --ring: 211 100% 52%;
+    --chart-1: 211 100% 52%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 262 83% 58%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 350 89% 60%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5% 26%;
+    --sidebar-primary: 211 100% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 96%;
+    --sidebar-accent-foreground: 240 6% 11%;
+    --sidebar-border: 240 5% 91%;
+    --sidebar-ring: 211 100% 52%;
+
+    --ios-blue: 211 100% 52%;
+    --ios-green: 142 71% 45%;
+    --ios-orange: 30 100% 55%;
+    --ios-red: 0 84% 60%;
+    --ios-purple: 262 83% 58%;
+    --ios-yellow: 48 96% 53%;
+    --ios-pink: 330 80% 60%;
+    --ios-teal: 172 70% 42%;
+    --ios-indigo: 230 80% 60%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(211 100% 52%), hsl(230 80% 60%));
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100% / 0.8), hsl(0 0% 100% / 0.6));
+    --gradient-background: linear-gradient(160deg, hsl(220 60% 70%), hsl(260 50% 65%) 40%, hsl(200 70% 60%));
+    --shadow-card: 0 2px 12px hsl(240 6% 11% / 0.08);
+    --shadow-hover: 0 8px 24px hsl(240 6% 11% / 0.16);
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 211 100% 60%;
+    --primary-foreground: 0 0% 6%;
+    --secondary: 240 5% 18%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 5% 16%;
+    --muted-foreground: 240 4% 60%;
+    --accent: 142 60% 40%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 35%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 20%;
+    --input: 240 5% 20%;
+    --ring: 211 100% 60%;
+    --chart-1: 211 100% 60%;
+    --chart-2: 142 60% 45%;
+    --chart-3: 262 70% 60%;
+    --chart-4: 38 80% 55%;
+    --chart-5: 350 75% 55%;
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 211 100% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 14%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 240 5% 18%;
+    --sidebar-ring: 211 100% 60%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(211 100% 60%), hsl(230 80% 55%));
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 11% / 0.8), hsl(0 0% 11% / 0.6));
+    --gradient-background: linear-gradient(160deg, hsl(230 50% 18%), hsl(260 40% 14%) 40%, hsl(200 50% 12%));
+    --shadow-card: 0 2px 12px hsl(0 0% 0% / 0.4);
+    --shadow-hover: 0 8px 24px hsl(0 0% 0% / 0.5);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: hsl(var(--card) / 0.7);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .glass-dark {
+    background: hsl(var(--foreground) / 0.5);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .ios-icon-shadow {
+    box-shadow: 0 2px 8px hsl(var(--foreground) / 0.12), 0 1px 2px hsl(var(--foreground) / 0.08);
+  }
+  .ios-icon-shadow-hover {
+    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.2), 0 2px 6px hsl(var(--foreground) / 0.12);
+  }
+
+  /* ──────────────────────────────────────────
+     新拟态 (Neumorphism) 全局样式
+     应用于 [data-style="neumorphism"] 容器内
+  ────────────────────────────────────────── */
+  .neu-bg {
+    background: #dde4f0;
+  }
+
+  /* 图标阴影：浮雕感 */
+  [data-style="neumorphism"] .ios-icon-shadow {
+    box-shadow:
+      5px 5px 12px rgba(163, 177, 198, 0.7),
+      -5px -5px 12px rgba(255, 255, 255, 0.9);
+  }
+  [data-style="neumorphism"] .ios-icon-shadow-hover {
+    box-shadow:
+      8px 8px 18px rgba(163, 177, 198, 0.8),
+      -8px -8px 18px rgba(255, 255, 255, 1);
+  }
+
+  /* 图标文字：深色 */
+  [data-style="neumorphism"] .app-icon-label {
+    color: #4a5568 !important;
+    text-shadow: none !important;
+    filter: none !important;
+  }
+
+  /* 页面指示器 */
+  [data-style="neumorphism"] .page-dot-active {
+    background: #5b8dee !important;
+  }
+  [data-style="neumorphism"] .page-dot-inactive {
+    background: #aab5c8 !important;
+  }
+
+  /* 新拟态搜索框——外阴影浮雕感（与图标一致） */
+  .neu-raised {
+    background: #dde4f0;
+    box-shadow:
+      5px 5px 12px rgba(163, 177, 198, 0.7),
+      -5px -5px 12px rgba(255, 255, 255, 0.9);
+  }
+  .neu-raised-focused {
+    background: #dde4f0;
+    box-shadow:
+      6px 6px 14px rgba(163, 177, 198, 0.8),
+      -6px -6px 14px rgba(255, 255, 255, 1),
+      0 0 0 2px rgba(91, 141, 238, 0.25);
+  }
+  /* 旧的凹陷效果保留以防其他地方使用 */
+  .neu-inset {
+    background: #dde4f0;
+    box-shadow:
+      inset 4px 4px 8px rgba(163, 177, 198, 0.6),
+      inset -4px -4px 8px rgba(255, 255, 255, 0.8);
+  }
+}
