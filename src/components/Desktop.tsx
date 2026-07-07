@@ -84,13 +84,13 @@ const Desktop: React.FC = () => {
 
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-    moveFromFolderToDesktop,
+    moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-      moveFromFolderToDesktop,
+      moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
     };
   });
@@ -235,8 +235,8 @@ const Desktop: React.FC = () => {
       }
       // 落在格子间隙或边缘外：用 findFirstEmpty 兜底（常见于翻页后指针漂移）
       if (!cell) {
-        const { data: d2, currentPage: cp2, gridCols: gc } = latestRef.current;
-        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc);
+        const { data: d2, currentPage: cp2, gridCols: gc, gridRows: gr } = latestRef.current;
+        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc, gr);
         if (!slot) return;
         if (g.source.type === 'folder' && g.source.folderId) {
           const { moveFromFolderToDesktop: moveOut2 } = latestRef.current;
@@ -446,23 +446,16 @@ const Desktop: React.FC = () => {
   const renderGrid = () => {
     if (loading) {
       return (
-        <div className={`grid grid-cols-${gridCols} gap-x-4 gap-y-4`}>
-          {Array.from({ length: gridCols * MAX_ROWS }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
+        <div className={`grid grid-cols-${gridCols} gap-x-3 gap-y-3`}>
+          {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
         </div>
       );
     }
 
     const cells: React.ReactNode[] = [];
 
-    // 只渲染到「最后有内容的行 + 1 行缓冲」，避免大片空骨架
-    const lastContentRow = pageItems.length > 0
-      ? Math.max(...pageItems.map((it) => it.row))
-      : -1;
-    // 拖拽时多留 1 行可落点；静态时仅显示内容行
-    const renderRows = Math.min(
-      isDragging ? lastContentRow + 2 : lastContentRow + 1,
-      MAX_ROWS,
-    );
+    // 始终渲染用户配置的行数（settings.rows），保证空行也可见、可拖放
+    const renderRows = settings.rows ?? 7;
 
     for (let r = 0; r < renderRows; r++) {
       const widgetItem = pageItems.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
@@ -718,10 +711,11 @@ function findFirstEmpty(
   preferPage: number,
   excludeId?: string,
   maxCols: number = MAX_COLS,
+  maxRows: number = MAX_ROWS,
 ): { page: number; row: number; col: number } | null {
   const order = [preferPage, ...Array.from({ length: pages.length }, (_, i) => i).filter(i => i !== preferPage)];
   for (const p of order) {
-    for (let r = 0; r < MAX_ROWS; r++) {
+    for (let r = 0; r < maxRows; r++) {
       if (pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
       for (let c = 0; c < maxCols; c++) {
         const occupied = pages[p].some((it) => it.row === r && it.col === c && it.id !== excludeId);

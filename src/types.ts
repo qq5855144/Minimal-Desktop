@@ -64,6 +64,7 @@ export interface DesktopSettings {
   style: DesktopStyle;
   iconSize: number;        // 默认 46
   cols: 4 | 5;
+  rows: number;            // 每页最大行数，默认 7，范围 1-14
 }
 
 // 拖拽来源信息

@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
   iconSize: 46,
   cols: 4,
+  rows: 7,
   bgType: 'image',
   bgImage: DEFAULT_BG_IMAGE,
 };

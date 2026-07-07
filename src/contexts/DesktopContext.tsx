@@ -4,7 +4,7 @@ import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } f
 import { loadDesktopData, saveDesktopData, loadSettings, saveSettings } from '@/lib/storage';
 import { pruneIconCaches } from '@/lib/iconCache';
 
-const MAX_ROWS = 6;
+const MAX_ROWS = 14;  // 绝对上限，用户可配置 1-14
 const MAX_COLS = 6;
 const MAX_FOLDER_APPS = 9;
 
@@ -81,11 +81,12 @@ function collectIconUrls(data: DesktopData): Set<string> {
   return urls;
 }
 
-// 查找空白位置（maxCols 限制实际渲染列数，避免图标放到不可见列）
+// 查找空白位置（maxCols/maxRows 限制实际渲染范围，避免图标放到不可见位置）
 function findEmptySlot(
   pages: DesktopItem[][],
   preferPage?: number,
   maxCols: number = MAX_COLS,
+  maxRows: number = MAX_ROWS,
 ): { page: number; row: number; col: number } | null {
   // 从 preferPage 开始搜索，保证新应用优先出现在当前页
   const order = preferPage !== undefined
@@ -93,7 +94,7 @@ function findEmptySlot(
     : Array.from({ length: pages.length }, (_, i) => i);
 
   for (const p of order) {
-    for (let r = 0; r < MAX_ROWS; r++) {
+    for (let r = 0; r < maxRows; r++) {
       // widget 独占整行，跳过该行所有列
       if (pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
       for (let c = 0; c < maxCols; c++) {
@@ -133,10 +134,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     preferPage?: number,
   ) => {
     const gridCols = settings.cols ?? 4;
+    const gridRows = settings.rows ?? 7;
     let targetPage = 0;
     setData((prev) => {
       const next = structuredClone(prev);
-      const slot = findEmptySlot(next.pages, preferPage, gridCols);
+      const slot = findEmptySlot(next.pages, preferPage, gridCols, gridRows);
       if (!slot) {
         next.pages.push([]);
         const newSlot = { page: next.pages.length - 1, row: 0, col: 0 };
@@ -156,7 +158,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     // 在下一个宏任务中跳转（等 setData 的 state 已 commit）
     setTimeout(() => setCurrentPage(targetPage), 0);
-  }, [settings.cols]);
+  }, [settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
     setData((prev) => {
@@ -512,8 +514,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // 将每个子应用散落到桌面（贪心找空位，优先当前页）
         for (const child of children) {
           let placed = false;
+          const gr = settings.rows ?? 7;
           // 先在当前页 p 找空位
-          for (let r = 0; r < MAX_ROWS && !placed; r++) {
+          for (let r = 0; r < gr && !placed; r++) {
             if (next.pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
             for (let c = 0; c < MAX_COLS && !placed; c++) {
               if (!next.pages[p].some((it) => it.row === r && it.col === c)) {
@@ -525,7 +528,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!placed) {
             // 其他页面找空位
             outer: for (let pp = 0; pp < next.pages.length; pp++) {
-              for (let r = 0; r < MAX_ROWS; r++) {
+              for (let r = 0; r < gr; r++) {
                 if (next.pages[pp].some((it) => it.row === r && it.type === 'widget')) continue;
                 for (let c = 0; c < MAX_COLS; c++) {
                   if (!next.pages[pp].some((it) => it.row === r && it.col === c)) {
