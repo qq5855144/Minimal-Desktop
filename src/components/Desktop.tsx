@@ -66,7 +66,7 @@ const Desktop: React.FC = () => {
   // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
   const dragOverItemRef = useRef<string | null>(null);
 
-  // 响应式列数：优先使用用户设置(4/5)，桌面端最大 MAX_COLS
+  // 响应式列数：始终使用用户设置，桌面端不强制扩展为 MAX_COLS（避免图标偏左不对称）
   const [screenMd, setScreenMd] = useState<boolean>(
     () => window.matchMedia('(min-width: 768px)').matches,
   );
@@ -77,8 +77,8 @@ const Desktop: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  // 实际渲染列数：移动端使用 settings.cols，md+ 不超过 MAX_COLS
-  const gridCols = screenMd ? MAX_COLS : (settings.cols ?? 4);
+  // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
+  const gridCols = settings.cols ?? 4;
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
@@ -513,7 +513,7 @@ const Desktop: React.FC = () => {
               data-row={r}
               data-col={c}
               data-page={currentPage}
-              className="min-h-[88px] md:min-h-[96px] rounded-xl"
+              className="flex items-center justify-center min-h-[88px] rounded-xl"
             >
               {isDragging && <SkeletonIcon />}
             </div>,
@@ -525,7 +525,7 @@ const Desktop: React.FC = () => {
     return (
       <div
         className="grid gap-x-3 gap-y-3"
-        style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, justifyItems: 'center' }}
       >
         {cells}
       </div>
