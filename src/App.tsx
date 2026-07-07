@@ -9,7 +9,8 @@ import { routes } from './routes';
 const App: React.FC = () => {
   return (
     <DesktopProvider>
-      <Router>
+      {/* basename 使用 Vite 注入的 BASE_URL，开发时为 '/'，生产时为 '/Minimal-Desktop/' */}
+      <Router basename={import.meta.env.BASE_URL}>
         <IntersectObserver />
         <Routes>
           {routes.map((route, index) => (
