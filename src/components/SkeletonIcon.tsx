@@ -2,17 +2,26 @@ import React from 'react';
 
 interface SkeletonIconProps {
   size?: 'normal' | 'small';
+  /** 覆盖图标尺寸（px），与 AppIcon 保持一致，不传时 normal=46 small=48 */
+  iconPx?: number;
 }
 
-const SkeletonIcon: React.FC<SkeletonIconProps> = ({ size = 'normal' }) => {
+const SkeletonIcon: React.FC<SkeletonIconProps> = ({ size = 'normal', iconPx }) => {
   const isSmall = size === 'small';
-  const iconSize = isSmall ? 'w-12 h-12' : 'w-16 h-16 md:w-[72px] md:h-[72px]';
-  const textSize = isSmall ? 'w-10 h-2' : 'w-14 h-2.5';
+  // 与 AppIcon 逻辑对齐：small 固定 48，normal 使用传入值或默认 46
+  const px = isSmall ? 48 : (iconPx ?? 46);
+  const labelW = Math.round(px * 0.85);
 
   return (
-    <div className="flex flex-col items-center gap-1.5 select-none">
-      <div className={`${iconSize} rounded-[22%] bg-white/20 animate-skeleton-pulse`} />
-      <div className={`${textSize} rounded-full bg-white/20 animate-skeleton-pulse`} />
+    <div className="flex flex-col items-center gap-1 select-none">
+      <div
+        className="rounded-[22%] bg-white/20 animate-skeleton-pulse"
+        style={{ width: px, height: px }}
+      />
+      <div
+        className="rounded-full bg-white/20 animate-skeleton-pulse"
+        style={{ width: labelW, height: 8 }}
+      />
     </div>
   );
 };

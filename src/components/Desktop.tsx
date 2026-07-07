@@ -444,7 +444,7 @@ const Desktop: React.FC = () => {
     if (loading) {
       return (
         <div className={`grid grid-cols-${gridCols} gap-x-4 gap-y-4`}>
-          {Array.from({ length: gridCols * 4 }).map((_, i) => <SkeletonIcon key={`sk-${i}`} />)}
+          {Array.from({ length: gridCols * 4 }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
         </div>
       );
     }
@@ -515,7 +515,7 @@ const Desktop: React.FC = () => {
               data-page={currentPage}
               className="flex items-center justify-center min-h-[88px] rounded-xl"
             >
-              {isDragging && <SkeletonIcon />}
+              {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
             </div>,
           );
         }
