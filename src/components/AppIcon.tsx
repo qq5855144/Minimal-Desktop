@@ -49,6 +49,9 @@ const AppIcon: React.FC<AppIconProps> = ({
   const startXRef     = useRef(0);
   const startYRef     = useRef(0);
   const dragStartedRef = useRef(false);
+  // 只有本元素收到过 pointerdown 才允许处理 pointermove，
+  // 防止释放指针捕获后路过的其他图标误触发 onDragBegin
+  const pointerDownActiveRef = useRef(false);
 
   const isSmall = size === 'small';
   // 图标尺寸：small 固定, normal 使用 settings 或 iconPx 覆盖
@@ -70,6 +73,7 @@ const AppIcon: React.FC<AppIconProps> = ({
     startYRef.current = e.clientY;
     longFiredRef.current = false;
     dragStartedRef.current = false;
+    pointerDownActiveRef.current = true;
     longTimerRef.current = setTimeout(() => {
       longFiredRef.current = true;
       onLongPress?.(e.clientX, e.clientY);
@@ -77,11 +81,14 @@ const AppIcon: React.FC<AppIconProps> = ({
   }, [onLongPress]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // 未收到本元素的 pointerdown 时忽略：防止释放捕获后路过的图标误触发拖拽
+    if (!pointerDownActiveRef.current) return;
     if (dragStartedRef.current) return;
     const dx = e.clientX - startXRef.current;
     const dy = e.clientY - startYRef.current;
     if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
       dragStartedRef.current = true;
+      pointerDownActiveRef.current = false;
       cancelLongPress();
       // 拖拽正式开始时立即释放指针捕获：
       // 若保留捕获，换页时 AppIcon 会从 DOM 卸载，浏览器因此触发 pointercancel 清除拖拽状态
@@ -94,6 +101,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     dragStartedRef.current = false;
+    pointerDownActiveRef.current = false;
     cancelLongPress();
     // 确保释放捕获（未达到拖拽阈值时）
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
