@@ -454,7 +454,17 @@ const Desktop: React.FC = () => {
 
     const cells: React.ReactNode[] = [];
 
-    for (let r = 0; r < MAX_ROWS; r++) {
+    // 只渲染到「最后有内容的行 + 1 行缓冲」，避免大片空骨架
+    const lastContentRow = pageItems.length > 0
+      ? Math.max(...pageItems.map((it) => it.row))
+      : -1;
+    // 拖拽时多留 1 行可落点；静态时仅显示内容行
+    const renderRows = Math.min(
+      isDragging ? lastContentRow + 2 : lastContentRow + 1,
+      MAX_ROWS,
+    );
+
+    for (let r = 0; r < renderRows; r++) {
       const widgetItem = pageItems.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
 
       if (widgetItem) {
