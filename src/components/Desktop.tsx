@@ -506,6 +506,8 @@ const Desktop: React.FC = () => {
             </div>,
           );
         } else {
+          // 空格子高度与图标总高一致（图标 + gap-1 + 标签），避免撑高行高导致行间距过大
+          const cellH = settings.iconSize + 22;
           cells.push(
             <div
               key={`${r}-${c}`}
@@ -513,7 +515,8 @@ const Desktop: React.FC = () => {
               data-row={r}
               data-col={c}
               data-page={currentPage}
-              className="flex items-center justify-center min-h-[88px] rounded-xl"
+              className="flex items-center justify-center rounded-xl"
+              style={{ minHeight: cellH }}
             >
               {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
             </div>,
