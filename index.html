@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- GitHub Pages SPA：还原 404.html 编码的路径 -->
+    <script>
+      (function(){
+        var q = window.location.search;
+        if (q && q.indexOf('p=/') > -1) {
+          var p = q.slice(1).split('&').reduce(function(m, kv) {
+            var a = kv.split('='); m[a[0]] = a.slice(1).join('='); return m;
+          }, {});
+          if (p.p) {
+            var path = '/' + p.p.replace(/~and~/g, '&');
+            var search = p.q ? ('?' + p.q.replace(/~and~/g, '&')) : '';
+            window.history.replaceState(null, null, path + search + window.location.hash);
+          }
+        }
+      }());
+    </script>
   </head>
   <body>
     <div id="root"></div>
