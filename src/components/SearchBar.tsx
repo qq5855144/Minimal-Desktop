@@ -56,7 +56,7 @@ const SearchBar: React.FC = () => {
     : 'text-white/60 hover:text-white transition-colors';
 
   return (
-    <div className="px-[7%] pb-3">
+    <div className="px-[7%] md:px-[15%] pb-3">
       <form onSubmit={handleSubmit} className={formCls} style={formStyle}>
         {/* 搜索引擎图标按钮 */}
         <button
