@@ -58,6 +58,7 @@ export interface SyncConfig {
 // 桌面外观设置
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
 export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
+export type SearchEngine = 'bing' | 'google' | 'baidu' | 'duckduckgo';
 export interface DesktopSettings {
   bgImage?: string;        // base64 或 URL（图片/GIF）
   bgVideo?: string;        // object URL（视频，非持久化）
@@ -69,6 +70,7 @@ export interface DesktopSettings {
   bgOverlayEnabled?: boolean;       // 是否启用背景遮罩
   bgOverlayScheme?: BgOverlayScheme; // 遮罩配色方案
   applyOverlayToWallpaper?: boolean; // 遮罩是否应用到自定义壁纸
+  searchEngine?: SearchEngine;       // 默认搜索引擎，默认 bing
 }
 
 // 拖拽来源信息

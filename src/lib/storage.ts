@@ -137,6 +137,7 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   bgOverlayEnabled: false,
   bgOverlayScheme: 'aurora',
   applyOverlayToWallpaper: false,
+  searchEngine: 'bing',
 };
 
 export function loadSettings(): import('@/types').DesktopSettings {

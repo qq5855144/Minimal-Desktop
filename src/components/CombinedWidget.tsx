@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Mic, Camera } from 'lucide-react';
+import { useDesktop } from '@/contexts/DesktopContext';
+import type { SearchEngine } from '@/types';
+
+// ── 搜索 URL 构建器 ──────────────────────────────────────────────────────────
+function buildSearchUrl(engine: SearchEngine, q: string): string {
+  const enc = encodeURIComponent(q);
+  switch (engine) {
+    case 'google':     return `https://www.google.com/search?q=${enc}`;
+    case 'baidu':      return `https://www.baidu.com/s?wd=${enc}`;
+    case 'duckduckgo': return `https://duckduckgo.com/?q=${enc}`;
+    case 'bing':
+    default:           return `https://www.bing.com/search?q=${enc}&form=QBLH&sp=-1`;
+  }
+}
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
 const LUNAR_MONTHS = ['正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊'];
@@ -31,6 +45,7 @@ function getLunarDate(date: Date): string {
 
 // ── 合并组件：时钟 + 搜索框 ──────────────────────────────────────────────────
 const CombinedWidget: React.FC = () => {
+  const { settings } = useDesktop();
   const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -55,11 +70,11 @@ const CombinedWidget: React.FC = () => {
     const isUrl = /^https?:\/\//i.test(trimmed) || /^[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})(\/.*)?$/.test(trimmed);
     const url = isUrl
       ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
-      : `https://www.bing.com/search?q=${encodeURIComponent(trimmed)}`;
+      : buildSearchUrl(settings.searchEngine ?? 'bing', trimmed);
     window.open(url, '_blank', 'noopener,noreferrer');
     setQuery('');
     inputRef.current?.blur();
-  }, [query]);
+  }, [query, settings.searchEngine]);
 
   return (
     <div className="flex flex-col select-none pt-3 pb-2">

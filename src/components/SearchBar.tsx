@@ -1,6 +1,18 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Search, Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import type { SearchEngine } from '@/types';
+
+function buildSearchUrl(engine: SearchEngine, q: string): string {
+  const enc = encodeURIComponent(q);
+  switch (engine) {
+    case 'google':     return `https://www.google.com/search?q=${enc}`;
+    case 'baidu':      return `https://www.baidu.com/s?wd=${enc}`;
+    case 'duckduckgo': return `https://duckduckgo.com/?q=${enc}`;
+    case 'bing':
+    default:           return `https://www.bing.com/search?q=${enc}&form=QBLH&sp=-1`;
+  }
+}
 
 const SearchBar: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -21,7 +33,7 @@ const SearchBar: React.FC = () => {
         window.open(url, '_blank', 'noopener,noreferrer');
       } else {
         window.open(
-          `https://www.bing.com/search?q=${encodeURIComponent(trimmed)}`,
+          buildSearchUrl(settings.searchEngine ?? 'bing', trimmed),
           '_blank',
           'noopener,noreferrer',
         );
@@ -29,7 +41,7 @@ const SearchBar: React.FC = () => {
       setQuery('');
       inputRef.current?.blur();
     },
-    [query],
+    [query, settings.searchEngine],
   );
 
   // 固定使用聚焦状态样式
