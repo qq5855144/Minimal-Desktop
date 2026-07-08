@@ -234,7 +234,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                   key={scheme.id}
                   type="button"
                   onClick={() => updateSettings({ bgOverlayScheme: scheme.id })}
-                  className={`relative rounded-xl aspect-square flex flex-col items-center justify-center gap-1 transition-all ${
+                  className={`relative rounded-xl aspect-square flex items-center justify-center transition-all ${
                     settings.bgOverlayScheme === scheme.id
                       ? `ring-2 ring-primary scale-105 ${t.itemBgActive}`
                       : `${t.itemBg} ${t.itemBgHover}`
@@ -244,7 +244,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                     className="w-8 h-8 rounded-full"
                     style={{ background: scheme.gradient }}
                   />
-                  <span className={`text-[10px] ${t.textMuted}`}>{scheme.name}</span>
                   {settings.bgOverlayScheme === scheme.id && (
                     <Check className="absolute top-1 right-1 w-3 h-3 text-primary" />
                   )}

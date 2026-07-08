@@ -604,16 +604,13 @@ const Desktop: React.FC = () => {
           <div className="absolute top-[40%] right-[30%] w-64 h-64 rounded-full bg-purple-500/15 blur-[90px]" />
         </div>
       )}
-      {/* 背景遮罩：毛玻璃模式下启用 */}
-      {settings.style !== 'neumorphism' && settings.bgOverlayEnabled && (
+      {/* 背景遮罩：毛玻璃模式下启用，始终在壁纸上层 */}
+      {settings.style !== 'neumorphism' &&
+        settings.bgOverlayEnabled &&
+        (settings.applyOverlayToWallpaper || (!settings.bgImage && !settings.bgVideo)) && (
         <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: getOverlayGradient(settings.bgOverlayScheme ?? 'aurora'),
-            opacity: settings.applyOverlayToWallpaper || (!settings.bgImage && !settings.bgVideo) ? 1 : 0,
-            pointerEvents: 'none',
-            transition: 'opacity 300ms ease',
-          }}
+          className="absolute inset-0 z-[1] pointer-events-none"
+          style={{ background: getOverlayGradient(settings.bgOverlayScheme ?? 'aurora') }}
         />
       )}
 
