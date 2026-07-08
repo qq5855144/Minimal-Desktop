@@ -73,7 +73,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
 
   return (
     <div
-      className="relative touch-none"
+      className="relative w-full touch-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

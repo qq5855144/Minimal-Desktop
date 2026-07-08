@@ -543,7 +543,7 @@ const Desktop: React.FC = () => {
             data-page={pageIndex}
             data-itemid={widgetItem.id}
             style={{ gridColumn: `1 / -1` }}
-            className={`transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
+            className={`w-full transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
           >
             <WidgetGridCell
               item={widgetItem}
