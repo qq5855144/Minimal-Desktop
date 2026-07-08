@@ -1,19 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Mic, Camera } from 'lucide-react';
+import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import type { SearchEngine } from '@/types';
-
-// ── 搜索 URL 构建器 ──────────────────────────────────────────────────────────
-function buildSearchUrl(engine: SearchEngine, q: string): string {
-  const enc = encodeURIComponent(q);
-  switch (engine) {
-    case 'google':     return `https://www.google.com/search?q=${enc}`;
-    case 'baidu':      return `https://www.baidu.com/s?wd=${enc}`;
-    case 'duckduckgo': return `https://duckduckgo.com/?q=${enc}`;
-    case 'bing':
-    default:           return `https://www.bing.com/search?q=${enc}&form=QBLH&sp=-1`;
-  }
-}
+import { getEngineById, buildSearchUrl, getFaviconUrl } from '@/lib/searchEngines';
+import SearchEnginePanel from './SearchEnginePanel';
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
 const LUNAR_MONTHS = ['正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊'];
@@ -49,7 +38,10 @@ const CombinedWidget: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const engineBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -63,6 +55,12 @@ const CombinedWidget: React.FC = () => {
   const weekday = WEEKDAYS[now.getDay()];
   const lunar   = getLunarDate(now);
 
+  const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
+  const faviconUrl = 'domain' in currentEngine
+    ? getFaviconUrl(currentEngine.domain)
+    : (currentEngine.iconUrl ?? null);
+  const [faviconErr, setFaviconErr] = useState(false);
+
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
@@ -70,11 +68,19 @@ const CombinedWidget: React.FC = () => {
     const isUrl = /^https?:\/\//i.test(trimmed) || /^[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})(\/.*)?$/.test(trimmed);
     const url = isUrl
       ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
-      : buildSearchUrl(settings.searchEngine ?? 'bing', trimmed);
+      : buildSearchUrl(currentEngine, trimmed);
     window.open(url, '_blank', 'noopener,noreferrer');
     setQuery('');
     inputRef.current?.blur();
-  }, [query, settings.searchEngine]);
+  }, [query, currentEngine]);
+
+  const openPanel = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = engineBtnRef.current?.getBoundingClientRect() ?? null;
+    setAnchorRect(rect);
+    setPanelOpen(true);
+  }, []);
 
   return (
     <div className="flex flex-col select-none pt-3 pb-2">
@@ -98,12 +104,27 @@ const CombinedWidget: React.FC = () => {
       <div className="px-4 md:px-6">
         <form
           onSubmit={handleSubmit}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-200 ${
+          className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-200 ${
             focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
           }`}
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
-          <Search className="w-4 h-4 text-white/70 shrink-0" />
+          {/* 搜索引擎图标（可点击） */}
+          <button
+            ref={engineBtnRef}
+            type="button"
+            onClick={openPanel}
+            aria-label="切换搜索引擎"
+            className="shrink-0 w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center transition-transform active:scale-90"
+            style={{ background: currentEngine.color }}
+          >
+            {faviconUrl && !faviconErr ? (
+              <img src={faviconUrl} alt={currentEngine.name} className="w-5 h-5 object-contain" onError={() => setFaviconErr(true)} />
+            ) : (
+              <span className="text-white text-xs font-bold">{currentEngine.name.slice(0, 1)}</span>
+            )}
+          </button>
+
           <input
             ref={inputRef}
             type="text"
@@ -125,6 +146,11 @@ const CombinedWidget: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* 搜索引擎面板（portal 到 fixed 层） */}
+      {panelOpen && (
+        <SearchEnginePanel anchorRect={anchorRect} onClose={() => setPanelOpen(false)} />
+      )}
     </div>
   );
 };

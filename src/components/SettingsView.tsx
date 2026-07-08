@@ -355,16 +355,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const renderWidgets = () => {
     const widgetDefs = [
       { id: 'widget-clock' as const, label: '时钟', desc: '显示实时时间、日期与农历', icon: <Clock className="w-5 h-5" /> },
-      { id: 'widget-search' as const, label: '搜索栏', desc: '搜索 / 网址直达', icon: <Search className="w-5 h-5" /> },
+      { id: 'widget-search' as const, label: '搜索栏', desc: '点击左侧引擎图标可切换 / 添加搜索引擎', icon: <Search className="w-5 h-5" /> },
     ];
-
-    const engineOpts: { value: import('@/types').SearchEngine; label: string; desc: string; color: string }[] = [
-      { value: 'bing',       label: 'Bing',       desc: '微软必应（推荐，收益分成）', color: 'bg-blue-500'  },
-      { value: 'google',     label: 'Google',     desc: '谷歌搜索',                  color: 'bg-red-500'   },
-      { value: 'baidu',      label: '百度',        desc: '百度搜索',                  color: 'bg-blue-600'  },
-      { value: 'duckduckgo', label: 'DuckDuckGo', desc: '注重隐私保护',               color: 'bg-orange-500' },
-    ];
-
     return (
       <div className="px-5 py-4 space-y-4">
         <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
@@ -396,41 +388,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             );
           })}
         </div>
-
-        {/* 搜索引擎选择 */}
-        <div className="space-y-3 pt-1">
-          <p className={`text-sm font-medium ${t.textMuted}`}>默认搜索引擎</p>
-          <div className="space-y-2">
-            {engineOpts.map((eng) => {
-              const active = (settings.searchEngine ?? 'bing') === eng.value;
-              return (
-                <button
-                  key={eng.value}
-                  type="button"
-                  onClick={() => updateSettings({ searchEngine: eng.value })}
-                  className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3 border transition-colors ${
-                    active
-                      ? 'bg-primary/15 border-primary/60'
-                      : `${t.itemBg} ${t.itemBorder}`
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white text-xs font-bold ${eng.color}`}>
-                    {eng.label.slice(0, 1)}
-                  </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className={`text-sm font-medium ${active ? 'text-primary' : t.textPrimary}`}>{eng.label}</p>
-                    <p className={`text-xs ${t.textDim}`}>{eng.desc}</p>
-                  </div>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    active ? 'border-primary bg-primary' : isNeu ? 'border-gray-300' : 'border-white/30'
-                  }`}>
-                    {active && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <p className={`text-xs ${t.textDim} pt-1`}>💡 搜索引擎切换：点击搜索框左侧的引擎图标即可打开选择面板</p>
       </div>
     );
   };

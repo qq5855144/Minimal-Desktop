@@ -55,10 +55,18 @@ export interface SyncConfig {
   lastSyncAt?: string; // ISO string
 }
 
+// 搜索引擎
+export interface CustomSearchEngine {
+  id: string;
+  name: string;
+  urlTemplate: string;   // 含 {q} 占位符，如 https://example.com/search?q={q}
+  iconUrl?: string;      // 自定义图标 URL（可选）
+  color: string;         // 背景色
+}
+
 // 桌面外观设置
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
 export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
-export type SearchEngine = 'bing' | 'google' | 'baidu' | 'duckduckgo';
 export interface DesktopSettings {
   bgImage?: string;        // base64 或 URL（图片/GIF）
   bgVideo?: string;        // object URL（视频，非持久化）
@@ -67,10 +75,11 @@ export interface DesktopSettings {
   iconSize: number;        // 默认 46
   cols: 4 | 5;
   rows: number;            // 每页最大行数，默认 7，范围 1-14
-  bgOverlayEnabled?: boolean;       // 是否启用背景遮罩
-  bgOverlayScheme?: BgOverlayScheme; // 遮罩配色方案
-  applyOverlayToWallpaper?: boolean; // 遮罩是否应用到自定义壁纸
-  searchEngine?: SearchEngine;       // 默认搜索引擎，默认 bing
+  bgOverlayEnabled?: boolean;
+  bgOverlayScheme?: BgOverlayScheme;
+  applyOverlayToWallpaper?: boolean;
+  searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
+  customEngines?: CustomSearchEngine[]; // 用户自定义搜索引擎列表
 }
 
 // 拖拽来源信息

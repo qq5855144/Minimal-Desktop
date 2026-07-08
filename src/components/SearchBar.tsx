@@ -1,24 +1,24 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { Search, Mic, Camera } from 'lucide-react';
+import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import type { SearchEngine } from '@/types';
+import { getEngineById, buildSearchUrl, getFaviconUrl } from '@/lib/searchEngines';
+import SearchEnginePanel from './SearchEnginePanel';
 
-function buildSearchUrl(engine: SearchEngine, q: string): string {
-  const enc = encodeURIComponent(q);
-  switch (engine) {
-    case 'google':     return `https://www.google.com/search?q=${enc}`;
-    case 'baidu':      return `https://www.baidu.com/s?wd=${enc}`;
-    case 'duckduckgo': return `https://duckduckgo.com/?q=${enc}`;
-    case 'bing':
-    default:           return `https://www.bing.com/search?q=${enc}&form=QBLH&sp=-1`;
-  }
-}
 
 const SearchBar: React.FC = () => {
   const [query, setQuery] = useState('');
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [faviconErr, setFaviconErr] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const engineBtnRef = useRef<HTMLButtonElement>(null);
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
+
+  const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
+  const faviconUrl = 'domain' in currentEngine
+    ? getFaviconUrl(currentEngine.domain)
+    : (currentEngine.iconUrl ?? null);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -28,32 +28,28 @@ const SearchBar: React.FC = () => {
       const isUrl =
         /^https?:\/\//i.test(trimmed) ||
         /^[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})(\/.*)?$/.test(trimmed);
-      if (isUrl) {
-        const url = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-        window.open(url, '_blank', 'noopener,noreferrer');
-      } else {
-        window.open(
-          buildSearchUrl(settings.searchEngine ?? 'bing', trimmed),
-          '_blank',
-          'noopener,noreferrer',
-        );
-      }
+      const url = isUrl
+        ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
+        : buildSearchUrl(currentEngine, trimmed);
+      window.open(url, '_blank', 'noopener,noreferrer');
       setQuery('');
       inputRef.current?.blur();
     },
-    [query, settings.searchEngine],
+    [query, currentEngine],
   );
 
-  // 固定使用聚焦状态样式
+  const openPanel = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = engineBtnRef.current?.getBoundingClientRect() ?? null;
+    setAnchorRect(rect);
+    setPanelOpen(true);
+  }, []);
+
   const formCls = isNeu
-    ? 'flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 neu-raised-focused'
-    : 'flex items-center gap-2 px-4 py-2.5 rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
-
-  const formStyle = isNeu
-    ? {}
-    : { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' };
-
-  const iconCls = isNeu ? 'text-slate-400 shrink-0' : 'text-white/70 shrink-0';
+    ? 'flex items-center gap-2 px-3 py-2.5 rounded-full transition-all duration-200 neu-raised-focused'
+    : 'flex items-center gap-2 px-3 py-2.5 rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
+  const formStyle = isNeu ? {} : { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' };
   const inputCls = isNeu
     ? 'flex-1 min-w-0 bg-transparent text-slate-700 text-sm placeholder:text-slate-400 outline-none'
     : 'flex-1 min-w-0 bg-transparent text-white text-sm placeholder:text-white/50 outline-none';
@@ -64,7 +60,22 @@ const SearchBar: React.FC = () => {
   return (
     <div className="px-4 md:px-8 pb-3">
       <form onSubmit={handleSubmit} className={formCls} style={formStyle}>
-        <Search className={`w-4 h-4 ${iconCls}`} />
+        {/* 搜索引擎图标按钮 */}
+        <button
+          ref={engineBtnRef}
+          type="button"
+          onClick={openPanel}
+          aria-label="切换搜索引擎"
+          className="shrink-0 w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center transition-transform active:scale-90"
+          style={{ background: currentEngine.color }}
+        >
+          {faviconUrl && !faviconErr ? (
+            <img src={faviconUrl} alt={currentEngine.name} className="w-5 h-5 object-contain" onError={() => setFaviconErr(true)} />
+          ) : (
+            <span className="text-white text-xs font-bold">{currentEngine.name.slice(0, 1)}</span>
+          )}
+        </button>
+
         <input
           ref={inputRef}
           type="text"
@@ -83,6 +94,10 @@ const SearchBar: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {panelOpen && (
+        <SearchEnginePanel anchorRect={anchorRect} onClose={() => setPanelOpen(false)} />
+      )}
     </div>
   );
 };
