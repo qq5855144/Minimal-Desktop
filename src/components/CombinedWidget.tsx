@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { getEngineById, buildSearchUrl, getEngineIconUrl } from '@/lib/searchEngines';
+import { getEngineById, buildSearchUrl, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ const CombinedWidget: React.FC = () => {
 
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
   const [iconErr, setIconErr] = useState(false);
-  const iconSrc = getEngineIconUrl(currentEngine);
+  const iconSrc = getEngineIconSrc(currentEngine);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();

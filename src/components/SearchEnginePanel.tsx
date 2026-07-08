@@ -1,8 +1,7 @@
 /**
  * SearchEnginePanel
  * 搜索引擎选择面板 + 添加自定义引擎对话框
- * 参考设计：搜索框左侧图标点击后弹出，深色毛玻璃卡片，4列网格
- * 图标使用 Iconify（纯图标无背景）
+ * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Plus, X, Check } from 'lucide-react';
@@ -10,6 +9,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import {
   BUILTIN_ENGINES,
   getEngineById,
+  getEngineIconSrc,
   type AnyEngine,
 } from '@/lib/searchEngines';
 import type { CustomSearchEngine } from '@/types';
@@ -19,19 +19,17 @@ interface SearchEnginePanelProps {
   onClose: () => void;
 }
 
-// ── 引擎图标：img src 方式（可靠），带字母兜底 ──────────────────────────────
+// ── 引擎图标：内联 SVG data URL，带彩色字母兜底 ────────────────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
   const [err, setErr] = useState(false);
-  const iconSrc = 'iconApiUrl' in engine
-    ? engine.iconApiUrl
-    : ('iconUrl' in engine ? (engine as { iconUrl?: string }).iconUrl ?? null : null);
+  const src = getEngineIconSrc(engine);
   const letter = engine.name.slice(0, 1).toUpperCase();
 
-  if (iconSrc && !err) {
+  if (src && !err) {
     return (
       <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
         <img
-          src={iconSrc}
+          src={src}
           alt={engine.name}
           width={size * 0.72}
           height={size * 0.72}
@@ -42,7 +40,6 @@ const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, si
     );
   }
 
-  // 自定义引擎 / 图标加载失败：彩色字母
   return (
     <div
       className="flex items-center justify-center rounded-2xl shrink-0"
