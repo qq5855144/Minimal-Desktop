@@ -1,6 +1,15 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
+import AppIcon from './AppIcon';
+import SkeletonIcon from './SkeletonIcon';
+import WidgetGridCell from './WidgetGridCell';
+import FolderView from './FolderView';
+import AddEditDialog from './AddEditDialog';
+import SettingsView from './SettingsView';
+import SyncView from './SyncView';
+import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
+import { toast } from 'sonner';
 
 function getOverlayGradient(scheme: BgOverlayScheme): string {
   switch (scheme) {
@@ -16,15 +25,6 @@ function getOverlayGradient(scheme: BgOverlayScheme): string {
       return 'linear-gradient(180deg, rgba(60,40,120,0.45) 0%, rgba(30,70,140,0.38) 45%, rgba(20,110,130,0.35) 100%)';
   }
 }
-import AppIcon from './AppIcon';
-import SkeletonIcon from './SkeletonIcon';
-import WidgetGridCell from './WidgetGridCell';
-import FolderView from './FolderView';
-import AddEditDialog from './AddEditDialog';
-import SettingsView from './SettingsView';
-import SyncView from './SyncView';
-import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
-import { toast } from 'sonner';
 
 // 屏幕左右边缘 24px 内触发翻页（8px 太窄，移动端难以精确触达）
 const EDGE_THRESHOLD = 24;
