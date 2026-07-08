@@ -425,7 +425,8 @@ const Desktop: React.FC = () => {
     [removeItem],
   );
 
-  const pageItems = data.pages[currentPage] || [];
+  // pageItems 已不再需要（全页渲染后每页自行从 data.pages[i] 取数据）
+  // const pageItems = data.pages[currentPage] || [];
   const SWIPE_MIN_X = 50;   // 最小水平位移触发翻页
   const SWIPE_MAX_Y = 60;   // 垂直位移超出此值视为滚动，不翻页
 
@@ -495,22 +496,17 @@ const Desktop: React.FC = () => {
    * ─ widget 行（row 中 col=0 的项为 widget 类型）：渲染一个 col-span-4 md:col-span-6 全宽单元格
    * ─ 普通行：按列渲染 AppIcon / 空骨架格
    */
-  const renderGrid = () => {
-    if (loading) {
-      return (
-        <div className={`grid grid-cols-${gridCols} gap-x-3 gap-y-3`}>
-          {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />)}
-        </div>
-      );
-    }
-
+  /**
+   * 渲染单页网格（pageIndex + items 参数化）
+   * 所有页同时挂载，非当前页用 display:none 隐藏，
+   * 保证 AppIcon 不随翻页卸载，避免图标重新加载。
+   */
+  const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
-
-    // 始终渲染用户配置的行数（settings.rows），保证空行也可见、可拖放
     const renderRows = settings.rows ?? 7;
 
     for (let r = 0; r < renderRows; r++) {
-      const widgetItem = pageItems.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
+      const widgetItem = items.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
 
       if (widgetItem) {
         const isGhost = ghost?.source.itemId === widgetItem.id;
@@ -520,7 +516,7 @@ const Desktop: React.FC = () => {
             data-cell="1"
             data-row={r}
             data-col={0}
-            data-page={currentPage}
+            data-page={pageIndex}
             data-itemid={widgetItem.id}
             style={{ gridColumn: `1 / -1` }}
             className={`transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
@@ -536,9 +532,8 @@ const Desktop: React.FC = () => {
         continue;
       }
 
-      // 普通行：按当前响应式列数渲染
       for (let c = 0; c < gridCols; c++) {
-        const item = pageItems.find((it) => it.row === r && it.col === c);
+        const item = items.find((it) => it.row === r && it.col === c);
         if (item) {
           cells.push(
             <div
@@ -546,7 +541,7 @@ const Desktop: React.FC = () => {
               data-cell="1"
               data-row={r}
               data-col={c}
-              data-page={currentPage}
+              data-page={pageIndex}
               data-itemid={item.id}
               className={`relative transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
             >
@@ -564,7 +559,6 @@ const Desktop: React.FC = () => {
             </div>,
           );
         } else {
-          // 空格子高度与图标总高一致（图标 + gap-1 + 标签），避免撑高行高导致行间距过大
           const cellH = settings.iconSize + 22;
           cells.push(
             <div
@@ -572,7 +566,7 @@ const Desktop: React.FC = () => {
               data-cell="1"
               data-row={r}
               data-col={c}
-              data-page={currentPage}
+              data-page={pageIndex}
               className="flex items-center justify-center rounded-xl"
               style={{ minHeight: cellH }}
             >
@@ -647,7 +641,23 @@ const Desktop: React.FC = () => {
           ref={swipeContainerRef}
           className="flex-1 flex items-start justify-center px-4 md:px-8 pt-2 pb-2 overflow-y-auto min-h-0"
         >
-          <div className="w-full max-w-2xl">{renderGrid()}</div>
+          <div className="w-full max-w-2xl">
+            {loading ? (
+              /* 加载骨架屏：只在初次加载时显示 */
+              <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
+                {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => (
+                  <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
+                ))}
+              </div>
+            ) : (
+              /* 所有页同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 → 不重新加载图标 */
+              data.pages.map((pageData, i) => (
+                <div key={`page-layer-${i}`} className={i === currentPage ? undefined : 'hidden'}>
+                  {renderPageGrid(i, pageData)}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {/* 页面指示器 */}
