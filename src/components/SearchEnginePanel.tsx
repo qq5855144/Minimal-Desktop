@@ -2,55 +2,47 @@
  * SearchEnginePanel
  * 搜索引擎选择面板 + 添加自定义引擎对话框
  * 参考设计：搜索框左侧图标点击后弹出，深色毛玻璃卡片，4列网格
+ * 图标使用 Iconify（纯图标无背景）
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { Plus, X, Check } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
   BUILTIN_ENGINES,
-  getFaviconUrl,
   getEngineById,
   type AnyEngine,
 } from '@/lib/searchEngines';
 import type { CustomSearchEngine } from '@/types';
 
 interface SearchEnginePanelProps {
-  /** 触发元素的 DOMRect，用于定位面板 */
   anchorRect: DOMRect | null;
   onClose: () => void;
 }
 
-// ── 引擎图标（优先用官方 iconUrl，无背景）────────────────────────────────
+// ── 引擎图标：Iconify 纯图标，无背景；自定义引擎用彩色字母 ─────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
-  const [err, setErr] = useState(false);
-  // 内置引擎有 iconUrl 字段；自定义引擎用 iconUrl 或兜底 favicon
-  const iconSrc = 'iconUrl' in engine && engine.iconUrl
-    ? engine.iconUrl
-    : getFaviconUrl('domain' in engine ? engine.domain : '');
-
+  const iconId = 'iconifyIcon' in engine ? engine.iconifyIcon : null;
   const letter = engine.name.slice(0, 1).toUpperCase();
 
+  if (iconId) {
+    return (
+      <div
+        className="flex items-center justify-center shrink-0"
+        style={{ width: size, height: size }}
+      >
+        <Icon icon={iconId} width={size * 0.72} height={size * 0.72} />
+      </div>
+    );
+  }
+
+  // 自定义引擎：彩色字母图标
   return (
     <div
       className="flex items-center justify-center rounded-2xl shrink-0"
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, background: engine.color }}
     >
-      {iconSrc && !err ? (
-        <img
-          src={iconSrc}
-          alt={engine.name}
-          style={{ width: size * 0.72, height: size * 0.72 }}
-          className="object-contain"
-          onError={() => setErr(true)}
-        />
-      ) : (
-        <span
-          className="font-bold"
-          style={{ fontSize: size * 0.46, color: engine.color }}
-        >
-          {letter}
-        </span>
-      )}
+      <span className="text-white font-bold" style={{ fontSize: size * 0.42 }}>{letter}</span>
     </div>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Icon } from '@iconify/react';
 import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { getEngineById, buildSearchUrl, getFaviconUrl } from '@/lib/searchEngines';
+import { getEngineById, buildSearchUrl } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
@@ -56,11 +57,7 @@ const CombinedWidget: React.FC = () => {
   const lunar   = getLunarDate(now);
 
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
-  // 优先用官方 iconUrl，兜底用 favicon 服务
-  const iconSrc = 'iconUrl' in currentEngine && currentEngine.iconUrl
-    ? currentEngine.iconUrl
-    : getFaviconUrl('domain' in currentEngine ? currentEngine.domain : '');
-  const [faviconErr, setFaviconErr] = useState(false);
+  const iconifyIcon = 'iconifyIcon' in currentEngine ? currentEngine.iconifyIcon : null;
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +107,7 @@ const CombinedWidget: React.FC = () => {
           }`}
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
-          {/* 搜索引擎图标（可点击，纯图标无背景） */}
+          {/* 搜索引擎图标（可点击） */}
           <button
             ref={engineBtnRef}
             type="button"
@@ -118,10 +115,15 @@ const CombinedWidget: React.FC = () => {
             aria-label="切换搜索引擎"
             className="shrink-0 w-7 h-7 flex items-center justify-center transition-transform active:scale-90"
           >
-            {iconSrc && !faviconErr ? (
-              <img src={iconSrc} alt={currentEngine.name} className="w-6 h-6 object-contain" onError={() => setFaviconErr(true)} />
+            {iconifyIcon ? (
+              <Icon icon={iconifyIcon} width={22} height={22} />
             ) : (
-              <span className="text-sm font-bold" style={{ color: currentEngine.color }}>{currentEngine.name.slice(0, 1)}</span>
+              <span
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold"
+                style={{ background: currentEngine.color }}
+              >
+                {currentEngine.name.slice(0, 1)}
+              </span>
             )}
           </button>
 
