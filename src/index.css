@@ -11,6 +11,19 @@
   -webkit-user-drag: none;       /* Safari 图片原生拖拽 */
 }
 
+.app-icon-button,
+.app-icon-button * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.app-icon-button img,
+.app-icon-button svg {
+  pointer-events: none;
+}
+
 /* ── 输入框恢复浏览器默认长按 / 文字选择 / 粘贴菜单 ── */
 input, textarea, [contenteditable="true"] {
   -webkit-touch-callout: default !important; /* iOS 恢复长按复制粘贴气泡 */
