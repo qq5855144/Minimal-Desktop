@@ -39,7 +39,7 @@ interface DesktopContextType {
   // 拖拽：从桌面移到 Dock
   moveDesktopToDock: (itemId: string, dockIdx: number) => void;
   // 合并两个应用为文件夹
-  mergeToFolder: (sourceId: string, targetId: string) => void;
+  mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   // 重命名文件夹
   renameFolder: (folderId: string, name: string) => void;
   // 解散文件夹（单应用）
@@ -104,6 +104,32 @@ function findEmptySlot(
     }
   }
   return null;
+}
+
+function collapseFolderAfterChildRemoval(
+  pages: DesktopItem[][],
+  folderPageIdx: number,
+  folderId: string,
+): void {
+  const folderIdx = pages[folderPageIdx]?.findIndex((it) => it.id === folderId) ?? -1;
+  if (folderIdx < 0) return;
+  const folder = pages[folderPageIdx][folderIdx];
+  if (folder.type !== 'folder' || !folder.children) return;
+
+  if (folder.children.length === 0) {
+    pages[folderPageIdx].splice(folderIdx, 1);
+    return;
+  }
+
+  if (folder.children.length === 1) {
+    const [last] = folder.children;
+    pages[folderPageIdx][folderIdx] = {
+      ...last,
+      page: folder.page,
+      row: folder.row,
+      col: folder.col,
+    };
+  }
 }
 
 export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -319,6 +345,26 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
       if (targetIdx !== undefined && targetIdx >= 0) {
         const target = next.pages[page][targetIdx];
+        if (target.type === 'widget' || target.type === 'system') {
+          folder.children.splice(ci, 0, child);
+          return prev;
+        }
+
+        if (target.type === 'folder') {
+          if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) {
+            folder.children.splice(ci, 0, child);
+            return prev;
+          }
+          target.children.push({
+            ...child,
+            page: target.page,
+            row: target.row,
+            col: target.col,
+          });
+          collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
+          return next;
+        }
+
         target.page = folderPageIdx;
         target.row = folder.row;
         target.col = folder.col;
@@ -328,18 +374,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       child.row = row;
       child.col = col;
       next.pages[page].push(child);
-      // 单应用解散
-      if (folder.children.length <= 1) {
-        const last = folder.children[0];
-        if (last) {
-          last.page = folder.page;
-          last.row = folder.row;
-          last.col = folder.col;
-          next.pages[folderPageIdx].push(last);
-        }
-        const fi = next.pages[folderPageIdx].findIndex((it) => it.id === folderId);
-        if (fi >= 0) next.pages[folderPageIdx].splice(fi, 1);
-      }
+      collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
       return next;
     });
   }, []);
@@ -437,21 +472,41 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
-  const mergeToFolder = useCallback((sourceId: string, targetId: string) => {
+  const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
+    let success = false;
     setData((prev) => {
       const next = structuredClone(prev);
       let source: DesktopItem | null = null;
       let target: DesktopItem | null = null;
       let sourcePage = -1;
       let sourceIdx = -1;
+      let sourceFolder: DesktopItem | null = null;
+      let sourceFolderPage = -1;
+      let sourceChildIdx = -1;
       let targetPage = -1;
       let targetIdx = -1;
       for (let p = 0; p < next.pages.length; p++) {
-        const si = next.pages[p].findIndex((it) => it.id === sourceId);
-        if (si >= 0) {
-          source = next.pages[p][si];
-          sourcePage = p;
-          sourceIdx = si;
+        if (sourceFolderId) {
+          const fi = next.pages[p].findIndex((it) => it.id === sourceFolderId);
+          if (fi >= 0) {
+            const maybeFolder = next.pages[p][fi];
+            if (maybeFolder.type === 'folder' && maybeFolder.children) {
+              const ci = maybeFolder.children.findIndex((child) => child.id === sourceId);
+              if (ci >= 0) {
+                sourceFolder = maybeFolder;
+                sourceFolderPage = p;
+                sourceChildIdx = ci;
+                source = maybeFolder.children[ci];
+              }
+            }
+          }
+        } else {
+          const si = next.pages[p].findIndex((it) => it.id === sourceId);
+          if (si >= 0) {
+            source = next.pages[p][si];
+            sourcePage = p;
+            sourceIdx = si;
+          }
         }
         const ti = next.pages[p].findIndex((it) => it.id === targetId);
         if (ti >= 0) {
@@ -461,11 +516,31 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
       if (!source || !target) return prev;
+      if (target.type === 'system' || target.type === 'widget') return prev;
+      if (sourceFolderId && target.id === sourceFolderId) return prev;
+      if (source.type === 'folder' && target.type === 'folder') return prev;
+
+      if (sourceFolder && sourceChildIdx >= 0) {
+        source = sourceFolder.children!.splice(sourceChildIdx, 1)[0];
+      }
       // 如果 target 已是文件夹
       if (target.type === 'folder' && target.children) {
-        if (target.children.length >= MAX_FOLDER_APPS) return prev;
-        target.children.push(source);
-        next.pages[sourcePage].splice(sourceIdx, 1);
+        if (target.children.length >= MAX_FOLDER_APPS) {
+          if (sourceFolder && sourceChildIdx >= 0) sourceFolder.children!.splice(sourceChildIdx, 0, source);
+          return prev;
+        }
+        target.children.push({
+          ...source,
+          page: target.page,
+          row: target.row,
+          col: target.col,
+        });
+        if (!sourceFolderId) {
+          next.pages[sourcePage].splice(sourceIdx, 1);
+        } else {
+          collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
+        }
+        success = true;
         return next;
       }
       // 创建新文件夹
@@ -480,9 +555,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         children: [target, source],
       };
       next.pages[targetPage][targetIdx] = folder;
-      next.pages[sourcePage].splice(sourceIdx, 1);
+      if (!sourceFolderId) {
+        next.pages[sourcePage].splice(sourceIdx, 1);
+      } else {
+        collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
+      }
+      success = true;
       return next;
     });
+    return success;
   }, []);
 
   const renameFolder = useCallback((folderId: string, name: string) => {

@@ -74,6 +74,7 @@ const Desktop: React.FC = () => {
   const edgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const ghostLayerRef = useRef<HTMLDivElement>(null);
 
   const [ghost, setGhost] = useState<GhostState | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
@@ -142,10 +143,12 @@ const Desktop: React.FC = () => {
     const onMove = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g) return;
-      const next = { ...g, x: e.clientX, y: e.clientY };
-      ghostRef.current = next;
-      setGhost(next);
-      setIsDragging(true);
+      g.x = e.clientX;
+      g.y = e.clientY;
+      if (ghostLayerRef.current) {
+        ghostLayerRef.current.style.left = `${e.clientX}px`;
+        ghostLayerRef.current.style.top = `${e.clientY}px`;
+      }
       handleEdgeHover(e.clientX);
 
       // 用几何矩形检测穿透 ghost：遍历所有带 data-itemid 的格子，判断指针是否在其内
@@ -159,12 +162,13 @@ const Desktop: React.FC = () => {
           break;
         }
       }
-      setDragOverItem(hoverId ?? null);
-      // 同步更新 ref，供 onUp 在清理前读取（state 异步，ref 同步）
-      dragOverItemRef.current = hoverId;
+      if ((hoverId ?? null) !== dragOverItemRef.current) {
+        setDragOverItem(hoverId ?? null);
+        dragOverItemRef.current = hoverId;
+      }
 
       // 仅桌面图标参与悬停合并；widget/system/dock(page=-1)全部排除
-      const isDesktopDrag = g.source.type === 'desktop';
+      const isDesktopDrag = g.source.type === 'desktop' || g.source.type === 'folder';
       const isValidMergeTarget =
         hoverId !== null &&
         hoverId !== g.source.itemId &&
@@ -181,7 +185,9 @@ const Desktop: React.FC = () => {
             const cur = ghostRef.current;
             if (!cur) return;
             const { data: d, mergeToFolder: merge } = latestRef.current;
-            const dragItem = d.pages.flat().find(it => it.id === cur.source.itemId);
+            const dragItem = cur.source.type === 'folder'
+              ? d.pages.flat().find((it) => it.id === cur.source.folderId)?.children?.find((child) => child.id === cur.source.itemId)
+              : d.pages.flat().find((it) => it.id === cur.source.itemId);
             const target = d.pages.flat().find(it => it.id === hoverIdNonNull);
             // widget / system 不参与合并
             if (dragItem?.type === 'widget' || target?.type === 'widget') return;
@@ -196,7 +202,12 @@ const Desktop: React.FC = () => {
               toast.error('文件夹已满，最多容纳 9 个图标');
               return;
             }
-            merge(cur.source.itemId, hoverIdNonNull);
+            const merged = merge(
+              cur.source.itemId,
+              hoverIdNonNull,
+              cur.source.type === 'folder' ? cur.source.folderId : undefined,
+            );
+            if (!merged) return;
             toast.success(target.type === 'folder' ? `已添加到「${target.name}」` : '已创建文件夹');
             ghostRef.current = null;
             setGhost(null);
@@ -491,7 +502,7 @@ const Desktop: React.FC = () => {
         const isGhost = ghost?.source.itemId === widgetItem.id;
         cells.push(
           <div
-            key={`widget-row-${r}`}
+            key={widgetItem.id}
             data-cell="1"
             data-row={r}
             data-col={0}
@@ -517,7 +528,7 @@ const Desktop: React.FC = () => {
         if (item) {
           cells.push(
             <div
-              key={`${r}-${c}`}
+              key={item.id}
               data-cell="1"
               data-row={r}
               data-col={c}
@@ -543,7 +554,7 @@ const Desktop: React.FC = () => {
           const cellH = settings.iconSize + 22;
           cells.push(
             <div
-              key={`${r}-${c}`}
+              key={`empty-${r}-${c}`}
               data-cell="1"
               data-row={r}
               data-col={c}
@@ -707,6 +718,7 @@ const Desktop: React.FC = () => {
       {/* 统一拖拽 Ghost：widget 显示标签卡片，app 显示图标 */}
       {ghost && (
         <div
+          ref={ghostLayerRef}
           className="fixed pointer-events-none z-[300] opacity-80 transition-none"
           style={
             ghost.item.type === 'widget'

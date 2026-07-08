@@ -9,6 +9,7 @@
 const CACHE_NS = 'icon_c:';
 const META_KEY = 'icon_c_meta'; // JSON: { [cacheKey]: timestamp }
 const MAX_ENTRIES = 100;
+const inflightFetches = new Map<string, Promise<string | null>>();
 
 function toCacheKey(url: string): string {
   // btoa 不支持多字节字符，先 encodeURIComponent 再 btoa
@@ -106,23 +107,33 @@ export async function fetchAndCacheIcon(url: string): Promise<string | null> {
   const cached = getIconCache(url);
   if (cached) return cached;
 
-  try {
-    const resp = await fetch(url, { mode: 'cors', cache: 'force-cache' });
-    if (!resp.ok) return null;
-    const blob = await resp.blob();
-    if (!blob.type.startsWith('image/')) return null;
+  const inflight = inflightFetches.get(url);
+  if (inflight) return inflight;
 
-    return await new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        setIconCache(url, dataUrl);
-        resolve(dataUrl);
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
+  const request = (async () => {
+    try {
+      const resp = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      if (!blob.type.startsWith('image/')) return null;
+
+      return await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          setIconCache(url, dataUrl);
+          resolve(dataUrl);
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    } finally {
+      inflightFetches.delete(url);
+    }
+  })();
+
+  inflightFetches.set(url, request);
+  return request;
 }

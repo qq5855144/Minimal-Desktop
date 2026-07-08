@@ -44,6 +44,25 @@ const AppIcon: React.FC<AppIconProps> = ({
     setIconSrc(item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined);
   }, [item.iconUrl]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!item.iconUrl || item.iconUrl.startsWith('data:') || item.iconUrl.startsWith('blob:')) return;
+
+    const cached = getIconCache(item.iconUrl);
+    if (cached) {
+      setIconSrc(cached);
+      return;
+    }
+
+    fetchAndCacheIcon(item.iconUrl).then((dataUrl) => {
+      if (!cancelled && dataUrl) setIconSrc(dataUrl);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item.iconUrl]);
+
   const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longFiredRef  = useRef(false);
   const startXRef     = useRef(0);
@@ -179,6 +198,7 @@ const AppIcon: React.FC<AppIconProps> = ({
                       src={getIconCache(child.iconUrl) ?? child.iconUrl}
                       alt=""
                       draggable={false}
+                      decoding="async"
                       style={{ width: cellPx, height: cellPx, objectFit: 'cover', display: 'block' }}
                     />
                   ) : (
@@ -215,14 +235,8 @@ const AppIcon: React.FC<AppIconProps> = ({
             src={iconSrc}
             alt={item.name}
             draggable={false}
+            decoding="async"
             className="absolute inset-0 w-full h-full object-cover"
-            onLoad={(e) => {
-              // 图片加载成功后，后台异步缓存为 DataURL；缓存成功后更新 src 避免下次挂载重走网络
-              if (!item.iconUrl || iconSrc.startsWith('data:')) return;
-              fetchAndCacheIcon(item.iconUrl).then((dataUrl) => {
-                if (dataUrl && e.currentTarget) setIconSrc(dataUrl);
-              });
-            }}
             onError={(e) => {
               const img = e.currentTarget;
               // 尝试直连 favicon.ico 作为回退
