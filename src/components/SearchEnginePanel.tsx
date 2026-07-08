@@ -108,22 +108,40 @@ function parseEngineUrl(input: string): {
   }
 }
 
-// ── 添加自定义引擎表单（简化版：只需输入 URL）────────────────────────────────
+// ── 添加自定义引擎表单（简化版：只需输入 URL，可选本地图标）────────────────
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
   onAdd, onCancel,
 }) => {
   const [rawUrl, setRawUrl] = useState('');
   const [customName, setCustomName] = useState('');
   const [iconErr, setIconErr] = useState(false);
+  const [localIconDataUrl, setLocalIconDataUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parsed = parseEngineUrl(rawUrl);
   const displayName = customName.trim() || parsed?.name || '';
   const canSubmit = !!parsed && displayName.length > 0;
 
+  // 最终使用的图标：本地选择 > 自动识别 favicon
+  const activeIconSrc = localIconDataUrl ?? parsed?.iconUrl ?? null;
+  const showErr = iconErr && !localIconDataUrl;
+
   // 解析结果变化时自动填充名称输入框
   useEffect(() => {
     if (parsed?.name && !customName) setCustomName(parsed.name);
   }, [parsed?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 选择本地图片文件，转为 DataURL
+  const handleLocalIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') { setLocalIconDataUrl(result); setIconErr(false); }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,7 +150,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
       id: `custom-${Date.now()}`,
       name: displayName,
       urlTemplate: parsed.urlTemplate,
-      iconUrl: parsed.iconUrl,
+      iconUrl: activeIconSrc ?? undefined,
       color: parsed.color,
     });
   };
@@ -145,7 +163,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
       <input
         type="text"
         value={rawUrl}
-        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setIconErr(false); }}
+        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setIconErr(false); setLocalIconDataUrl(null); }}
         placeholder="输入搜索引擎网址，如 https://bing.com"
         className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
         style={{ fontSize: 16 }}
@@ -156,13 +174,16 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
       {/* 自动识别预览 */}
       {parsed && (
         <div className="flex items-center gap-3 rounded-xl bg-white/8 px-3 py-2">
-          {/* 图标预览 */}
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          {/* 图标区：点击可替换为本地图片 */}
+          <button
+            type="button"
+            title="点击选择本地图标"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 hover:ring-white/40 transition-all"
           >
-            {!iconErr ? (
+            {activeIconSrc && !showErr ? (
               <img
-                src={parsed.iconUrl}
+                src={activeIconSrc}
                 alt=""
                 width={28} height={28}
                 className="object-contain rounded"
@@ -171,7 +192,19 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
             ) : (
               <span className="text-white font-bold text-sm">{displayName.slice(0, 1)}</span>
             )}
-          </div>
+            {/* hover 提示层 */}
+            <span className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className="text-white text-[9px] leading-tight text-center px-0.5">本地<br/>图标</span>
+            </span>
+          </button>
+          {/* 隐藏文件输入 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleLocalIconChange}
+          />
           {/* 可编辑名称 */}
           <input
             type="text"
@@ -181,6 +214,17 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
             className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-white/40 border-b border-white/20 pb-0.5"
             style={{ fontSize: 15 }}
           />
+          {/* 已选本地图标提示 */}
+          {localIconDataUrl && (
+            <button
+              type="button"
+              title="移除本地图标"
+              onClick={() => setLocalIconDataUrl(null)}
+              className="shrink-0 text-white/40 hover:text-white/80 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
