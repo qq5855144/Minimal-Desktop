@@ -88,7 +88,7 @@ const CombinedWidget: React.FC = () => {
           className="text-white font-bold leading-none drop-shadow-lg"
           style={{ fontSize: 'clamp(52px, 13vw, 80px)', letterSpacing: '-2px' }}
         >
-          {hours}<span className="animate-pulse opacity-80">:</span>{minutes}
+          {hours}<span className="opacity-80" style={{ animation: 'colonBlink 1s step-start infinite' }}>:</span>{minutes}
         </div>
         <div className="mt-1 text-white/80 text-xs md:text-sm font-medium drop-shadow-md tracking-wide">
           {month}月{day}日&nbsp;{weekday}&nbsp;{lunar}
