@@ -11,8 +11,9 @@ import type { CustomSearchEngine } from '@/types';
 export interface BuiltinEngine {
   id: string;
   name: string;
-  domain: string;          // 用于 favicon 获取
-  color: string;           // 主题色（圆角矩形背景）
+  domain: string;          // 用于 favicon 兜底
+  iconUrl: string;         // 官方高清图标 URL
+  color: string;           // 品牌主色（字母兜底时使用）
   urlTemplate: string;     // {q} 占位符替换
   isCustom?: false;
 }
@@ -22,6 +23,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'bing',
     name: 'Bing',
     domain: 'bing.com',
+    iconUrl: 'https://www.bing.com/sa/simg/favicon-trans-bg-blue-mg.ico',
     color: '#0078D4',
     urlTemplate: 'https://www.bing.com/search?q={q}&form=QBLH&sp=-1',
   },
@@ -29,6 +31,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'google',
     name: 'Google',
     domain: 'google.com',
+    iconUrl: 'https://www.gstatic.com/images/branding/googleg/1x/googleg_48dp.png',
     color: '#4285F4',
     urlTemplate: 'https://www.google.com/search?q={q}',
   },
@@ -36,6 +39,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'baidu',
     name: '百度',
     domain: 'baidu.com',
+    iconUrl: 'https://www.baidu.com/favicon.ico',
     color: '#2932E1',
     urlTemplate: 'https://www.baidu.com/s?wd={q}',
   },
@@ -43,6 +47,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'duckduckgo',
     name: 'DuckDuckGo',
     domain: 'duckduckgo.com',
+    iconUrl: 'https://duckduckgo.com/favicon.ico',
     color: '#DE5833',
     urlTemplate: 'https://duckduckgo.com/?q={q}',
   },
@@ -50,6 +55,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'yandex',
     name: 'Yandex',
     domain: 'yandex.com',
+    iconUrl: 'https://yastatic.net/s3/home-static/_/37/37a6c486b31d91d929e7d67d3bb0a7d6.png',
     color: '#CC0000',
     urlTemplate: 'https://yandex.com/search/?text={q}',
   },
@@ -57,6 +63,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'sogou',
     name: '搜狗',
     domain: 'sogou.com',
+    iconUrl: 'https://www.sogou.com/images/logo/new/favicon.ico',
     color: '#FB5D1A',
     urlTemplate: 'https://www.sogou.com/web?query={q}',
   },
@@ -64,6 +71,7 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: '360',
     name: '360',
     domain: 'so.com',
+    iconUrl: 'https://p.ssl.qhimg.com/t011cb7f84e7e1e3e55.png',
     color: '#00AA3C',
     urlTemplate: 'https://www.so.com/s?q={q}',
   },
@@ -71,14 +79,15 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
     id: 'quark',
     name: '夸克',
     domain: 'quark.cn',
+    iconUrl: 'https://www.google.com/s2/favicons?domain=quark.sm.cn&sz=128',
     color: '#2C5EF0',
     urlTemplate: 'https://quark.sm.cn/s?q={q}',
   },
 ];
 
-/** Google Favicon 服务获取 64px 图标 */
+/** 兜底：Google Favicon 服务获取 128px 图标 */
 export function getFaviconUrl(domain: string): string {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
 }
 
 export type AnyEngine = BuiltinEngine | (CustomSearchEngine & { isCustom: true });

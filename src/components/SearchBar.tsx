@@ -16,9 +16,10 @@ const SearchBar: React.FC = () => {
   const isNeu = settings.style === 'neumorphism';
 
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
-  const faviconUrl = 'domain' in currentEngine
-    ? getFaviconUrl(currentEngine.domain)
-    : (currentEngine.iconUrl ?? null);
+  // 优先用官方 iconUrl，兜底用 favicon 服务
+  const iconSrc = 'iconUrl' in currentEngine && currentEngine.iconUrl
+    ? currentEngine.iconUrl
+    : getFaviconUrl('domain' in currentEngine ? currentEngine.domain : '');
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -68,8 +69,8 @@ const SearchBar: React.FC = () => {
           aria-label="切换搜索引擎"
           className="shrink-0 w-7 h-7 flex items-center justify-center transition-transform active:scale-90"
         >
-          {faviconUrl && !faviconErr ? (
-            <img src={faviconUrl} alt={currentEngine.name} className="w-6 h-6 object-contain" onError={() => setFaviconErr(true)} />
+          {iconSrc && !faviconErr ? (
+            <img src={iconSrc} alt={currentEngine.name} className="w-6 h-6 object-contain" onError={() => setFaviconErr(true)} />
           ) : (
             <span className="text-sm font-bold" style={{ color: currentEngine.color }}>{currentEngine.name.slice(0, 1)}</span>
           )}

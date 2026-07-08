@@ -20,12 +20,13 @@ interface SearchEnginePanelProps {
   onClose: () => void;
 }
 
-// ── 引擎图标（纯 favicon，无背景）─────────────────────────────────────────
+// ── 引擎图标（优先用官方 iconUrl，无背景）────────────────────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
   const [err, setErr] = useState(false);
-  const faviconUrl = 'domain' in engine
-    ? getFaviconUrl(engine.domain)
-    : (engine.iconUrl ?? null);
+  // 内置引擎有 iconUrl 字段；自定义引擎用 iconUrl 或兜底 favicon
+  const iconSrc = 'iconUrl' in engine && engine.iconUrl
+    ? engine.iconUrl
+    : getFaviconUrl('domain' in engine ? engine.domain : '');
 
   const letter = engine.name.slice(0, 1).toUpperCase();
 
@@ -34,9 +35,9 @@ const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, si
       className="flex items-center justify-center rounded-2xl shrink-0"
       style={{ width: size, height: size }}
     >
-      {faviconUrl && !err ? (
+      {iconSrc && !err ? (
         <img
-          src={faviconUrl}
+          src={iconSrc}
           alt={engine.name}
           style={{ width: size * 0.72, height: size * 0.72 }}
           className="object-contain"
