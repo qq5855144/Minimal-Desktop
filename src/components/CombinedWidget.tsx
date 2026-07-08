@@ -99,7 +99,7 @@ const CombinedWidget: React.FC = () => {
       <div className="mx-6 border-t border-white/15 mb-2" />
 
       {/* 搜索框区 */}
-      <div className="px-4 md:px-6">
+      <div className="px-[2%]">
         <form
           onSubmit={handleSubmit}
           className={`flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 ${
