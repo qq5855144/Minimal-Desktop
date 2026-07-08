@@ -1,10 +1,13 @@
 // 面板双风格主题工具
 // glassmorphism: 深色毛玻璃  neumorphism: 浅色新拟态
+import type React from 'react';
 
 export interface PanelTheme {
   // 底部 sheet 背景 + 边框
   sheetBg: string;
   sheetBorder: string;
+  // sheet 内联样式（用于渐变背景等无法用 class 表达的样式）
+  sheetStyle?: React.CSSProperties;
   // 拖拽把手
   handle: string;
   // 文字
@@ -71,8 +74,11 @@ export function getPanelTheme(isNeu: boolean): PanelTheme {
     };
   }
   return {
-    sheetBg: 'bg-[rgba(20,20,30,0.92)] backdrop-blur-2xl',
+    sheetBg: 'backdrop-blur-2xl',
     sheetBorder: 'border-t border-white/10',
+    sheetStyle: {
+      background: 'linear-gradient(180deg, rgba(40,80,130,0.8) 0%, rgba(70,110,150,0.6) 40%, rgba(120,100,70,0.6) 100%)',
+    },
     handle: 'bg-white/20',
     textPrimary: 'text-white',
     textMuted: 'text-white/60',

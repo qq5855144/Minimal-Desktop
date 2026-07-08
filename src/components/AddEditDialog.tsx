@@ -148,7 +148,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={handleClose}>
       <div
         className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up ${t.sheetBg} ${t.sheetBorder}`}
-        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : undefined}
+        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 拖拽把手 */}
