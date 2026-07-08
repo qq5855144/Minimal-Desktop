@@ -150,7 +150,6 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
           {/* 图标预览 */}
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: parsed.color }}
           >
             {!iconErr ? (
               <img
