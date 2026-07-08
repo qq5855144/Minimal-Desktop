@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import type { DesktopStyle } from '@/types';
+import type { DesktopStyle, BgOverlayScheme } from '@/types';
 import {
   Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
   RotateCcw, FilePlus, X, Check, Clock, Search, Layers,
@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
+import { Switch } from '@/components/ui/switch';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 
@@ -15,6 +16,14 @@ interface SettingsViewProps {
   open: boolean;
   onClose: () => void;
 }
+
+const OVERLAY_SCHEMES: { id: BgOverlayScheme; name: string; gradient: string }[] = [
+  { id: 'aurora', name: '极光紫蓝', gradient: 'linear-gradient(180deg, rgba(60,40,120,0.45) 0%, rgba(30,70,140,0.38) 45%, rgba(20,110,130,0.35) 100%)' },
+  { id: 'sunset', name: '落日橙粉', gradient: 'linear-gradient(180deg, rgba(140,60,30,0.45) 0%, rgba(120,40,80,0.38) 45%, rgba(60,40,120,0.35) 100%)' },
+  { id: 'forest', name: '森林墨绿', gradient: 'linear-gradient(180deg, rgba(20,60,50,0.48) 0%, rgba(40,90,60,0.38) 45%, rgba(30,80,100,0.35) 100%)' },
+  { id: 'midnight', name: '午夜深海', gradient: 'linear-gradient(180deg, rgba(10,25,60,0.55) 0%, rgba(20,40,90,0.45) 45%, rgba(10,20,50,0.40) 100%)' },
+  { id: 'warm', name: '暖金琥珀', gradient: 'linear-gradient(180deg, rgba(120,80,20,0.45) 0%, rgba(140,90,30,0.38) 45%, rgba(80,50,30,0.35) 100%)' },
+];
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const { data, addPage, setCurrentPage, importData, settings, updateSettings } = useDesktop();
@@ -204,6 +213,57 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           <X className="w-4 h-4" /> 恢复默认背景
         </button>
       )}
+
+      {/* 背景遮罩设置 */}
+      <div className={`rounded-2xl border ${t.itemBorder} overflow-hidden`}>
+        <div className={`flex items-center justify-between px-4 py-3 ${t.itemBg}`}>
+          <div className="flex items-center gap-2">
+            <Palette className={`w-4 h-4 ${t.textMuted}`} />
+            <span className={`text-sm font-medium ${t.textPrimary}`}>背景遮罩</span>
+          </div>
+          <Switch
+            checked={settings.bgOverlayEnabled ?? false}
+            onCheckedChange={(checked) => updateSettings({ bgOverlayEnabled: checked })}
+          />
+        </div>
+        {settings.bgOverlayEnabled && (
+          <div className={`px-4 py-3 space-y-3 ${t.itemBgActive}`}>
+            <div className="grid grid-cols-5 gap-2">
+              {OVERLAY_SCHEMES.map((scheme) => (
+                <button
+                  key={scheme.id}
+                  type="button"
+                  onClick={() => updateSettings({ bgOverlayScheme: scheme.id })}
+                  className={`relative rounded-xl aspect-square flex flex-col items-center justify-center gap-1 transition-all ${
+                    settings.bgOverlayScheme === scheme.id
+                      ? `ring-2 ring-primary scale-105 ${t.itemBgActive}`
+                      : `${t.itemBg} ${t.itemBgHover}`
+                  }`}
+                >
+                  <div
+                    className="w-8 h-8 rounded-full"
+                    style={{ background: scheme.gradient }}
+                  />
+                  <span className={`text-[10px] ${t.textMuted}`}>{scheme.name}</span>
+                  {settings.bgOverlayScheme === scheme.id && (
+                    <Check className="absolute top-1 right-1 w-3 h-3 text-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
+            {(settings.bgImage || settings.bgVideo) && (
+              <div className="flex items-center justify-between">
+                <span className={`text-sm ${t.textMuted}`}>应用到壁纸</span>
+                <Switch
+                  checked={settings.applyOverlayToWallpaper ?? false}
+                  onCheckedChange={(checked) => updateSettings({ applyOverlayToWallpaper: checked })}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <p className={`text-xs ${t.textDim}`}>支持 JPG / PNG / GIF / WEBP 图片及 MP4 / WEBM 视频。视频壁纸在页面刷新后失效。</p>
     </div>
   );

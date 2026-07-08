@@ -134,6 +134,9 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   rows: 7,
   bgType: 'image',
   bgImage: DEFAULT_BG_IMAGE,
+  bgOverlayEnabled: false,
+  bgOverlayScheme: 'aurora',
+  applyOverlayToWallpaper: false,
 };
 
 export function loadSettings(): import('@/types').DesktopSettings {

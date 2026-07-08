@@ -57,6 +57,7 @@ export interface SyncConfig {
 
 // 桌面外观设置
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
+export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
 export interface DesktopSettings {
   bgImage?: string;        // base64 或 URL（图片/GIF）
   bgVideo?: string;        // object URL（视频，非持久化）
@@ -65,6 +66,9 @@ export interface DesktopSettings {
   iconSize: number;        // 默认 46
   cols: 4 | 5;
   rows: number;            // 每页最大行数，默认 7，范围 1-14
+  bgOverlayEnabled?: boolean;       // 是否启用背景遮罩
+  bgOverlayScheme?: BgOverlayScheme; // 遮罩配色方案
+  applyOverlayToWallpaper?: boolean; // 遮罩是否应用到自定义壁纸
 }
 
 // 拖拽来源信息

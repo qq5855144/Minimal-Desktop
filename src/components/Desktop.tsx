@@ -1,6 +1,21 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
-import type { DesktopItem, DragSource } from '@/types';
+import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
+
+function getOverlayGradient(scheme: BgOverlayScheme): string {
+  switch (scheme) {
+    case 'sunset':
+      return 'linear-gradient(180deg, rgba(140,60,30,0.45) 0%, rgba(120,40,80,0.38) 45%, rgba(60,40,120,0.35) 100%)';
+    case 'forest':
+      return 'linear-gradient(180deg, rgba(20,60,50,0.48) 0%, rgba(40,90,60,0.38) 45%, rgba(30,80,100,0.35) 100%)';
+    case 'midnight':
+      return 'linear-gradient(180deg, rgba(10,25,60,0.55) 0%, rgba(20,40,90,0.45) 45%, rgba(10,20,50,0.40) 100%)';
+    case 'warm':
+      return 'linear-gradient(180deg, rgba(120,80,20,0.45) 0%, rgba(140,90,30,0.38) 45%, rgba(80,50,30,0.35) 100%)';
+    default:
+      return 'linear-gradient(180deg, rgba(60,40,120,0.45) 0%, rgba(30,70,140,0.38) 45%, rgba(20,110,130,0.35) 100%)';
+  }
+}
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
@@ -588,6 +603,18 @@ const Desktop: React.FC = () => {
           <div className="absolute bottom-[20%] right-[10%] w-96 h-96 rounded-full bg-accent/20 blur-[120px]" />
           <div className="absolute top-[40%] right-[30%] w-64 h-64 rounded-full bg-purple-500/15 blur-[90px]" />
         </div>
+      )}
+      {/* 背景遮罩：毛玻璃模式下启用 */}
+      {settings.style !== 'neumorphism' && settings.bgOverlayEnabled && (
+        <div
+          className="absolute inset-0 z-[1]"
+          style={{
+            background: getOverlayGradient(settings.bgOverlayScheme ?? 'aurora'),
+            opacity: settings.applyOverlayToWallpaper || (!settings.bgImage && !settings.bgVideo) ? 1 : 0,
+            pointerEvents: 'none',
+            transition: 'opacity 300ms ease',
+          }}
+        />
       )}
 
       {/* 主内容区（无单独 widget 头部，全部在统一网格中） */}
