@@ -68,32 +68,32 @@ function parseEngineUrl(input: string): {
     let urlStr = input.trim();
     if (!urlStr) return null;
     if (!/^https?:\/\//i.test(urlStr)) urlStr = 'https://' + urlStr;
+
     const url = new URL(urlStr);
-    const domain = url.hostname; // e.g. www.bing.com
+    const domain = url.hostname;
     const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
     const name = siteName.charAt(0).toUpperCase() + siteName.slice(1);
-
-    // 尝试检测搜索参数
-    let urlTemplate = '';
-    let foundParam = '';
-    for (const p of SEARCH_PARAMS) {
-      if (url.searchParams.has(p)) { foundParam = p; break; }
-    }
-
-    if (foundParam) {
-      // 将已有参数值替换为 {q}
-      url.searchParams.set(foundParam, '{q}');
-      urlTemplate = url.toString();
-    } else {
-      // 没有现成搜索参数，追加 ?q={q}
-      const base = url.origin + url.pathname.replace(/\/$/, '');
-      urlTemplate = `${base}?q={q}`;
-    }
-
-    // 用 Google Favicon API 获取高清图标
     const iconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
     const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
-    return { name, urlTemplate, iconUrl, color };
+
+    // 1. URL 末尾是 "param=" 形式（用户粘贴的搜索链接，如 ?q= 或 ?wd=）
+    //    直接在末尾追加 {q}，不做任何编码
+    if (/[?&][a-z_]+=$/.test(urlStr)) {
+      return { name, urlTemplate: urlStr + '{q}', iconUrl, color };
+    }
+
+    // 2. URL 中已含已知搜索参数且有值 → 字符串级替换（避免 URL API 编码 {q}）
+    for (const p of SEARCH_PARAMS) {
+      // 匹配 ?p=value 或 &p=value，value 到 & 或末尾
+      const re = new RegExp(`([?&]${p}=)[^&]*`);
+      if (re.test(urlStr)) {
+        return { name, urlTemplate: urlStr.replace(re, `$1{q}`), iconUrl, color };
+      }
+    }
+
+    // 3. 未检测到搜索参数 → 追加 ?q={q}
+    const base = url.origin + url.pathname.replace(/\/$/, '');
+    return { name, urlTemplate: `${base}?q={q}`, iconUrl, color };
   } catch {
     return null;
   }
