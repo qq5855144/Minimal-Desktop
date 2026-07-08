@@ -102,7 +102,8 @@ export function getEngineById(
   return BUILTIN_ENGINES[0];
 }
 
-/** 构建搜索 URL，{q} 替换为 encodeURIComponent(query) */
+/** 构建搜索 URL，支持 {q} 和 %s 两种占位符 */
 export function buildSearchUrl(engine: AnyEngine, query: string): string {
-  return engine.urlTemplate.replace('{q}', encodeURIComponent(query));
+  const encoded = encodeURIComponent(query);
+  return engine.urlTemplate.replace(/{q}/g, encoded).replace(/%s/g, encoded);
 }

@@ -69,6 +69,17 @@ function parseEngineUrl(input: string): {
     if (!urlStr) return null;
     if (!/^https?:\/\//i.test(urlStr)) urlStr = 'https://' + urlStr;
 
+    // 支持 %s 占位符（Firefox/Chrome 自定义搜索引擎格式），统一转为内部 {q}
+    if (urlStr.includes('%s')) {
+      const urlTemplate = urlStr.replace(/%s/g, '{q}');
+      const domain = new URL(urlStr.replace(/%s/g, 'placeholder')).hostname;
+      const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
+      const name = siteName.charAt(0).toUpperCase() + siteName.slice(1);
+      const iconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+      const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
+      return { name, urlTemplate, iconUrl, color };
+    }
+
     const url = new URL(urlStr);
     const domain = url.hostname;
     const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
@@ -77,14 +88,12 @@ function parseEngineUrl(input: string): {
     const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
 
     // 1. URL 末尾是 "param=" 形式（用户粘贴的搜索链接，如 ?q= 或 ?wd=）
-    //    直接在末尾追加 {q}，不做任何编码
     if (/[?&][a-z_]+=$/.test(urlStr)) {
       return { name, urlTemplate: urlStr + '{q}', iconUrl, color };
     }
 
     // 2. URL 中已含已知搜索参数且有值 → 字符串级替换（避免 URL API 编码 {q}）
     for (const p of SEARCH_PARAMS) {
-      // 匹配 ?p=value 或 &p=value，value 到 & 或末尾
       const re = new RegExp(`([?&]${p}=)[^&]*`);
       if (re.test(urlStr)) {
         return { name, urlTemplate: urlStr.replace(re, `$1{q}`), iconUrl, color };
