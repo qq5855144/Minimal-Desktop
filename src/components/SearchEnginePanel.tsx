@@ -4,7 +4,7 @@
  * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, X, Check } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
   BUILTIN_ENGINES,
@@ -51,31 +51,80 @@ const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, si
 };
 
 // ── 添加自定义引擎表单 ────────────────────────────────────────────────────────
+// ── 预设品牌色 ────────────────────────────────────────────────────────────────
 const PRESET_COLORS = [
   '#E53935', '#D81B60', '#8E24AA', '#5E35B1',
   '#1E88E5', '#039BE5', '#00897B', '#43A047',
   '#FB8C00', '#F4511E', '#6D4C41', '#546E7A',
 ];
 
+// ── 从 URL 自动解析搜索引擎信息 ────────────────────────────────────────────
+const SEARCH_PARAMS = ['q', 'query', 'wd', 'keyword', 'kw', 's', 'text', 'search', 'p', 'w'];
+
+function parseEngineUrl(input: string): {
+  name: string; urlTemplate: string; iconUrl: string; color: string;
+} | null {
+  try {
+    let urlStr = input.trim();
+    if (!urlStr) return null;
+    if (!/^https?:\/\//i.test(urlStr)) urlStr = 'https://' + urlStr;
+    const url = new URL(urlStr);
+    const domain = url.hostname; // e.g. www.bing.com
+    const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
+    const name = siteName.charAt(0).toUpperCase() + siteName.slice(1);
+
+    // 尝试检测搜索参数
+    let urlTemplate = '';
+    let foundParam = '';
+    for (const p of SEARCH_PARAMS) {
+      if (url.searchParams.has(p)) { foundParam = p; break; }
+    }
+
+    if (foundParam) {
+      // 将已有参数值替换为 {q}
+      url.searchParams.set(foundParam, '{q}');
+      urlTemplate = url.toString();
+    } else {
+      // 没有现成搜索参数，追加 ?q={q}
+      const base = url.origin + url.pathname.replace(/\/$/, '');
+      urlTemplate = `${base}?q={q}`;
+    }
+
+    // 用 Google Favicon API 获取高清图标
+    const iconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+    const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
+    return { name, urlTemplate, iconUrl, color };
+  } catch {
+    return null;
+  }
+}
+
+// ── 添加自定义引擎表单（简化版：只需输入 URL）────────────────────────────────
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
   onAdd, onCancel,
 }) => {
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [iconUrl, setIconUrl] = useState('');
-  const [color, setColor] = useState(PRESET_COLORS[0]);
+  const [rawUrl, setRawUrl] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [iconErr, setIconErr] = useState(false);
 
-  const valid = name.trim().length > 0 && url.includes('{q}');
+  const parsed = parseEngineUrl(rawUrl);
+  const displayName = customName.trim() || parsed?.name || '';
+  const canSubmit = !!parsed && displayName.length > 0;
+
+  // 解析结果变化时自动填充名称输入框
+  useEffect(() => {
+    if (parsed?.name && !customName) setCustomName(parsed.name);
+  }, [parsed?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!canSubmit || !parsed) return;
     onAdd({
       id: `custom-${Date.now()}`,
-      name: name.trim(),
-      urlTemplate: url.trim(),
-      iconUrl: iconUrl.trim() || undefined,
-      color,
+      name: displayName,
+      urlTemplate: parsed.urlTemplate,
+      iconUrl: parsed.iconUrl,
+      color: parsed.color,
     });
   };
 
@@ -83,50 +132,53 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
     <form onSubmit={handleSubmit} className="p-4 space-y-3">
       <p className="text-white text-sm font-semibold">添加搜索引擎</p>
 
-      <div className="space-y-2">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="名称（如：必应）"
-          className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
-          style={{ fontSize: 16 }}
-        />
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="搜索 URL，用 {q} 代替关键词"
-          className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
-          style={{ fontSize: 16 }}
-        />
-        <input
-          type="text"
-          value={iconUrl}
-          onChange={(e) => setIconUrl(e.target.value)}
-          placeholder="图标 URL（可选）"
-          className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
-          style={{ fontSize: 16 }}
-        />
-      </div>
+      {/* URL 输入 */}
+      <input
+        type="text"
+        value={rawUrl}
+        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setIconErr(false); }}
+        placeholder="输入搜索引擎网址，如 https://bing.com"
+        className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
+        style={{ fontSize: 16 }}
+        autoComplete="off"
+        autoCapitalize="none"
+      />
 
-      {/* 颜色选择 */}
-      <div className="flex flex-wrap gap-2">
-        {PRESET_COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setColor(c)}
-            className="w-7 h-7 rounded-full flex items-center justify-center transition-transform active:scale-90"
-            style={{ background: c }}
+      {/* 自动识别预览 */}
+      {parsed && (
+        <div className="flex items-center gap-3 rounded-xl bg-white/8 px-3 py-2">
+          {/* 图标预览 */}
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: parsed.color }}
           >
-            {color === c && <Check className="w-4 h-4 text-white" strokeWidth={3} />}
-          </button>
-        ))}
-      </div>
+            {!iconErr ? (
+              <img
+                src={parsed.iconUrl}
+                alt=""
+                width={28} height={28}
+                className="object-contain rounded"
+                onError={() => setIconErr(true)}
+              />
+            ) : (
+              <span className="text-white font-bold text-sm">{displayName.slice(0, 1)}</span>
+            )}
+          </div>
+          {/* 可编辑名称 */}
+          <input
+            type="text"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            placeholder="引擎名称"
+            className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-white/40 border-b border-white/20 pb-0.5"
+            style={{ fontSize: 15 }}
+          />
+        </div>
+      )}
 
-      {!valid && url.length > 0 && !url.includes('{q}') && (
-        <p className="text-yellow-400 text-xs">URL 必须包含 {'{q}'} 占位符</p>
+      {/* URL 格式提示 */}
+      {rawUrl.trim().length > 0 && !parsed && (
+        <p className="text-yellow-400 text-xs">请输入有效的网址</p>
       )}
 
       <div className="flex gap-2 pt-1">
@@ -139,7 +191,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
         </button>
         <button
           type="submit"
-          disabled={!valid}
+          disabled={!canSubmit}
           className="flex-1 rounded-xl py-2 text-sm text-white font-medium bg-primary/70 hover:bg-primary/90 transition-colors disabled:opacity-40"
         >
           添加
