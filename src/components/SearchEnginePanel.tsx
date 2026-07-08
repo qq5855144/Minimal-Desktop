@@ -20,30 +20,35 @@ interface SearchEnginePanelProps {
   onClose: () => void;
 }
 
-// ── 引擎图标（favicon + 颜色背景兜底）──────────────────────────────────────
+// ── 引擎图标（纯 favicon，无背景）─────────────────────────────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
   const [err, setErr] = useState(false);
   const faviconUrl = 'domain' in engine
     ? getFaviconUrl(engine.domain)
     : (engine.iconUrl ?? null);
 
-  const bg = engine.color;
   const letter = engine.name.slice(0, 1).toUpperCase();
 
   return (
     <div
-      className="flex items-center justify-center rounded-2xl overflow-hidden shrink-0"
-      style={{ width: size, height: size, background: bg }}
+      className="flex items-center justify-center rounded-2xl shrink-0"
+      style={{ width: size, height: size }}
     >
       {faviconUrl && !err ? (
         <img
           src={faviconUrl}
           alt={engine.name}
-          className="w-7 h-7 object-contain"
+          style={{ width: size * 0.72, height: size * 0.72 }}
+          className="object-contain"
           onError={() => setErr(true)}
         />
       ) : (
-        <span className="text-white font-bold" style={{ fontSize: size * 0.42 }}>{letter}</span>
+        <span
+          className="font-bold"
+          style={{ fontSize: size * 0.46, color: engine.color }}
+        >
+          {letter}
+        </span>
       )}
     </div>
   );

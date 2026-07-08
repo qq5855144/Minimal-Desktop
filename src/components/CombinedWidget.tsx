@@ -109,19 +109,18 @@ const CombinedWidget: React.FC = () => {
           }`}
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
-          {/* 搜索引擎图标（可点击） */}
+          {/* 搜索引擎图标（可点击，纯图标无背景） */}
           <button
             ref={engineBtnRef}
             type="button"
             onClick={openPanel}
             aria-label="切换搜索引擎"
-            className="shrink-0 w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center transition-transform active:scale-90"
-            style={{ background: currentEngine.color }}
+            className="shrink-0 w-7 h-7 flex items-center justify-center transition-transform active:scale-90"
           >
             {faviconUrl && !faviconErr ? (
-              <img src={faviconUrl} alt={currentEngine.name} className="w-5 h-5 object-contain" onError={() => setFaviconErr(true)} />
+              <img src={faviconUrl} alt={currentEngine.name} className="w-6 h-6 object-contain" onError={() => setFaviconErr(true)} />
             ) : (
-              <span className="text-white text-xs font-bold">{currentEngine.name.slice(0, 1)}</span>
+              <span className="text-sm font-bold" style={{ color: currentEngine.color }}>{currentEngine.name.slice(0, 1)}</span>
             )}
           </button>
 
