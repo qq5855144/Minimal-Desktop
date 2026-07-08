@@ -45,8 +45,8 @@ const SearchBar: React.FC = () => {
   }, []);
 
   const formCls = isNeu
-    ? 'flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200 neu-raised-focused'
-    : 'flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
+    ? 'flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 neu-raised-focused'
+    : 'flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
   const formStyle = isNeu ? {} : { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' };
   const inputCls = isNeu
     ? 'flex-1 min-w-0 bg-transparent text-slate-700 text-sm placeholder:text-slate-400 outline-none'

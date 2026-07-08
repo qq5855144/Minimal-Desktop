@@ -102,7 +102,7 @@ const CombinedWidget: React.FC = () => {
       <div className="px-4 md:px-6">
         <form
           onSubmit={handleSubmit}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200 ${
+          className={`flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 ${
             focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
           }`}
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
