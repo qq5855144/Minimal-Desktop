@@ -5,7 +5,6 @@
  * 图标使用 Iconify（纯图标无背景）
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Icon } from '@iconify/react';
 import { Plus, X, Check } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
@@ -20,23 +19,30 @@ interface SearchEnginePanelProps {
   onClose: () => void;
 }
 
-// ── 引擎图标：Iconify 纯图标，无背景；自定义引擎用彩色字母 ─────────────────
+// ── 引擎图标：img src 方式（可靠），带字母兜底 ──────────────────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
-  const iconId = 'iconifyIcon' in engine ? engine.iconifyIcon : null;
+  const [err, setErr] = useState(false);
+  const iconSrc = 'iconApiUrl' in engine
+    ? engine.iconApiUrl
+    : ('iconUrl' in engine ? (engine as { iconUrl?: string }).iconUrl ?? null : null);
   const letter = engine.name.slice(0, 1).toUpperCase();
 
-  if (iconId) {
+  if (iconSrc && !err) {
     return (
-      <div
-        className="flex items-center justify-center shrink-0"
-        style={{ width: size, height: size }}
-      >
-        <Icon icon={iconId} width={size * 0.72} height={size * 0.72} />
+      <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+        <img
+          src={iconSrc}
+          alt={engine.name}
+          width={size * 0.72}
+          height={size * 0.72}
+          className="object-contain"
+          onError={() => setErr(true)}
+        />
       </div>
     );
   }
 
-  // 自定义引擎：彩色字母图标
+  // 自定义引擎 / 图标加载失败：彩色字母
   return (
     <div
       className="flex items-center justify-center rounded-2xl shrink-0"

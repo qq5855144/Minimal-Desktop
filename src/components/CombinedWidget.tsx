@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Icon } from '@iconify/react';
 import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { getEngineById, buildSearchUrl } from '@/lib/searchEngines';
+import { getEngineById, buildSearchUrl, getEngineIconUrl } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
@@ -57,7 +56,8 @@ const CombinedWidget: React.FC = () => {
   const lunar   = getLunarDate(now);
 
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
-  const iconifyIcon = 'iconifyIcon' in currentEngine ? currentEngine.iconifyIcon : null;
+  const [iconErr, setIconErr] = useState(false);
+  const iconSrc = getEngineIconUrl(currentEngine);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +102,7 @@ const CombinedWidget: React.FC = () => {
       <div className="px-4 md:px-6">
         <form
           onSubmit={handleSubmit}
-          className={`flex items-center gap-2 px-3 py-2 rounded-full transition-all duration-200 ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-200 ${
             focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
           }`}
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
@@ -113,15 +113,12 @@ const CombinedWidget: React.FC = () => {
             type="button"
             onClick={openPanel}
             aria-label="切换搜索引擎"
-            className="shrink-0 w-7 h-7 flex items-center justify-center transition-transform active:scale-90"
+            className="shrink-0 w-6 h-6 flex items-center justify-center transition-transform active:scale-90"
           >
-            {iconifyIcon ? (
-              <Icon icon={iconifyIcon} width={22} height={22} />
+            {iconSrc && !iconErr ? (
+              <img src={iconSrc} alt={currentEngine.name} width={20} height={20} className="object-contain" onError={() => setIconErr(true)} />
             ) : (
-              <span
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-                style={{ background: currentEngine.color }}
-              >
+              <span className="w-6 h-6 rounded-md flex items-center justify-center text-white text-[10px] font-bold" style={{ background: currentEngine.color }}>
                 {currentEngine.name.slice(0, 1)}
               </span>
             )}
