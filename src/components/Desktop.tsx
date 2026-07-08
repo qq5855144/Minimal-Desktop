@@ -98,6 +98,20 @@ const Desktop: React.FC = () => {
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
+  // ── 全局 contextmenu 捕获（capture 阶段）─────────────────────────────────
+  // 移动端长按空白处时，React onContextMenu 冒泡可能晚于浏览器弹菜单；
+  // 在 document capture 阶段拦截，保证任何区域（含空白）均不弹系统菜单。
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // 输入框/文本域保留系统菜单
+      if (target.closest('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+    };
+    document.addEventListener('contextmenu', handler, { capture: true });
+    return () => document.removeEventListener('contextmenu', handler, { capture: true });
+  }, []);
+
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
@@ -583,6 +597,7 @@ const Desktop: React.FC = () => {
     <div
       className="relative w-full h-screen overflow-hidden select-none"
       data-style={settings.style}
+      style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       onContextMenu={(e) => {
         // 输入框 / 文本域长按唤起系统菜单，不拦截
         const target = e.target as HTMLElement;
