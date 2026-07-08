@@ -98,6 +98,22 @@ const Desktop: React.FC = () => {
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
+  // ghost 出现时通过直接 DOM 操作设置初始位置，避免 React style prop 在 re-render 时重置坐标
+  useEffect(() => {
+    if (!ghost) return;
+    const el = ghostLayerRef.current;
+    if (!el) return;
+    if (ghost.item.type === 'widget') {
+      el.style.left = `${ghost.x - 120}px`;
+      el.style.top = `${ghost.y - 28}px`;
+      el.style.transform = 'none';
+    } else {
+      el.style.left = `${ghost.x}px`;
+      el.style.top = `${ghost.y}px`;
+      el.style.transform = 'translate(-50%, -50%)';
+    }
+  }, [ghost]);
+
   // ── 全局 contextmenu 捕获（capture 阶段）─────────────────────────────────
   // 移动端长按空白处时，React onContextMenu 冒泡可能晚于浏览器弹菜单；
   // 在 document capture 阶段拦截，保证任何区域（含空白）均不弹系统菜单。
@@ -160,8 +176,16 @@ const Desktop: React.FC = () => {
       g.x = e.clientX;
       g.y = e.clientY;
       if (ghostLayerRef.current) {
-        ghostLayerRef.current.style.left = `${e.clientX}px`;
-        ghostLayerRef.current.style.top = `${e.clientY}px`;
+        const el = ghostLayerRef.current;
+        if (g.item.type === 'widget') {
+          el.style.left = `${e.clientX - 120}px`;
+          el.style.top = `${e.clientY - 28}px`;
+          el.style.transform = 'none';
+        } else {
+          el.style.left = `${e.clientX}px`;
+          el.style.top = `${e.clientY}px`;
+          el.style.transform = 'translate(-50%, -50%)';
+        }
       }
       handleEdgeHover(e.clientX);
 
@@ -745,11 +769,8 @@ const Desktop: React.FC = () => {
         <div
           ref={ghostLayerRef}
           className="fixed pointer-events-none z-[300] opacity-80 transition-none"
-          style={
-            ghost.item.type === 'widget'
-              ? { left: ghost.x - 120, top: ghost.y - 28 }
-              : { left: ghost.x, top: ghost.y, transform: 'translate(-50%, -50%)' }
-          }
+          // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
+          // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
           {ghost.item.type === 'widget' ? (
             <div className="bg-black/40 backdrop-blur-md rounded-2xl px-5 py-3 min-w-[240px] flex items-center gap-3 border border-white/20 scale-105">
