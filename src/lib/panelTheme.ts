@@ -77,7 +77,7 @@ export function getPanelTheme(isNeu: boolean): PanelTheme {
     sheetBg: 'backdrop-blur-2xl',
     sheetBorder: 'border-t border-white/10',
     sheetStyle: {
-      background: 'linear-gradient(180deg, rgba(40,80,130,0.45) 0%, rgba(70,110,150,0.35) 40%, rgba(120,100,70,0.35) 100%)',
+      background: 'linear-gradient(180deg, rgba(60,40,120,0.45) 0%, rgba(30,70,140,0.38) 45%, rgba(20,110,130,0.35) 100%)',
     },
     handle: 'bg-white/20',
     textPrimary: 'text-white',
