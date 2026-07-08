@@ -107,9 +107,9 @@ const Desktop: React.FC = () => {
     const el = ghostLayerRef.current;
     if (!el) return;
     if (ghost.item.type === 'widget') {
-      el.style.left = `${ghost.x - 120}px`;
-      el.style.top = `${ghost.y - 28}px`;
-      el.style.transform = 'none';
+      el.style.left = `${ghost.x}px`;
+      el.style.top = `${ghost.y}px`;
+      el.style.transform = 'translate(-50%, -50%)';
     } else {
       el.style.left = `${ghost.x}px`;
       el.style.top = `${ghost.y}px`;
@@ -181,9 +181,9 @@ const Desktop: React.FC = () => {
       if (ghostLayerRef.current) {
         const el = ghostLayerRef.current;
         if (g.item.type === 'widget') {
-          el.style.left = `${e.clientX - 120}px`;
-          el.style.top = `${e.clientY - 28}px`;
-          el.style.transform = 'none';
+          el.style.left = `${e.clientX}px`;
+          el.style.top = `${e.clientY}px`;
+          el.style.transform = 'translate(-50%, -50%)';
         } else {
           el.style.left = `${e.clientX}px`;
           el.style.top = `${e.clientY}px`;
@@ -776,7 +776,7 @@ const Desktop: React.FC = () => {
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
           {ghost.item.type === 'widget' ? (
-            <div className="w-[320px] md:w-[480px] overflow-hidden rounded-3xl">
+            <div className="w-[320px] md:w-[480px] overflow-hidden rounded-3xl bg-white/5 backdrop-blur-sm pt-2">
               {ghost.item.widgetType === 'combined' ? (
                 <CombinedWidget />
               ) : ghost.item.widgetType === 'clock' ? (
