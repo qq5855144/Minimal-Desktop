@@ -4,6 +4,9 @@ import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
+import CombinedWidget from './CombinedWidget';
+import ClockWidget from './ClockWidget';
+import SearchBar from './SearchBar';
 import FolderView from './FolderView';
 import AddEditDialog from './AddEditDialog';
 import SettingsView from './SettingsView';
@@ -764,7 +767,7 @@ const Desktop: React.FC = () => {
       <SettingsView open={openSettings} onClose={() => setOpenSettings(false)} />
       <SyncView open={openSync} onClose={() => setOpenSync(false)} />
 
-      {/* 统一拖拽 Ghost：widget 显示标签卡片，app 显示图标 */}
+      {/* 统一拖拽 Ghost：widget 渲染真实组件，app 显示图标 */}
       {ghost && (
         <div
           ref={ghostLayerRef}
@@ -773,10 +776,14 @@ const Desktop: React.FC = () => {
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
           {ghost.item.type === 'widget' ? (
-            <div className="bg-black/40 backdrop-blur-md rounded-2xl px-5 py-3 min-w-[240px] flex items-center gap-3 border border-white/20 scale-105">
-              <span className="text-white/90 text-sm font-medium">
-                {ghost.item.widgetType === 'combined' ? '🕐 时钟与搜索' : ghost.item.widgetType === 'clock' ? '🕐 时钟' : '🔍 搜索栏'}
-              </span>
+            <div className="w-[320px] md:w-[480px] overflow-hidden rounded-3xl">
+              {ghost.item.widgetType === 'combined' ? (
+                <CombinedWidget />
+              ) : ghost.item.widgetType === 'clock' ? (
+                <ClockWidget />
+              ) : (
+                <SearchBar />
+              )}
             </div>
           ) : (
             <AppIcon item={ghost.item} size="normal" />
