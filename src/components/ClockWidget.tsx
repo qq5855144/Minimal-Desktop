@@ -77,7 +77,7 @@ const ClockWidget: React.FC = () => {
         className={`font-bold leading-none ${isNeu ? 'text-slate-700' : 'text-white drop-shadow-lg'}`}
         style={{ fontSize: 'clamp(56px, 14vw, 88px)', letterSpacing: '-2px' }}
       >
-        {hours}<span className="animate-pulse opacity-80">:</span>{minutes}
+        {hours}<span className="opacity-80">:</span>{minutes}
       </div>
       <div className={`mt-1 text-sm md:text-base font-medium tracking-wide ${isNeu ? 'text-slate-500' : 'text-white/90 drop-shadow-md'}`}>
         {month}月{day}日 {weekday} {lunar}
