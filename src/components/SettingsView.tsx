@@ -39,49 +39,13 @@ const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   minimal: '极简抽象',
 };
 
-// Unsplash 可靠兜底（真实 photo ID，官方 CDN，无需 API key）
-const UNSPLASH_FALLBACK: Record<Exclude<BgCategory, 'bing'>, string[]> = {
-  nature: [
-    '1506905925346-21bda4d32df4','1469474968028-56623f02e42e','1426604966848-d7adac402bff',
-    '1501854140801-50d01698950b','1433086966358-54859d0ed716','1472214103451-9374bd1c798e',
-    '1559827260-dc66d52bef19','1476842634003-7dcca8f832de','1500534314209-a25ddb2bd429',
-    '1518173946687-a4c8892bbd9f','1519681393784-d120267933ba','1464822759023-fed622ff2c3b',
-    '1448375240586-3310fffb9e2b','1491466153226-b5522a4cf6c1','1516912481800-b0194da29a51',
-    '1455156218388-5e61287f89af','1500534314209-a25ddb2bd429','1504280390367-361c6d9f38f4',
-  ],
-  city: [
-    '1477959858617-67f85cf4f1df','1480714378408-67cf0d13bc1b','1444723121867-7a241cacace9',
-    '1534430480872-3498386e7856','1486325212027-8081e485255e','1519501025264-65ba15a82390',
-    '1513635269975-59663e0ac1ad','1558618666-fcd25c85cd64','1542051841857-5f90071e7989',
-    '1449824913935-59a10b8d2000','1431066153169-e69cb069d0a1','1486816428908-db2af4c8ebde',
-    '1505761671935-60b3a7427bad','1470252649378-9c29740c9fa8','1435224668334-0f82ec57b605',
-    '1496568816309-51d7c20e3b21','1444723121867-7a241cacace9','1514924013411-cbf0fb7bf1f6',
-  ],
-  space: [
-    '1462331940025-496dfbfc7564','1419242902214-272b3f66ee7a','1534796636912-3b95b3ab5986',
-    '1454789548928-9efd52dc4031','1543722530-d2c3201371e7','1614732414444-096e5f1122d5',
-    '1581822261290-991b38693d1b','1509773896068-7fd415d91e2e','1539321908154-04927596764d',
-    '1446776811953-b23d57bd21aa','1503264116898-7b5e2b5c32b3','1467261939-69e12d55e9e3',
-    '1520034475321-cbe63696469a','1504192010706-dd7f569ee2be','1451187580459-43490279c0fa',
-    '1502134249126-9f3755a50d78','1444703686981-a3abbc4d4fe3','1478760329108-5c3ed9d495a0',
-  ],
-  minimal: [
-    '1557682250-33bd709cbe85','1558591710-4b4a1ae0f04d','1579546929518-9e396f3cc809',
-    '1500462918059-b1a0cb512f1d','1542281286-9e0a16bb7366','1525909002-1b05e0c869d8',
-    '1518173946687-a4c8892bbd9f','1550684848-fac1c5b4e853','1536566482680-fca0e1e20f28',
-    '1507003211169-0a1dd7228f2d','1508615039623-a25605d2b022','1553356084-58ef4a67b2a7',
-    '1493238792000-8113da705763','1519681393784-d120267933ba','1571115177098-24ec42ed204d',
-    '1568702846914-96b305d2aaeb','1574169208507-84aef6f80c47','1524274568599-fd37951b12de',
-  ],
-};
-
-function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number): CuratedWallpaper[] {
-  const ids = UNSPLASH_FALLBACK[cat];
+// picsum.photos 备用（seed随机，每次开面板不同）
+function picsumFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionSeed: number): CuratedWallpaper[] {
   return Array.from({ length: 9 }, (_, i) => {
-    const id = ids[(page * 9 + i) % ids.length];
+    const seed = sessionSeed + page * 9 + i;
     return {
-      thumb: `https://images.unsplash.com/photo-${id}?w=480&q=70`,
-      full:  `https://images.unsplash.com/photo-${id}?w=1920&q=90`,
+      thumb: `https://picsum.photos/seed/${seed}/480/270`,
+      full:  `https://picsum.photos/seed/${seed}/1920/1080`,
       title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
     };
   });
@@ -129,6 +93,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const [bingError, setBingError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  // 每次打开面板时生成新随机基数，保证每次壁纸不同
+  const sessionSeedRef = useRef(Math.floor(Math.random() * 10000));
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
@@ -185,17 +151,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 精选分类壁纸 fetch（百度图片 + Unsplash 备用）──
+  // ── 精选分类壁纸 fetch（百度图片 + picsum 备用）──
   const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
-    const key = `${cat}-${page}`;
+    const key = `${cat}-${page}-${sessionSeedRef.current}`;
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
     try {
       const items = await fetchBaiduImages(cat, page);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } catch {
-      // 百度失败 → Unsplash 备用
-      const items = unsplashFallback(cat, page);
+      // 百度失败 → picsum 备用（seed随机）
+      const items = picsumFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } finally {
       setCatLoading(null);
@@ -328,7 +294,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
         <button
           key={item.id}
           type="button"
-          onClick={() => !item.disabled && setPanel(item.id)}
+          onClick={() => {
+            if (!item.disabled) {
+              if (item.id === 'bg') {
+                // 每次进入壁纸面板：重置随机种子 + 清空缓存，保证图片不重复
+                sessionSeedRef.current = Math.floor(Math.random() * 10000);
+                setCatImages({});
+                setCatPage({});
+              }
+              setPanel(item.id);
+            }
+          }}
           disabled={item.disabled}
           className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3 transition-colors border ${
             item.disabled
@@ -511,7 +487,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           {bgCat !== 'bing' && (() => {
             const cat = bgCat as Exclude<BgCategory, 'bing'>;
             const page = catPage[cat] ?? 0;
-            const key = `${cat}-${page}`;
+            const key = `${cat}-${page}-${sessionSeedRef.current}`;
             const items = catImages[key];
             if (catLoading === cat) return (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
