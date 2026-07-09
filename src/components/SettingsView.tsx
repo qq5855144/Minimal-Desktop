@@ -25,12 +25,12 @@ interface CuratedWallpaper {
   title: string;
 }
 
-// 分类 → 百度图片搜索关键词
-const BAIDU_KEYWORDS: Record<Exclude<BgCategory, 'bing'>, string> = {
-  nature:  '自然风景壁纸高清',
-  city:    '城市夜景壁纸高清',
-  space:   '宇宙星空壁纸高清',
-  minimal: '简约抽象壁纸高清',
+// 分类 → Wallhaven 搜索关键词（专业壁纸站，原生CORS，无需Key）
+const WALLHAVEN_QUERIES: Record<Exclude<BgCategory, 'bing'>, string> = {
+  nature:  'nature landscape',
+  city:    'city night',
+  space:   'space galaxy',
+  minimal: 'minimalist abstract',
 };
 const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  '自然风景',
@@ -51,28 +51,27 @@ function picsumFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionS
   });
 }
 
-async function fetchBaiduImages(
+// Wallhaven API（原生CORS，SFW，高清壁纸）
+async function fetchWallhavenImages(
   cat: Exclude<BgCategory, 'bing'>,
   page: number,
 ): Promise<CuratedWallpaper[]> {
-  const kw = BAIDU_KEYWORDS[cat];
-  const baiduUrl = `https://image.baidu.com/search/acjson?tn=resultjson_com&word=${encodeURIComponent(kw)}&pn=${page * 9}&rn=9&ie=utf-8&oe=utf-8&istype=2`;
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baiduUrl)}`;
-  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+  const q = encodeURIComponent(WALLHAVEN_QUERIES[cat]);
+  const url = `https://wallhaven.cc/api/v1/search?q=${q}&categories=110&purity=100&atleast=1920x1080&sorting=random&page=${page + 1}&per_page=9`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   const json = await res.json() as {
-    data: Array<{ thumbURL?: string; hoverURL?: string; middleURL?: string; fromPageTitle?: string } | null>;
+    data: Array<{
+      thumbs: { large: string; small: string };
+      path: string;
+      id: string;
+    }>;
   };
-  const items: CuratedWallpaper[] = json.data
-    .filter((d): d is NonNullable<typeof d> => !!d?.thumbURL)
-    .slice(0, 9)
-    .map((d, i) => ({
-      thumb: d.thumbURL!,
-      full:  d.hoverURL ?? d.middleURL ?? d.thumbURL!,
-      title: (d.fromPageTitle ?? `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`)
-        .replace(/<[^>]+>/g, '').slice(0, 20),
-    }));
-  if (items.length === 0) throw new Error('no results');
-  return items;
+  if (!json.data?.length) throw new Error('no results');
+  return json.data.map((d, i) => ({
+    thumb: d.thumbs.large ?? d.thumbs.small,
+    full:  d.path,
+    title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
+  }));
 }
 
 interface SettingsViewProps {
@@ -151,16 +150,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 精选分类壁纸 fetch（百度图片 + picsum 备用）──
+  // ── 精选分类壁纸 fetch（Wallhaven + picsum 备用）──
   const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
     const key = `${cat}-${page}-${sessionSeedRef.current}`;
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
     try {
-      const items = await fetchBaiduImages(cat, page);
+      const items = await fetchWallhavenImages(cat, page);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } catch {
-      // 百度失败 → picsum 备用（seed随机）
+      // Wallhaven 失败 → picsum 备用（seed随机）
       const items = picsumFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } finally {
@@ -492,7 +491,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             if (catLoading === cat) return (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
                 <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
-                <span className={`text-xs ${t.textDim}`}>正在从百度图片加载…</span>
+                <span className={`text-xs ${t.textDim}`}>正在从 Wallhaven 加载壁纸…</span>
               </div>
             );
             if (!items) return null;
