@@ -102,14 +102,29 @@ async function fetchPixabayImages(
 ): Promise<CuratedWallpaper[]> {
   const q = encodeURIComponent(PIXABAY_QUERIES[cat]);
   // Pixabay page 从 1 开始；order=popular 保证高质量图片优先
-  const url = `https://pixabay.com/api/?key=${apiKey}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`Pixabay HTTP ${res.status}`);
-  const json = await res.json() as {
-    hits: Array<{ webformatURL: string; largeImageURL: string; tags: string }>;
-  };
-  if (!json.hits?.length) throw new Error('no results');
-  return json.hits.map((h, i) => ({
+  const directUrl = `https://pixabay.com/api/?key=${apiKey}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
+
+  // 先尝试直连；若 CORS 拦截（status 0 / TypeError）则走 allorigins 代理
+  let data: { hits: Array<{ webformatURL: string; largeImageURL: string; tags: string }> } | null = null;
+  try {
+    const res = await fetch(directUrl, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      data = await res.json();
+    }
+  } catch {
+    // 直连失败，走代理
+  }
+
+  if (!data) {
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`;
+    const proxyRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+    if (!proxyRes.ok) throw new Error(`Pixabay proxy HTTP ${proxyRes.status}`);
+    const wrapper = await proxyRes.json() as { contents: string };
+    data = JSON.parse(wrapper.contents);
+  }
+
+  if (!data?.hits?.length) throw new Error('no results');
+  return data.hits.map((h, i) => ({
     thumb: h.webformatURL,
     full:  h.largeImageURL,
     title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
@@ -562,7 +577,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             if (catLoading === cat) return (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
                 <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
-                <span className={`text-xs ${t.textDim}`}>正在从 Wallhaven 加载壁纸…</span>
+                <span className={`text-xs ${t.textDim}`}>正在从 Pixabay 加载壁纸…</span>
               </div>
             );
             if (!items) return null;
