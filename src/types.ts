@@ -80,6 +80,7 @@ export interface DesktopSettings {
   applyOverlayToWallpaper?: boolean;
   searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
   customEngines?: CustomSearchEngine[]; // 用户自定义搜索引擎列表
+  pixabayKey?: string;            // Pixabay API Key（用于壁纸分类加载）
 }
 
 // 拖拽来源信息

@@ -94,14 +94,15 @@ function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessio
 }
 
 // Pixabay API（主力源，国内直连，内容500万+，支持关键词分类搜索）
-const PIXABAY_KEY = '56625856-05d192fea977d7f39a4401e8f';
+const PIXABAY_KEY_DEFAULT = '56625856-05d192fea977d7f39a4401e8f';
 async function fetchPixabayImages(
   cat: Exclude<BgCategory, 'bing'>,
   page: number,
+  apiKey: string,
 ): Promise<CuratedWallpaper[]> {
   const q = encodeURIComponent(PIXABAY_QUERIES[cat]);
   // Pixabay page 从 1 开始；order=popular 保证高质量图片优先
-  const url = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
+  const url = `https://pixabay.com/api/?key=${apiKey}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Pixabay HTTP ${res.status}`);
   const json = await res.json() as {
@@ -197,16 +198,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
     try {
-      const items = await fetchPixabayImages(cat, page);
+      const apiKey = settings.pixabayKey?.trim() || PIXABAY_KEY_DEFAULT;
+      const items = await fetchPixabayImages(cat, page, apiKey);
       setCatImages((prev) => ({ ...prev, [key]: items }));
-    } catch {
+    } catch (err) {
+      console.warn('[Pixabay] 加载失败，切换 Unsplash 兜底:', err);
       // Pixabay 失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
       const items = unsplashFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } finally {
       setCatLoading(null);
     }
-  }, [catImages]);
+  }, [catImages, settings.pixabayKey]);
 
   useEffect(() => {
     if (panel === 'bg' && bgCat !== 'bing') {
@@ -379,6 +382,33 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           <RotateCcw className="w-4 h-4" /> 恢复默认
         </button>
       </div>
+
+      {/* Pixabay API Key 输入 */}
+      {!isNeu && (
+        <div className={`mt-1 rounded-2xl border ${t.itemBorder} ${t.itemBg} px-4 py-3 space-y-1.5`}>
+          <p className={`text-xs font-medium ${t.textPrimary}`}>Pixabay API Key</p>
+          <p className={`text-[11px] ${t.textDim} leading-snug`}>用于加载自然、城市、宇宙等壁纸分类，在 <span className="font-mono">pixabay.com/api</span> 申请免费 Key</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={settings.pixabayKey ?? ''}
+              onChange={(e) => updateSettings({ pixabayKey: e.target.value.trim() || undefined })}
+              placeholder="粘贴你的 Pixabay API Key"
+              className={`flex-1 min-w-0 text-xs rounded-xl px-3 py-2 outline-none border ${t.itemBorder} ${t.itemBg} ${t.textPrimary} placeholder:${t.textDim}`}
+              style={{ fontSize: 13 }}
+            />
+            {settings.pixabayKey && (
+              <button
+                type="button"
+                onClick={() => updateSettings({ pixabayKey: undefined })}
+                className={`shrink-0 text-xs px-3 py-2 rounded-xl border ${t.itemBorder} text-red-400/80 hover:text-red-400 transition-colors`}
+              >
+                清除
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
