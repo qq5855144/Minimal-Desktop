@@ -108,7 +108,33 @@ function parseEngineUrl(input: string): {
   }
 }
 
-// ── 添加自定义引擎表单（简化版：只需输入 URL，可选本地图标）────────────────
+// 将远程图标 URL 转为 base64 DataURL，实现真正持久化（不依赖外部服务）
+async function fetchIconAsDataUrl(url: string): Promise<string | null> {
+  // 已经是 DataURL，直接返回
+  if (url.startsWith('data:')) return url;
+  // 尝试多个备用源（DDG favicon 在国内可用）
+  const candidates = [
+    url,
+    url.replace('www.google.com/s2/favicons', 'icons.duckduckgo.com/ip3').replace(/&sz=\d+/, '').replace(/\?domain=([^&]+).*/, '/$1.ico'),
+  ];
+  for (const src of candidates) {
+    try {
+      const res = await fetch(src, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (!blob.size) continue;
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      return dataUrl;
+    } catch { /* 继续下一个候选 */ }
+  }
+  return null;
+}
+
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
   onAdd, onCancel,
 }) => {
@@ -116,6 +142,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
   const [customName, setCustomName] = useState('');
   const [iconErr, setIconErr] = useState(false);
   const [localIconDataUrl, setLocalIconDataUrl] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parsed = parseEngineUrl(rawUrl);
@@ -143,16 +170,27 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // 提交：将图标转为 DataURL 持久化存储，不依赖外部 favicon 服务
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit || !parsed) return;
+    if (!canSubmit || !parsed || submitting) return;
+    setSubmitting(true);
+    let persistedIconUrl: string | undefined;
+    if (localIconDataUrl) {
+      // 本地上传的图片已是 DataURL，直接使用
+      persistedIconUrl = localIconDataUrl;
+    } else if (parsed.iconUrl) {
+      // 远程 favicon → 抓取转为 DataURL，失败则保留原 URL 作为兜底
+      persistedIconUrl = (await fetchIconAsDataUrl(parsed.iconUrl)) ?? parsed.iconUrl;
+    }
     onAdd({
       id: `custom-${Date.now()}`,
       name: displayName,
       urlTemplate: parsed.urlTemplate,
-      iconUrl: activeIconSrc ?? undefined,
+      iconUrl: persistedIconUrl,
       color: parsed.color,
     });
+    setSubmitting(false);
   };
 
   return (
@@ -243,10 +281,10 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
         </button>
         <button
           type="submit"
-          disabled={!canSubmit}
+          disabled={!canSubmit || submitting}
           className="flex-1 rounded-xl py-2 text-sm text-white font-medium bg-primary/70 hover:bg-primary/90 transition-colors disabled:opacity-40"
         >
-          添加
+          {submitting ? '保存中…' : '添加'}
         </button>
       </div>
     </form>
