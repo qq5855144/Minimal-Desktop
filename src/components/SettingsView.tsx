@@ -25,12 +25,12 @@ interface CuratedWallpaper {
   title: string;
 }
 
-// 分类 → Wallhaven 搜索关键词（专业壁纸站，原生CORS，无需Key）
-const WALLHAVEN_QUERIES: Record<Exclude<BgCategory, 'bing'>, string> = {
+// 分类 → Pixabay 搜索关键词
+const PIXABAY_QUERIES: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  'nature forest mountain waterfall',
-  city:    'cityscape skyline architecture night',
-  space:   'galaxy nebula cosmos stars',
-  minimal: 'minimalism clean abstract geometry',
+  city:    'city skyline architecture night',
+  space:   'galaxy nebula space cosmos',
+  minimal: 'minimalism abstract geometry clean',
 };
 const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  '自然风景',
@@ -39,7 +39,7 @@ const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   minimal: '极简抽象',
 };
 
-// 各分类精选 Unsplash photo ID（与分类主题严格对应，CDN国内可访问）
+// 各分类精选 Unsplash photo ID（网络异常时的最终兜底，内容严格对应分类）
 const UNSPLASH_POOL: Record<Exclude<BgCategory, 'bing'>, string[]> = {
   nature: [
     '1506905925346-21bda4d32df4','1469474968028-56623f02e42e','1426604966848-d7adac402bff',
@@ -79,11 +79,10 @@ const UNSPLASH_POOL: Record<Exclude<BgCategory, 'bing'>, string[]> = {
   ],
 };
 
-// 精选 Unsplash 兜底（分类对应，页面偏移保证不重复，sessionSeed保证每次不同）
+// 精选 Unsplash 兜底（网络全部失败时使用）
 function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionSeed: number): CuratedWallpaper[] {
   const pool = UNSPLASH_POOL[cat];
   return Array.from({ length: 9 }, (_, i) => {
-    // 用 sessionSeed 做起始偏移，每次开面板顺序不同；page 继续向后翻
     const idx = (sessionSeed % pool.length + page * 9 + i) % pool.length;
     const id = pool[idx];
     return {
@@ -94,35 +93,26 @@ function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessio
   });
 }
 
-// Wallhaven API（直连 + 两级代理回退）
-async function fetchWallhavenImages(
+// Pixabay API（主力源，国内直连，内容500万+，支持关键词分类搜索）
+const PIXABAY_KEY = '56625856-05d192fea977d7f39a4401e8f';
+async function fetchPixabayImages(
   cat: Exclude<BgCategory, 'bing'>,
   page: number,
 ): Promise<CuratedWallpaper[]> {
-  const q = encodeURIComponent(WALLHAVEN_QUERIES[cat]);
-  const url = `https://wallhaven.cc/api/v1/search?q=${q}&categories=110&purity=100&atleast=1920x1080&sorting=random&page=${page + 1}&per_page=9`;
-  const tryFetch = async (target: string) => {
-    const res = await fetch(target, { signal: AbortSignal.timeout(7000) });
-    const json = await res.json() as {
-      data: Array<{ thumbs: { large: string; small: string }; path: string }>;
-    };
-    if (!json.data?.length) throw new Error('no results');
-    return json.data.map((d, i) => ({
-      thumb: d.thumbs.large ?? d.thumbs.small,
-      full:  d.path,
-      title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
-    }));
+  const q = encodeURIComponent(PIXABAY_QUERIES[cat]);
+  // Pixabay page 从 1 开始；order=popular 保证高质量图片优先
+  const url = `https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`Pixabay HTTP ${res.status}`);
+  const json = await res.json() as {
+    hits: Array<{ webformatURL: string; largeImageURL: string; tags: string }>;
   };
-  // 直连 → corsproxy → allorigins 三级回退
-  const proxies = [
-    url,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  ];
-  for (const src of proxies) {
-    try { return await tryFetch(src); } catch { /* 继续下一级 */ }
-  }
-  throw new Error('all proxies failed');
+  if (!json.hits?.length) throw new Error('no results');
+  return json.hits.map((h, i) => ({
+    thumb: h.webformatURL,
+    full:  h.largeImageURL,
+    title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
+  }));
 }
 
 interface SettingsViewProps {
@@ -201,16 +191,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 精选分类壁纸 fetch（Wallhaven + 精选Unsplash分类兜底）──
+  // ── 精选分类壁纸 fetch（Pixabay 主力 + 精选Unsplash分类兜底）──
   const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
     const key = `${cat}-${page}-${sessionSeedRef.current}`;
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
     try {
-      const items = await fetchWallhavenImages(cat, page);
+      const items = await fetchPixabayImages(cat, page);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } catch {
-      // Wallhaven 全部失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
+      // Pixabay 失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
       const items = unsplashFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } finally {
