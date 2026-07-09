@@ -399,7 +399,7 @@ const Desktop: React.FC = () => {
           // 调试日志
           const rowBoundsObj: Record<number, { top: number; bottom: number }> = {};
           rowBounds.forEach((b, r) => { rowBoundsObj[r] = b; });
-          console.log('[widget-drop]', {
+          console.log('[widget-drop]', JSON.stringify({
             pointerY: e.clientY,
             targetPage,
             targetRowFromCell: targetRow,
@@ -407,7 +407,10 @@ const Desktop: React.FC = () => {
             hit,
             rowBounds: rowBoundsObj,
             srcRow: src.row,
-          });
+          }));
+          const itemsAtRow = (d.pages[targetPage] ?? []).filter(it => it.row === widgetTargetRow);
+          console.log('[widget-drop] items at row', widgetTargetRow, JSON.stringify(itemsAtRow.map(it => ({ id: it.id, type: it.type, row: it.row, col: it.col, widgetType: (it as unknown as Record<string,unknown>).widgetType }))));
+          console.log('[widget-drop] srcId=', g.source.itemId);
 
           // 检查落点是否是另一个组件（widget ↔ widget 交换）
           const targetPageItems = d.pages[targetPage] ?? [];
