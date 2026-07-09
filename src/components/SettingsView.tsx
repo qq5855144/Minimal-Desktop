@@ -213,7 +213,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
     try {
-      const apiKey = settings.pixabayKey?.trim() || PIXABAY_KEY_DEFAULT;
+      const apiKey = PIXABAY_KEY_DEFAULT;
       const items = await fetchPixabayImages(cat, page, apiKey);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } catch (err) {
@@ -398,32 +398,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
         </button>
       </div>
 
-      {/* Pixabay API Key 输入 */}
-      {!isNeu && (
-        <div className={`mt-1 rounded-2xl border ${t.itemBorder} ${t.itemBg} px-4 py-3 space-y-1.5`}>
-          <p className={`text-xs font-medium ${t.textPrimary}`}>Pixabay API Key</p>
-          <p className={`text-[11px] ${t.textDim} leading-snug`}>用于加载自然、城市、宇宙等壁纸分类，在 <span className="font-mono">pixabay.com/api</span> 申请免费 Key</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={settings.pixabayKey ?? ''}
-              onChange={(e) => updateSettings({ pixabayKey: e.target.value.trim() || undefined })}
-              placeholder="粘贴你的 Pixabay API Key"
-              className={`flex-1 min-w-0 text-xs rounded-xl px-3 py-2 outline-none border ${t.itemBorder} ${t.itemBg} ${t.textPrimary} placeholder:${t.textDim}`}
-              style={{ fontSize: 13 }}
-            />
-            {settings.pixabayKey && (
-              <button
-                type="button"
-                onClick={() => updateSettings({ pixabayKey: undefined })}
-                className={`shrink-0 text-xs px-3 py-2 rounded-xl border ${t.itemBorder} text-red-400/80 hover:text-red-400 transition-colors`}
-              >
-                清除
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+
+
     </div>
   );
 
