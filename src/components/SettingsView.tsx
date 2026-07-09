@@ -25,12 +25,12 @@ interface CuratedWallpaper {
   title: string;
 }
 
-// 分类关键词 → Unsplash Source 动态拉取（sig 参数保证每页不重复）
-const CATEGORY_KEYWORDS: Record<Exclude<BgCategory, 'bing'>, string> = {
-  nature:  'nature,landscape,mountain',
-  city:    'city,architecture,night',
-  space:   'space,galaxy,stars,nebula',
-  minimal: 'minimal,abstract,gradient',
+// 分类 → 百度图片搜索关键词
+const BAIDU_KEYWORDS: Record<Exclude<BgCategory, 'bing'>, string> = {
+  nature:  '自然风景壁纸高清',
+  city:    '城市夜景壁纸高清',
+  space:   '宇宙星空壁纸高清',
+  minimal: '简约抽象壁纸高清',
 };
 const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  '自然风景',
@@ -39,8 +39,41 @@ const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   minimal: '极简抽象',
 };
 
-function getCuratedItems(cat: Exclude<BgCategory, 'bing'>, page: number): CuratedWallpaper[] {
-  const kw = encodeURIComponent(CATEGORY_KEYWORDS[cat]);
+// Unsplash Source 备用（百度失败时）
+const UNSPLASH_KEYWORDS: Record<Exclude<BgCategory, 'bing'>, string> = {
+  nature:  'nature,landscape,mountain',
+  city:    'city,architecture,night',
+  space:   'space,galaxy,stars,nebula',
+  minimal: 'minimal,abstract,gradient',
+};
+
+async function fetchBaiduImages(
+  cat: Exclude<BgCategory, 'bing'>,
+  page: number,
+): Promise<CuratedWallpaper[]> {
+  const kw = BAIDU_KEYWORDS[cat];
+  const baiduUrl = `https://image.baidu.com/search/acjson?tn=resultjson_com&word=${encodeURIComponent(kw)}&pn=${page * 9}&rn=9&ie=utf-8&oe=utf-8&istype=2`;
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(baiduUrl)}`;
+  const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+  const json = await res.json() as {
+    data: Array<{ thumbURL?: string; hoverURL?: string; middleURL?: string; fromPageTitle?: string } | null>;
+  };
+  const items: CuratedWallpaper[] = json.data
+    .filter((d): d is NonNullable<typeof d> => !!d?.thumbURL)
+    .slice(0, 9)
+    .map((d, i) => ({
+      thumb: d.thumbURL!,
+      full:  d.hoverURL ?? d.middleURL ?? d.thumbURL!,
+      title: (d.fromPageTitle ?? `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`)
+        .replace(/<[^>]+>/g, '').slice(0, 20),
+    }));
+  if (items.length === 0) throw new Error('no results');
+  return items;
+}
+
+// Unsplash 备用
+function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number): CuratedWallpaper[] {
+  const kw = encodeURIComponent(UNSPLASH_KEYWORDS[cat]);
   return Array.from({ length: 9 }, (_, i) => {
     const sig = page * 9 + i + 1;
     return {
@@ -61,7 +94,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
-  const [catPage, setCatPage] = useState(0);
+  const [catPage, setCatPage] = useState<Record<string, number>>({});
+  const [catImages, setCatImages] = useState<Record<string, CuratedWallpaper[]>>({});
+  const [catLoading, setCatLoading] = useState<string | null>(null);
   const [bingImages, setBingImages] = useState<BingImage[]>([]);
   const [bingLoading, setBingLoading] = useState(false);
   const [bingError, setBingError] = useState(false);
@@ -122,6 +157,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       fetchBingWallpapers();
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
+
+  // ── 精选分类壁纸 fetch（百度图片 + Unsplash 备用）──
+  const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
+    const key = `${cat}-${page}`;
+    if (catImages[key]) return; // 已缓存
+    setCatLoading(cat);
+    try {
+      const items = await fetchBaiduImages(cat, page);
+      setCatImages((prev) => ({ ...prev, [key]: items }));
+    } catch {
+      // 百度失败 → Unsplash 备用
+      const items = unsplashFallback(cat, page);
+      setCatImages((prev) => ({ ...prev, [key]: items }));
+    } finally {
+      setCatLoading(null);
+    }
+  }, [catImages]);
+
+  useEffect(() => {
+    if (panel === 'bg' && bgCat !== 'bing') {
+      const page = catPage[bgCat] ?? 0;
+      fetchCategoryImages(bgCat as Exclude<BgCategory, 'bing'>, page);
+    }
+  }, [panel, bgCat, catPage, fetchCategoryImages]);
 
   const applyWallpaper = useCallback((url: string, label: string) => {
     updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
@@ -375,9 +434,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                 <RefreshCw className={`w-4 h-4 ${bingLoading ? 'animate-spin' : ''}`} />
               </button>
             ) : (
-              <button type="button" onClick={() => setCatPage((p) => p + 1)}
-                className={`${t.textDim}`}>
-                <RefreshCw className="w-4 h-4" />
+              <button type="button" onClick={() => {
+                const cat = bgCat as Exclude<BgCategory, 'bing'>;
+                const next = (catPage[cat] ?? 0) + 1;
+                setCatPage((prev) => ({ ...prev, [cat]: next }));
+              }} disabled={catLoading === bgCat}
+                className={`${t.textDim} disabled:opacity-40`}>
+                <RefreshCw className={`w-4 h-4 ${catLoading === bgCat ? 'animate-spin' : ''}`} />
               </button>
             )}
             {(settings.bgImage || settings.bgVideo) && (
@@ -417,12 +480,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
         {/* 可滚动壁纸区 */}
         <div className="flex-1 overflow-y-auto px-5 min-h-0 pb-2">
           {bgCat === 'bing' && bingContent}
-          {bgCat !== 'bing' && (
-            <WallpaperGrid
-              items={getCuratedItems(bgCat as Exclude<BgCategory, 'bing'>, catPage)}
-              isActive={(full) => settings.bgImage === full}
-            />
-          )}
+          {bgCat !== 'bing' && (() => {
+            const cat = bgCat as Exclude<BgCategory, 'bing'>;
+            const page = catPage[cat] ?? 0;
+            const key = `${cat}-${page}`;
+            const items = catImages[key];
+            if (catLoading === cat) return (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
+                <span className={`text-xs ${t.textDim}`}>正在从百度图片加载…</span>
+              </div>
+            );
+            if (!items) return null;
+            return (
+              <WallpaperGrid
+                items={items}
+                isActive={(full) => settings.bgImage === full}
+              />
+            );
+          })()}
         </div>
 
         {/* 底部本地/URL 操作栏 */}
