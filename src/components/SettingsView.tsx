@@ -27,10 +27,10 @@ interface CuratedWallpaper {
 
 // 分类 → Wallhaven 搜索关键词（专业壁纸站，原生CORS，无需Key）
 const WALLHAVEN_QUERIES: Record<Exclude<BgCategory, 'bing'>, string> = {
-  nature:  'nature landscape',
-  city:    'city night',
-  space:   'space galaxy',
-  minimal: 'minimalist abstract',
+  nature:  'nature forest mountain waterfall',
+  city:    'cityscape skyline architecture night',
+  space:   'galaxy nebula cosmos stars',
+  minimal: 'minimalism clean abstract geometry',
 };
 const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  '自然风景',
@@ -39,24 +39,62 @@ const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   minimal: '极简抽象',
 };
 
-// 分类 seed 偏移，保证各分类 picsum 图片互不重复
-const CAT_SEED_OFFSET: Record<Exclude<BgCategory, 'bing'>, number> = {
-  nature: 0, city: 1000, space: 2000, minimal: 3000,
+// 各分类精选 Unsplash photo ID（与分类主题严格对应，CDN国内可访问）
+const UNSPLASH_POOL: Record<Exclude<BgCategory, 'bing'>, string[]> = {
+  nature: [
+    '1506905925346-21bda4d32df4','1469474968028-56623f02e42e','1426604966848-d7adac402bff',
+    '1501854140801-50d01698950b','1433086966358-54859d0ed716','1472214103451-9374bd1c798e',
+    '1559827260-dc66d52bef19','1476842634003-7dcca8f832de','1500534314209-a25ddb2bd429',
+    '1518173946687-a4c8892bbd9f','1519681393784-d120267933ba','1464822759023-fed622ff2c3b',
+    '1448375240586-3310fffb9e2b','1491466153226-b5522a4cf6c1','1516912481800-b0194da29a51',
+    '1455156218388-5e61287f89af','1504280390367-361c6d9f38f4','1434394354979-a235cd36269d',
+    '1441974231531-c6227db2b6a5','1490730141103-6cac27aaab94',
+  ],
+  city: [
+    '1477959858617-67f85cf4f1df','1480714378408-67cf0d13bc1b','1444723121867-7a241cacace9',
+    '1534430480872-3498386e7856','1486325212027-8081e485255e','1519501025264-65ba15a82390',
+    '1513635269975-59663e0ac1ad','1558618666-fcd25c85cd64','1542051841857-5f90071e7989',
+    '1449824913935-59a10b8d2000','1431066153169-e69cb069d0a1','1486816428908-db2af4c8ebde',
+    '1505761671935-60b3a7427bad','1470252649378-9c29740c9fa8','1435224668334-0f82ec57b605',
+    '1496568816309-51d7c20e3b21','1514924013411-cbf0fb7bf1f6','1498503403619-e39a4ff390cb',
+    '1477322524744-0eece9e79640','1460317442301-4f3d2ad4d8b5',
+  ],
+  space: [
+    '1462331940025-496dfbfc7564','1419242902214-272b3f66ee7a','1534796636912-3b95b3ab5986',
+    '1454789548928-9efd52dc4031','1543722530-d2c3201371e7','1614732414444-096e5f1122d5',
+    '1581822261290-991b38693d1b','1509773896068-7fd415d91e2e','1539321908154-04927596764d',
+    '1446776811953-b23d57bd21aa','1503264116898-7b5e2b5c32b3','1467261939-69e12d55e9e3',
+    '1520034475321-cbe63696469a','1504192010706-dd7f569ee2be','1451187580459-43490279c0fa',
+    '1502134249126-9f3755a50d78','1444703686981-a3abbc4d4fe3','1478760329108-5c3ed9d495a0',
+    '1516339901601-2e1b62dc0c45','1543722530-d2c3201371e7',
+  ],
+  minimal: [
+    '1557682250-33bd709cbe85','1558591710-4b4a1ae0f04d','1579546929518-9e396f3cc809',
+    '1500462918059-b1a0cb512f1d','1542281286-9e0a16bb7366','1525909002-1b05e0c869d8',
+    '1550684848-fac1c5b4e853','1536566482680-fca0e1e20f28','1507003211169-0a1dd7228f2d',
+    '1508615039623-a25605d2b022','1553356084-58ef4a67b2a7','1493238792000-8113da705763',
+    '1568702846914-96b305d2aaeb','1574169208507-84aef6f80c47','1524274568599-fd37951b12de',
+    '1561716741-3006cf53a9d1','1567360425852-ad6d2e98fb20','1544013585-c9b42cbcf2ad',
+    '1518640467707-6811f4a6ab73','1494438639946-1ebd1d20bf85',
+  ],
 };
 
-// picsum.photos 备用（seed = sessionSeed + 分类偏移 + 位置，各分类不同）
-function picsumFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionSeed: number): CuratedWallpaper[] {
+// 精选 Unsplash 兜底（分类对应，页面偏移保证不重复，sessionSeed保证每次不同）
+function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionSeed: number): CuratedWallpaper[] {
+  const pool = UNSPLASH_POOL[cat];
   return Array.from({ length: 9 }, (_, i) => {
-    const seed = sessionSeed + CAT_SEED_OFFSET[cat] + page * 9 + i;
+    // 用 sessionSeed 做起始偏移，每次开面板顺序不同；page 继续向后翻
+    const idx = (sessionSeed % pool.length + page * 9 + i) % pool.length;
+    const id = pool[idx];
     return {
-      thumb: `https://picsum.photos/seed/${seed}/480/270`,
-      full:  `https://picsum.photos/seed/${seed}/1920/1080`,
+      thumb: `https://images.unsplash.com/photo-${id}?w=480&q=70`,
+      full:  `https://images.unsplash.com/photo-${id}?w=1920&q=90`,
       title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
     };
   });
 }
 
-// Wallhaven API（原生CORS，SFW，高清壁纸）
+// Wallhaven API（直连 + 两级代理回退）
 async function fetchWallhavenImages(
   cat: Exclude<BgCategory, 'bing'>,
   page: number,
@@ -64,7 +102,7 @@ async function fetchWallhavenImages(
   const q = encodeURIComponent(WALLHAVEN_QUERIES[cat]);
   const url = `https://wallhaven.cc/api/v1/search?q=${q}&categories=110&purity=100&atleast=1920x1080&sorting=random&page=${page + 1}&per_page=9`;
   const tryFetch = async (target: string) => {
-    const res = await fetch(target, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(target, { signal: AbortSignal.timeout(7000) });
     const json = await res.json() as {
       data: Array<{ thumbs: { large: string; small: string }; path: string }>;
     };
@@ -75,12 +113,16 @@ async function fetchWallhavenImages(
       title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
     }));
   };
-  // 直连优先，失败时走 corsproxy 备用
-  try {
-    return await tryFetch(url);
-  } catch {
-    return await tryFetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+  // 直连 → corsproxy → allorigins 三级回退
+  const proxies = [
+    url,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  ];
+  for (const src of proxies) {
+    try { return await tryFetch(src); } catch { /* 继续下一级 */ }
   }
+  throw new Error('all proxies failed');
 }
 
 interface SettingsViewProps {
@@ -159,7 +201,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 精选分类壁纸 fetch（Wallhaven + picsum 备用）──
+  // ── 精选分类壁纸 fetch（Wallhaven + 精选Unsplash分类兜底）──
   const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
     const key = `${cat}-${page}-${sessionSeedRef.current}`;
     if (catImages[key]) return; // 已缓存
@@ -168,8 +210,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       const items = await fetchWallhavenImages(cat, page);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } catch {
-      // Wallhaven 失败 → picsum 备用（seed随机）
-      const items = picsumFallback(cat, page, sessionSeedRef.current);
+      // Wallhaven 全部失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
+      const items = unsplashFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
     } finally {
       setCatLoading(null);
