@@ -361,24 +361,41 @@ const Desktop: React.FC = () => {
 
         if (isWidget) {
           // ── 组件拖拽 ──
-          // 用 Y 轴距离重新确定目标行（防止 2D 近邻算法在行间隙处跳到相邻的应用行）
-          const rowYMap = new Map<number, number[]>();
+          // 用行的 Y 范围确定目标行：优先命中，其次最近中心Y，避免误触相邻应用行
+          type RowBound = { top: number; bottom: number; cy: number };
+          const rowBounds = new Map<number, RowBound>();
           for (const cellEl of allCells) {
             const rPage = Number(cellEl.dataset.page);
             if (rPage !== targetPage) continue;
             const rNum = Number(cellEl.dataset.row);
             const rect = cellEl.getBoundingClientRect();
-            const cy = (rect.top + rect.bottom) / 2;
-            if (!rowYMap.has(rNum)) rowYMap.set(rNum, []);
-            rowYMap.get(rNum)!.push(cy);
+            const prev = rowBounds.get(rNum);
+            if (!prev) {
+              rowBounds.set(rNum, { top: rect.top, bottom: rect.bottom, cy: (rect.top + rect.bottom) / 2 });
+            } else {
+              rowBounds.set(rNum, {
+                top: Math.min(prev.top, rect.top),
+                bottom: Math.max(prev.bottom, rect.bottom),
+                cy: (Math.min(prev.top, rect.top) + Math.max(prev.bottom, rect.bottom)) / 2,
+              });
+            }
           }
           let widgetTargetRow = targetRow;
-          let minYDist = Infinity;
-          rowYMap.forEach((ys, rowIdx) => {
-            const avgY = ys.reduce((a, b) => a + b, 0) / ys.length;
-            const dist = Math.abs(e.clientY - avgY);
-            if (dist < minYDist) { minYDist = dist; widgetTargetRow = rowIdx; }
+          // 先找指针 Y 直接命中的行
+          let hit = false;
+          rowBounds.forEach((b, rowIdx) => {
+            if (!hit && e.clientY >= b.top && e.clientY <= b.bottom) {
+              widgetTargetRow = rowIdx; hit = true;
+            }
           });
+          // 未命中（行间隙）→ 取最近中心 Y
+          if (!hit) {
+            let minYDist = Infinity;
+            rowBounds.forEach((b, rowIdx) => {
+              const dist = Math.abs(e.clientY - b.cy);
+              if (dist < minYDist) { minYDist = dist; widgetTargetRow = rowIdx; }
+            });
+          }
 
           // 检查落点是否是另一个组件（widget ↔ widget 交换）
           const targetPageItems = d.pages[targetPage] ?? [];
@@ -398,7 +415,7 @@ const Desktop: React.FC = () => {
               it => it.row === widgetTargetRow && it.id !== g.source.itemId && it.type !== 'widget',
             );
             if (hasApps) {
-              toast.error('该行已有应用，请拖到空行放置');
+              toast.error('空间不足');
               return; // 不移动，组件自动复位
             }
             moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
