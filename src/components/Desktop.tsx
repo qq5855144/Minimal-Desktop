@@ -361,8 +361,8 @@ const Desktop: React.FC = () => {
 
         if (isWidget) {
           // ── 组件拖拽 ──
-          // 用行的 Y 范围确定目标行：优先命中，其次最近中心Y，避免误触相邻应用行
-          type RowBound = { top: number; bottom: number; cy: number };
+          // 用行的 Y 范围确定目标行：优先命中，其次最近边缘距离（gap区精准）
+          type RowBound = { top: number; bottom: number };
           const rowBounds = new Map<number, RowBound>();
           for (const cellEl of allCells) {
             const rPage = Number(cellEl.dataset.page);
@@ -371,29 +371,28 @@ const Desktop: React.FC = () => {
             const rect = cellEl.getBoundingClientRect();
             const prev = rowBounds.get(rNum);
             if (!prev) {
-              rowBounds.set(rNum, { top: rect.top, bottom: rect.bottom, cy: (rect.top + rect.bottom) / 2 });
+              rowBounds.set(rNum, { top: rect.top, bottom: rect.bottom });
             } else {
               rowBounds.set(rNum, {
                 top: Math.min(prev.top, rect.top),
                 bottom: Math.max(prev.bottom, rect.bottom),
-                cy: (Math.min(prev.top, rect.top) + Math.max(prev.bottom, rect.bottom)) / 2,
               });
             }
           }
           let widgetTargetRow = targetRow;
-          // 先找指针 Y 直接命中的行
           let hit = false;
+          // 第一步：直接命中
           rowBounds.forEach((b, rowIdx) => {
             if (!hit && e.clientY >= b.top && e.clientY <= b.bottom) {
               widgetTargetRow = rowIdx; hit = true;
             }
           });
-          // 未命中（行间隙）→ 取最近中心 Y
+          // 第二步：在行间隙时 → 比较到各行最近边缘距离（避免中心距偏向高行）
           if (!hit) {
-            let minYDist = Infinity;
+            let minEdgeDist = Infinity;
             rowBounds.forEach((b, rowIdx) => {
-              const dist = Math.abs(e.clientY - b.cy);
-              if (dist < minYDist) { minYDist = dist; widgetTargetRow = rowIdx; }
+              const dist = e.clientY < b.top ? b.top - e.clientY : e.clientY - b.bottom;
+              if (dist < minEdgeDist) { minEdgeDist = dist; widgetTargetRow = rowIdx; }
             });
           }
 
