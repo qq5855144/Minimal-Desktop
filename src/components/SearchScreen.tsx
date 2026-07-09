@@ -176,7 +176,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
 
             <input
               ref={inputRef}
-              type="search"
+              type="text"
               inputMode="search"
               enterKeyHint="search"
               value={query}
