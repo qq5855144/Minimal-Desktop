@@ -20,58 +20,36 @@ interface BingImage {
 }
 
 interface CuratedWallpaper {
-  thumb: string;   // 缩略图 URL
-  full: string;    // 高清 URL
+  thumb: string;
+  full: string;
   title: string;
 }
 
-// ── 精选壁纸库（按分类，直链无需API）──
-const CURATED: Record<Exclude<BgCategory, 'bing'>, CuratedWallpaper[]> = {
-  nature: [
-    { thumb: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=480&q=70', full: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90', title: '梦幻山湖' },
-    { thumb: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=480&q=70', full: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1920&q=90', title: '山间落日' },
-    { thumb: 'https://images.unsplash.com/photo-1426604966848-d7adac402bff?w=480&q=70', full: 'https://images.unsplash.com/photo-1426604966848-d7adac402bff?w=1920&q=90', title: '翠谷云海' },
-    { thumb: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=480&q=70', full: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1920&q=90', title: '雪山晨光' },
-    { thumb: 'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=480&q=70', full: 'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1920&q=90', title: '林间瀑布' },
-    { thumb: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=480&q=70', full: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=1920&q=90', title: '麦田黄昏' },
-    { thumb: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=480&q=70', full: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=1920&q=90', title: '海岸礁石' },
-    { thumb: 'https://images.unsplash.com/photo-1476842634003-7dcca8f832de?w=480&q=70', full: 'https://images.unsplash.com/photo-1476842634003-7dcca8f832de?w=1920&q=90', title: '极光夜空' },
-    { thumb: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=480&q=70', full: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=1920&q=90', title: '银河星野' },
-  ],
-  city: [
-    { thumb: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=480&q=70', full: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1920&q=90', title: '都市夜景' },
-    { thumb: 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=480&q=70', full: 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=1920&q=90', title: '城市天际' },
-    { thumb: 'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=480&q=70', full: 'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=1920&q=90', title: '东京街头' },
-    { thumb: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=480&q=70', full: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=1920&q=90', title: '霓虹夜市' },
-    { thumb: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=480&q=70', full: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=1920&q=90', title: '玻璃幕墙' },
-    { thumb: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=480&q=70', full: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=1920&q=90', title: '夜色曼哈顿' },
-    { thumb: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=480&q=70', full: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1920&q=90', title: '伦敦秋色' },
-    { thumb: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=480&q=70', full: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1920&q=90', title: '高架桥光轨' },
-    { thumb: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=480&q=70', full: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=1920&q=90', title: '渋谷十字路' },
-  ],
-  space: [
-    { thumb: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=480&q=70', full: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920&q=90', title: '星河之上' },
-    { thumb: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=480&q=70', full: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=90', title: '星云彩云' },
-    { thumb: 'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=480&q=70', full: 'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1920&q=90', title: '深空探索' },
-    { thumb: 'https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=480&q=70', full: 'https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=1920&q=90', title: '繁星穹顶' },
-    { thumb: 'https://images.unsplash.com/photo-1543722530-d2c3201371e7?w=480&q=70', full: 'https://images.unsplash.com/photo-1543722530-d2c3201371e7?w=1920&q=90', title: '银河弧' },
-    { thumb: 'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=480&q=70', full: 'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=1920&q=90', title: '月球表面' },
-    { thumb: 'https://images.unsplash.com/photo-1581822261290-991b38693d1b?w=480&q=70', full: 'https://images.unsplash.com/photo-1581822261290-991b38693d1b?w=1920&q=90', title: '宇宙尘埃' },
-    { thumb: 'https://images.unsplash.com/photo-1509773896068-7fd415d91e2e?w=480&q=70', full: 'https://images.unsplash.com/photo-1509773896068-7fd415d91e2e?w=1920&q=90', title: '恒星诞生' },
-    { thumb: 'https://images.unsplash.com/photo-1539321908154-04927596764d?w=480&q=70', full: 'https://images.unsplash.com/photo-1539321908154-04927596764d?w=1920&q=90', title: '北极光' },
-  ],
-  minimal: [
-    { thumb: 'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=480&q=70', full: 'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=90', title: '紫调渐变' },
-    { thumb: 'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=480&q=70', full: 'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=1920&q=90', title: '几何光影' },
-    { thumb: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=480&q=70', full: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=90', title: '彩虹渐变' },
-    { thumb: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=480&q=70', full: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=1920&q=90', title: '奶油极简' },
-    { thumb: 'https://images.unsplash.com/photo-1542281286-9e0a16bb7366?w=480&q=70', full: 'https://images.unsplash.com/photo-1542281286-9e0a16bb7366?w=1920&q=90', title: '霓虹线条' },
-    { thumb: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=480&q=70', full: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1920&q=90', title: '莫兰迪' },
-    { thumb: 'https://images.unsplash.com/photo-1525909002-1b05e0c869d8?w=480&q=70', full: 'https://images.unsplash.com/photo-1525909002-1b05e0c869d8?w=1920&q=90', title: '海浪粒子' },
-    { thumb: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=480&q=70', full: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=1920&q=90', title: '深邃黑蓝' },
-    { thumb: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=480&q=70', full: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=1920&q=90', title: '浮雕纹理' },
-  ],
+// 分类关键词 → Unsplash Source 动态拉取（sig 参数保证每页不重复）
+const CATEGORY_KEYWORDS: Record<Exclude<BgCategory, 'bing'>, string> = {
+  nature:  'nature,landscape,mountain',
+  city:    'city,architecture,night',
+  space:   'space,galaxy,stars,nebula',
+  minimal: 'minimal,abstract,gradient',
 };
+const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
+  nature:  '自然风景',
+  city:    '城市建筑',
+  space:   '宇宙星空',
+  minimal: '极简抽象',
+};
+
+function getCuratedItems(cat: Exclude<BgCategory, 'bing'>, page: number): CuratedWallpaper[] {
+  const kw = encodeURIComponent(CATEGORY_KEYWORDS[cat]);
+  return Array.from({ length: 9 }, (_, i) => {
+    const sig = page * 9 + i + 1;
+    return {
+      thumb: `https://source.unsplash.com/480x270/?${kw}&sig=${sig}`,
+      full:  `https://source.unsplash.com/1920x1080/?${kw}&sig=${sig}`,
+      title: `${CATEGORY_LABELS[cat]} ${sig}`,
+    };
+  });
+}
 
 interface SettingsViewProps {
   open: boolean;
@@ -83,6 +61,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
+  const [catPage, setCatPage] = useState(0);
   const [bingImages, setBingImages] = useState<BingImage[]>([]);
   const [bingLoading, setBingLoading] = useState(false);
   const [bingError, setBingError] = useState(false);
@@ -303,12 +282,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   // ── 背景设置面板 ──
   const renderBg = () => {
-    const categories: { id: BgCategory; label: string; emoji: string }[] = [
-      { id: 'bing',    label: '必应每日', emoji: '🌅' },
-      { id: 'nature',  label: '自然风景', emoji: '🌿' },
-      { id: 'city',    label: '城市建筑', emoji: '🏙️' },
-      { id: 'space',   label: '宇宙星空', emoji: '🌌' },
-      { id: 'minimal', label: '极简抽象', emoji: '🎨' },
+    const categories: { id: BgCategory; label: string }[] = [
+      { id: 'bing',    label: '必应每日' },
+      { id: 'nature',  label: '自然风景' },
+      { id: 'city',    label: '城市建筑' },
+      { id: 'space',   label: '宇宙星空' },
+      { id: 'minimal', label: '极简抽象' },
     ];
 
     // 通用壁纸网格组件
@@ -390,10 +369,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           </button>
           <h3 className={`text-sm font-semibold ${t.textPrimary}`}>壁纸</h3>
           <div className="flex items-center gap-2">
-            {bgCat === 'bing' && (
+            {bgCat === 'bing' ? (
               <button type="button" onClick={fetchBingWallpapers} disabled={bingLoading}
                 className={`${t.textDim} disabled:opacity-40`}>
                 <RefreshCw className={`w-4 h-4 ${bingLoading ? 'animate-spin' : ''}`} />
+              </button>
+            ) : (
+              <button type="button" onClick={() => setCatPage((p) => p + 1)}
+                className={`${t.textDim}`}>
+                <RefreshCw className="w-4 h-4" />
               </button>
             )}
             {(settings.bgImage || settings.bgVideo) && (
@@ -424,7 +408,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                       : 'bg-white/10 text-white/70 hover:bg-white/20'
                 }`}
               >
-                <span>{cat.emoji}</span>{cat.label}
+                {cat.label}
               </button>
             ))}
           </div>
@@ -435,7 +419,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           {bgCat === 'bing' && bingContent}
           {bgCat !== 'bing' && (
             <WallpaperGrid
-              items={CURATED[bgCat as Exclude<BgCategory, 'bing'>]}
+              items={getCuratedItems(bgCat as Exclude<BgCategory, 'bing'>, catPage)}
               isActive={(full) => settings.bgImage === full}
             />
           )}
