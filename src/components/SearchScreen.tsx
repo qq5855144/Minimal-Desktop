@@ -155,8 +155,8 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
 
   return (
     <div
-      className={`fixed inset-0 z-[500] flex flex-col ${overlayBg}`}
-      style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)' } : {}}
+      className={`fixed inset-0 z-[500] flex flex-col rounded-none ${overlayBg}`}
+      style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderRadius: 0 } : { borderRadius: 0 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-12 gap-4 flex-1 overflow-hidden">
