@@ -1,15 +1,23 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import type { DesktopStyle } from '@/types';
 import {
   Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
   RotateCcw, FilePlus, X, Check, Clock, Search, Layers, Link,
+  RefreshCw, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
+type BgTab = 'bing' | 'local' | 'url';
+
+interface BingImage {
+  url: string;          // 完整图片 URL
+  copyright: string;    // 版权描述
+  title: string;
+}
 
 interface SettingsViewProps {
   open: boolean;
@@ -20,30 +28,74 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const { data, addPage, setCurrentPage, importData, settings, updateSettings } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
+  const [bgTab, setBgTab] = useState<BgTab>('bing');
+  const [bingImages, setBingImages] = useState<BingImage[]>([]);
+  const [bingLoading, setBingLoading] = useState(false);
+  const [bingError, setBingError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
   const handleClose = () => { setPanel('main'); onClose(); };
 
+  // ── 必应壁纸 fetch ──
+  const fetchBingWallpapers = useCallback(async () => {
+    setBingLoading(true);
+    setBingError(false);
+    try {
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+        'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN'
+      )}`;
+      const res = await fetch(proxyUrl);
+      const data = await res.json();
+      const parsed = JSON.parse(data.contents);
+      const imgs: BingImage[] = (parsed.images as { url: string; copyright: string; title?: string }[]).map((img) => ({
+        url: `https://www.bing.com${img.url.replace(/1920x1080/g, '1920x1080')}`,
+        copyright: img.copyright,
+        title: img.title ?? img.copyright.split('（')[0].split(' (')[0],
+      }));
+      setBingImages(imgs);
+    } catch {
+      setBingError(true);
+    } finally {
+      setBingLoading(false);
+    }
+  }, []);
+
+  // 打开背景面板时自动加载
+  useEffect(() => {
+    if (panel === 'bg' && bgTab === 'bing' && bingImages.length === 0 && !bingLoading) {
+      fetchBingWallpapers();
+    }
+  }, [panel, bgTab, bingImages.length, bingLoading, fetchBingWallpapers]);
+
+  // ── 应用必应壁纸 ──
+  const applyBingWallpaper = useCallback((img: BingImage) => {
+    updateSettings({ bgImage: img.url, bgVideo: undefined, bgType: 'image' });
+    toast.success('必应壁纸已应用');
+  }, [updateSettings]);
+
   // ── 背景 ──
   const handleBgFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const isVideo = file.type.startsWith('video/');
-    if (isVideo) {
-      const url = URL.createObjectURL(file);
-      updateSettings({ bgVideo: url, bgImage: undefined, bgType: 'video' });
-      toast.success('视频壁纸已应用（刷新后失效，建议使用图片）');
-    } else {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const base64 = ev.target?.result as string;
-        updateSettings({ bgImage: base64, bgVideo: undefined, bgType: 'image' });
-        toast.success('壁纸已更新');
-      };
-      reader.readAsDataURL(file);
-    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target?.result as string;
+      updateSettings({ bgImage: base64, bgVideo: undefined, bgType: 'image' });
+      toast.success('壁纸已更新');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, [updateSettings]);
+
+  const handleVideoFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    updateSettings({ bgVideo: url, bgImage: undefined, bgType: 'video' });
+    toast.success('视频壁纸已应用（刷新后失效，建议使用图片）');
     e.target.value = '';
   }, [updateSettings]);
 
@@ -177,74 +229,215 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   );
 
   // ── 背景设置面板 ──
-  const renderBg = () => (
-    <div className="px-5 py-4 space-y-4">
-      <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
-        <ChevronLeft className="w-4 h-4" /> 返回
-      </button>
-      <h3 className={`text-base font-semibold ${t.textPrimary}`}>背景设置</h3>
-      <div className={`relative w-full aspect-[9/4] rounded-2xl overflow-hidden ${t.itemBg}`}>
+  const renderBg = () => {
+    const tabs: { id: BgTab; label: string }[] = [
+      { id: 'bing', label: '必应每日' },
+      { id: 'local', label: '本地文件' },
+      { id: 'url', label: '图片 URL' },
+    ];
+
+    // 当前壁纸预览
+    const preview = (
+      <div className={`relative w-full aspect-[16/7] rounded-2xl overflow-hidden mb-4 ${t.itemBg}`}>
         {settings.bgType === 'video' && settings.bgVideo ? (
           <video src={settings.bgVideo} autoPlay loop muted playsInline className="w-full h-full object-cover" />
         ) : settings.bgType === 'image' && settings.bgImage ? (
-          <img src={settings.bgImage} alt="壁纸预览" className="w-full h-full object-cover" />
+          <img src={settings.bgImage} alt="当前壁纸" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-blue-600/40 to-purple-600/40 flex items-center justify-center">
-            <span className={`text-sm ${t.textDim}`}>默认渐变背景</span>
+            <span className={`text-xs ${t.textDim}`}>默认渐变背景</span>
+          </div>
+        )}
+        {(settings.bgImage || settings.bgVideo) && (
+          <button
+            type="button"
+            onClick={handleClearBg}
+            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 transition-colors"
+          >
+            <X className="w-3.5 h-3.5 text-white" />
+          </button>
+        )}
+        <div className="absolute bottom-0 left-0 right-0 px-3 py-1.5 bg-black/30 backdrop-blur-sm">
+          <span className="text-white/80 text-[10px]">
+            {settings.bgType === 'default' ? '默认渐变背景' : settings.bgType === 'video' ? '视频壁纸' : '图片壁纸'}
+          </span>
+        </div>
+      </div>
+    );
+
+    // 标签切换栏
+    const tabBar = (
+      <div className={`flex rounded-xl p-0.5 mb-4 ${isNeu ? 'bg-gray-200' : 'bg-white/10'}`}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setBgTab(tab.id);
+              if (tab.id === 'bing' && bingImages.length === 0 && !bingLoading) fetchBingWallpapers();
+            }}
+            className={`flex-1 py-2 rounded-[10px] text-xs font-medium transition-all ${
+              bgTab === tab.id
+                ? isNeu
+                  ? 'bg-white shadow text-gray-800'
+                  : 'bg-white/20 text-white shadow'
+                : isNeu
+                  ? 'text-gray-500 hover:text-gray-700'
+                  : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    );
+
+    // 必应壁纸 tab
+    const bingTab = (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className={`text-xs ${t.textDim}`}>过去 8 天的必应每日壁纸</p>
+          <button
+            type="button"
+            onClick={fetchBingWallpapers}
+            disabled={bingLoading}
+            className={`flex items-center gap-1 text-xs ${t.backText} disabled:opacity-40`}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${bingLoading ? 'animate-spin' : ''}`} /> 刷新
+          </button>
+        </div>
+        {bingLoading ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-2">
+            <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
+            <span className={`text-xs ${t.textDim}`}>正在加载必应壁纸…</span>
+          </div>
+        ) : bingError ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-3">
+            <span className={`text-xs ${t.textDim}`}>加载失败，请检查网络</span>
+            <button
+              type="button"
+              onClick={fetchBingWallpapers}
+              className="text-xs text-primary underline"
+            >重试</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {bingImages.map((img, i) => {
+              const thumbUrl = img.url.replace(/1920x1080/g, '640x360');
+              const isActive = settings.bgImage === img.url;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => applyBingWallpaper(img)}
+                  className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all ${
+                    isActive ? 'border-primary scale-[0.97]' : isNeu ? 'border-gray-200 hover:border-gray-400' : 'border-white/10 hover:border-white/40'
+                  }`}
+                >
+                  <img
+                    src={thumbUrl}
+                    alt={img.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    crossOrigin="anonymous"
+                  />
+                  {isActive && (
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-1">
+                    <p className="text-white/90 text-[9px] leading-tight truncate">{img.title}</p>
+                  </div>
+                  {i === 0 && (
+                    <div className="absolute top-1.5 left-1.5 bg-primary text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">今日</div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
-      <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleBgFile} />
-      <div className="grid grid-cols-2 gap-3">
+    );
+
+    // 本地文件 tab
+    const localTab = (
+      <div className="space-y-3">
+        <input ref={fileInputRef} type="file" accept="image/*,image/gif" className="hidden" onChange={handleBgFile} />
+        <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/ogg" className="hidden" onChange={handleVideoFile} />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center justify-center gap-2 rounded-2xl px-4 py-3 bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors"
+          className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder}`}
         >
-          <Image className="w-4 h-4" /> 选择图片/GIF
+          <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shrink-0">
+            <Image className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-left">
+            <p className={`text-sm font-medium ${t.textPrimary}`}>选择图片 / GIF</p>
+            <p className={`text-xs ${t.textDim}`}>JPG · PNG · GIF · WEBP</p>
+          </div>
+          <ChevronRight className={`w-4 h-4 shrink-0 ml-auto ${t.textDim}`} />
         </button>
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.itemBg} ${t.itemBgHover} ${t.textMuted} text-sm transition-colors border ${t.itemBorder}`}
+          onClick={() => videoInputRef.current?.click()}
+          className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder}`}
         >
-          <Video className="w-4 h-4" /> 选择视频
+          <div className="w-9 h-9 rounded-xl bg-orange-500 flex items-center justify-center shrink-0">
+            <Video className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-left">
+            <p className={`text-sm font-medium ${t.textPrimary}`}>选择视频</p>
+            <p className={`text-xs ${t.textDim}`}>MP4 · WEBM（刷新后失效）</p>
+          </div>
+          <ChevronRight className={`w-4 h-4 shrink-0 ml-auto ${t.textDim}`} />
         </button>
       </div>
-      {(settings.bgImage || settings.bgVideo) && (
-        <button
-          type="button"
-          onClick={handleClearBg}
-          className={`w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.itemBg} ${t.itemBgHover} ${t.textDim} text-sm transition-colors border ${t.itemBorder}`}
-        >
-          <X className="w-4 h-4" /> 恢复默认背景
-        </button>
-      )}
-      <p className={`text-xs ${t.textDim}`}>支持 JPG / PNG / GIF / WEBP 图片及 MP4 / WEBM 视频。视频壁纸在页面刷新后失效。</p>
-      {/* URL 输入 */}
-      <div className="space-y-2">
-        <p className={`text-xs font-medium ${t.textMuted}`}>或输入图片 / 视频 URL</p>
-        <div className="flex gap-2">
+    );
+
+    // URL 输入 tab
+    const urlTab = (
+      <div className="space-y-3">
+        <p className={`text-xs ${t.textDim}`}>输入图片或视频的直链地址</p>
+        <div className={`flex rounded-2xl border overflow-hidden ${t.itemBorder}`}>
           <input
             type="text"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleBgUrl()}
             placeholder="https://example.com/wallpaper.jpg"
-            className={`flex-1 min-w-0 ${t.inputCls}`}
+            className={`flex-1 min-w-0 bg-transparent px-4 py-3 text-sm outline-none ${t.textPrimary} placeholder:${t.textDim}`}
           />
-          <button
-            type="button"
-            onClick={handleBgUrl}
-            disabled={!urlInput.trim()}
-            className="shrink-0 flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors disabled:opacity-40"
-          >
-            <Link className="w-4 h-4" /> 应用
-          </button>
         </div>
+        <button
+          type="button"
+          onClick={handleBgUrl}
+          disabled={!urlInput.trim()}
+          className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          <Link className="w-4 h-4" /> 应用壁纸
+        </button>
+        <p className={`text-xs ${t.textDim}`}>视频链接（.mp4/.webm）将作为动态壁纸，页面刷新后失效</p>
       </div>
-    </div>
-  );
+    );
+
+    return (
+      <div className="px-5 py-4">
+        <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm mb-3 ${t.backText}`}>
+          <ChevronLeft className="w-4 h-4" /> 返回
+        </button>
+        <h3 className={`text-base font-semibold mb-4 ${t.textPrimary}`}>背景设置</h3>
+        {preview}
+        {tabBar}
+        {bgTab === 'bing'  && bingTab}
+        {bgTab === 'local' && localTab}
+        {bgTab === 'url'   && urlTab}
+      </div>
+    );
+  };
 
   // ── 应用视图设置面板 ──
   const renderView = () => (
