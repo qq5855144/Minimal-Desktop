@@ -39,10 +39,15 @@ const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   minimal: '极简抽象',
 };
 
-// picsum.photos 备用（seed随机，每次开面板不同）
+// 分类 seed 偏移，保证各分类 picsum 图片互不重复
+const CAT_SEED_OFFSET: Record<Exclude<BgCategory, 'bing'>, number> = {
+  nature: 0, city: 1000, space: 2000, minimal: 3000,
+};
+
+// picsum.photos 备用（seed = sessionSeed + 分类偏移 + 位置，各分类不同）
 function picsumFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessionSeed: number): CuratedWallpaper[] {
   return Array.from({ length: 9 }, (_, i) => {
-    const seed = sessionSeed + page * 9 + i;
+    const seed = sessionSeed + CAT_SEED_OFFSET[cat] + page * 9 + i;
     return {
       thumb: `https://picsum.photos/seed/${seed}/480/270`,
       full:  `https://picsum.photos/seed/${seed}/1920/1080`,
@@ -58,20 +63,24 @@ async function fetchWallhavenImages(
 ): Promise<CuratedWallpaper[]> {
   const q = encodeURIComponent(WALLHAVEN_QUERIES[cat]);
   const url = `https://wallhaven.cc/api/v1/search?q=${q}&categories=110&purity=100&atleast=1920x1080&sorting=random&page=${page + 1}&per_page=9`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  const json = await res.json() as {
-    data: Array<{
-      thumbs: { large: string; small: string };
-      path: string;
-      id: string;
-    }>;
+  const tryFetch = async (target: string) => {
+    const res = await fetch(target, { signal: AbortSignal.timeout(8000) });
+    const json = await res.json() as {
+      data: Array<{ thumbs: { large: string; small: string }; path: string }>;
+    };
+    if (!json.data?.length) throw new Error('no results');
+    return json.data.map((d, i) => ({
+      thumb: d.thumbs.large ?? d.thumbs.small,
+      full:  d.path,
+      title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
+    }));
   };
-  if (!json.data?.length) throw new Error('no results');
-  return json.data.map((d, i) => ({
-    thumb: d.thumbs.large ?? d.thumbs.small,
-    full:  d.path,
-    title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
-  }));
+  // 直连优先，失败时走 corsproxy 备用
+  try {
+    return await tryFetch(url);
+  } catch {
+    return await tryFetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+  }
 }
 
 interface SettingsViewProps {
