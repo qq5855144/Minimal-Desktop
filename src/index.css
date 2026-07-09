@@ -145,6 +145,13 @@ input, textarea, [contenteditable="true"] {
 }
 
 @layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .glass {
     background: hsl(var(--card) / 0.7);
     backdrop-filter: blur(24px) saturate(180%);

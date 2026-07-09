@@ -11,13 +11,67 @@ import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
-type BgTab = 'bing' | 'local' | 'url';
+type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
 
 interface BingImage {
-  url: string;          // 完整图片 URL
-  copyright: string;    // 版权描述
+  url: string;
+  copyright: string;
   title: string;
 }
+
+interface CuratedWallpaper {
+  thumb: string;   // 缩略图 URL
+  full: string;    // 高清 URL
+  title: string;
+}
+
+// ── 精选壁纸库（按分类，直链无需API）──
+const CURATED: Record<Exclude<BgCategory, 'bing'>, CuratedWallpaper[]> = {
+  nature: [
+    { thumb: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=480&q=70', full: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90', title: '梦幻山湖' },
+    { thumb: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=480&q=70', full: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1920&q=90', title: '山间落日' },
+    { thumb: 'https://images.unsplash.com/photo-1426604966848-d7adac402bff?w=480&q=70', full: 'https://images.unsplash.com/photo-1426604966848-d7adac402bff?w=1920&q=90', title: '翠谷云海' },
+    { thumb: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=480&q=70', full: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1920&q=90', title: '雪山晨光' },
+    { thumb: 'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=480&q=70', full: 'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=1920&q=90', title: '林间瀑布' },
+    { thumb: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=480&q=70', full: 'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=1920&q=90', title: '麦田黄昏' },
+    { thumb: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=480&q=70', full: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=1920&q=90', title: '海岸礁石' },
+    { thumb: 'https://images.unsplash.com/photo-1476842634003-7dcca8f832de?w=480&q=70', full: 'https://images.unsplash.com/photo-1476842634003-7dcca8f832de?w=1920&q=90', title: '极光夜空' },
+    { thumb: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=480&q=70', full: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=1920&q=90', title: '银河星野' },
+  ],
+  city: [
+    { thumb: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=480&q=70', full: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1920&q=90', title: '都市夜景' },
+    { thumb: 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=480&q=70', full: 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=1920&q=90', title: '城市天际' },
+    { thumb: 'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=480&q=70', full: 'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=1920&q=90', title: '东京街头' },
+    { thumb: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=480&q=70', full: 'https://images.unsplash.com/photo-1534430480872-3498386e7856?w=1920&q=90', title: '霓虹夜市' },
+    { thumb: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=480&q=70', full: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=1920&q=90', title: '玻璃幕墙' },
+    { thumb: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=480&q=70', full: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=1920&q=90', title: '夜色曼哈顿' },
+    { thumb: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=480&q=70', full: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1920&q=90', title: '伦敦秋色' },
+    { thumb: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=480&q=70', full: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1920&q=90', title: '高架桥光轨' },
+    { thumb: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=480&q=70', full: 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=1920&q=90', title: '渋谷十字路' },
+  ],
+  space: [
+    { thumb: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=480&q=70', full: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920&q=90', title: '星河之上' },
+    { thumb: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=480&q=70', full: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1920&q=90', title: '星云彩云' },
+    { thumb: 'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=480&q=70', full: 'https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1920&q=90', title: '深空探索' },
+    { thumb: 'https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=480&q=70', full: 'https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=1920&q=90', title: '繁星穹顶' },
+    { thumb: 'https://images.unsplash.com/photo-1543722530-d2c3201371e7?w=480&q=70', full: 'https://images.unsplash.com/photo-1543722530-d2c3201371e7?w=1920&q=90', title: '银河弧' },
+    { thumb: 'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=480&q=70', full: 'https://images.unsplash.com/photo-1614732414444-096e5f1122d5?w=1920&q=90', title: '月球表面' },
+    { thumb: 'https://images.unsplash.com/photo-1581822261290-991b38693d1b?w=480&q=70', full: 'https://images.unsplash.com/photo-1581822261290-991b38693d1b?w=1920&q=90', title: '宇宙尘埃' },
+    { thumb: 'https://images.unsplash.com/photo-1509773896068-7fd415d91e2e?w=480&q=70', full: 'https://images.unsplash.com/photo-1509773896068-7fd415d91e2e?w=1920&q=90', title: '恒星诞生' },
+    { thumb: 'https://images.unsplash.com/photo-1539321908154-04927596764d?w=480&q=70', full: 'https://images.unsplash.com/photo-1539321908154-04927596764d?w=1920&q=90', title: '北极光' },
+  ],
+  minimal: [
+    { thumb: 'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=480&q=70', full: 'https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1920&q=90', title: '紫调渐变' },
+    { thumb: 'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=480&q=70', full: 'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=1920&q=90', title: '几何光影' },
+    { thumb: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=480&q=70', full: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1920&q=90', title: '彩虹渐变' },
+    { thumb: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=480&q=70', full: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=1920&q=90', title: '奶油极简' },
+    { thumb: 'https://images.unsplash.com/photo-1542281286-9e0a16bb7366?w=480&q=70', full: 'https://images.unsplash.com/photo-1542281286-9e0a16bb7366?w=1920&q=90', title: '霓虹线条' },
+    { thumb: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=480&q=70', full: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1920&q=90', title: '莫兰迪' },
+    { thumb: 'https://images.unsplash.com/photo-1525909002-1b05e0c869d8?w=480&q=70', full: 'https://images.unsplash.com/photo-1525909002-1b05e0c869d8?w=1920&q=90', title: '海浪粒子' },
+    { thumb: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=480&q=70', full: 'https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=1920&q=90', title: '深邃黑蓝' },
+    { thumb: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=480&q=70', full: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=1920&q=90', title: '浮雕纹理' },
+  ],
+};
 
 interface SettingsViewProps {
   open: boolean;
@@ -28,7 +82,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const { data, addPage, setCurrentPage, importData, settings, updateSettings } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
-  const [bgTab, setBgTab] = useState<BgTab>('bing');
+  const [bgCat, setBgCat] = useState<BgCategory>('bing');
   const [bingImages, setBingImages] = useState<BingImage[]>([]);
   const [bingLoading, setBingLoading] = useState(false);
   const [bingError, setBingError] = useState(false);
@@ -39,21 +93,42 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   const handleClose = () => { setPanel('main'); onClose(); };
 
-  // ── 必应壁纸 fetch ──
+  // ── 必应壁纸 fetch（多源回退）──
   const fetchBingWallpapers = useCallback(async () => {
     setBingLoading(true);
     setBingError(false);
     try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+      // 方案1: bing.biturl.top (有 CORS 头，直接请求)
+      const results: BingImage[] = [];
+      const fetches = Array.from({ length: 8 }, (_, i) =>
+        fetch(`https://bing.biturl.top/?resolution=1920&format=json&index=${i}&mkt=zh-CN`, { signal: AbortSignal.timeout(8000) })
+          .then((r) => r.json())
+          .then((d: { url: string; copyright: string }) => {
+            results[i] = {
+              url: d.url,
+              copyright: d.copyright,
+              title: d.copyright.split('，')[0].split(', ')[0].replace(/\(.*\)/, '').trim(),
+            };
+          })
+          .catch(() => null)
+      );
+      await Promise.allSettled(fetches);
+      const valid = results.filter(Boolean);
+      if (valid.length > 0) {
+        setBingImages(valid);
+        return;
+      }
+      // 方案2: allorigins 代理 Bing 官方 API
+      const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(
         'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN'
       )}`;
-      const res = await fetch(proxyUrl);
-      const data = await res.json();
-      const parsed = JSON.parse(data.contents);
+      const res = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+      const json = await res.json();
+      const parsed = JSON.parse(json.contents);
       const imgs: BingImage[] = (parsed.images as { url: string; copyright: string; title?: string }[]).map((img) => ({
-        url: `https://www.bing.com${img.url.replace(/1920x1080/g, '1920x1080')}`,
+        url: `https://www.bing.com${img.url}`,
         copyright: img.copyright,
-        title: img.title ?? img.copyright.split('（')[0].split(' (')[0],
+        title: img.title ?? img.copyright.split('（')[0].split(' (')[0].trim(),
       }));
       setBingImages(imgs);
     } catch {
@@ -63,17 +138,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, []);
 
-  // 打开背景面板时自动加载
   useEffect(() => {
-    if (panel === 'bg' && bgTab === 'bing' && bingImages.length === 0 && !bingLoading) {
+    if (panel === 'bg' && bgCat === 'bing' && bingImages.length === 0 && !bingLoading) {
       fetchBingWallpapers();
     }
-  }, [panel, bgTab, bingImages.length, bingLoading, fetchBingWallpapers]);
+  }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 应用必应壁纸 ──
-  const applyBingWallpaper = useCallback((img: BingImage) => {
-    updateSettings({ bgImage: img.url, bgVideo: undefined, bgType: 'image' });
-    toast.success('必应壁纸已应用');
+  const applyWallpaper = useCallback((url: string, label: string) => {
+    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+    toast.success(`「${label}」已应用`);
   }, [updateSettings]);
 
   // ── 背景 ──
@@ -230,216 +303,172 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   // ── 背景设置面板 ──
   const renderBg = () => {
-    const tabs: { id: BgTab; label: string }[] = [
-      { id: 'bing', label: '必应每日' },
-      { id: 'local', label: '本地文件' },
-      { id: 'url', label: '图片 URL' },
+    const categories: { id: BgCategory; label: string; emoji: string }[] = [
+      { id: 'bing',    label: '必应每日', emoji: '🌅' },
+      { id: 'nature',  label: '自然风景', emoji: '🌿' },
+      { id: 'city',    label: '城市建筑', emoji: '🏙️' },
+      { id: 'space',   label: '宇宙星空', emoji: '🌌' },
+      { id: 'minimal', label: '极简抽象', emoji: '🎨' },
     ];
 
-    // 当前壁纸状态标识（已内联到 return）
-
-
-    // 标签切换栏
-    const tabBar = (
-      <div className={`flex rounded-xl p-0.5 mb-4 ${isNeu ? 'bg-gray-200' : 'bg-white/10'}`}>
-        {tabs.map((tab) => (
+    // 通用壁纸网格组件
+    const WallpaperGrid = ({ items, isActive }: {
+      items: { thumb: string; full: string; title: string }[];
+      isActive: (full: string) => boolean;
+    }) => (
+      <div className="grid grid-cols-3 gap-2">
+        {items.map((item, i) => (
           <button
-            key={tab.id}
+            key={i}
             type="button"
-            onClick={() => {
-              setBgTab(tab.id);
-              if (tab.id === 'bing' && bingImages.length === 0 && !bingLoading) fetchBingWallpapers();
-            }}
-            className={`flex-1 py-2 rounded-[10px] text-xs font-medium transition-all ${
-              bgTab === tab.id
-                ? isNeu
-                  ? 'bg-white shadow text-gray-800'
-                  : 'bg-white/20 text-white shadow'
-                : isNeu
-                  ? 'text-gray-500 hover:text-gray-700'
-                  : 'text-white/50 hover:text-white/80'
+            onClick={() => applyWallpaper(item.full, item.title)}
+            className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all active:scale-95 ${
+              isActive(item.full)
+                ? 'border-primary'
+                : isNeu ? 'border-gray-200 hover:border-gray-400' : 'border-white/10 hover:border-white/30'
             }`}
           >
-            {tab.label}
+            <img
+              src={item.thumb}
+              alt={item.title}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={(e) => {
+                const el = e.target as HTMLImageElement;
+                el.style.opacity = '0';
+                el.parentElement!.style.background = '#1e293b';
+              }}
+            />
+            {isActive(item.full) && (
+              <div className="absolute inset-0 bg-primary/25 flex items-center justify-center">
+                <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shadow-lg">
+                  <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                </div>
+              </div>
+            )}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 py-1">
+              <p className="text-white/95 text-[9px] leading-tight truncate">{item.title}</p>
+            </div>
           </button>
         ))}
       </div>
     );
 
-    // 必应壁纸 tab
-    const bingTab = (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className={`text-xs ${t.textDim}`}>过去 8 天的必应每日壁纸</p>
-          <button
-            type="button"
-            onClick={fetchBingWallpapers}
-            disabled={bingLoading}
-            className={`flex items-center gap-1 text-xs ${t.backText} disabled:opacity-40`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${bingLoading ? 'animate-spin' : ''}`} /> 刷新
-          </button>
-        </div>
-        {bingLoading ? (
-          <div className="flex flex-col items-center justify-center py-8 gap-2">
-            <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
-            <span className={`text-xs ${t.textDim}`}>正在加载必应壁纸…</span>
-          </div>
-        ) : bingError ? (
-          <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <span className={`text-xs ${t.textDim}`}>加载失败，请检查网络</span>
-            <button
-              type="button"
-              onClick={fetchBingWallpapers}
-              className="text-xs text-primary underline"
-            >重试</button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {bingImages.map((img, i) => {
-              const thumbUrl = img.url.replace(/1920x1080/g, '640x360');
-              const isActive = settings.bgImage === img.url;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => applyBingWallpaper(img)}
-                  className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all ${
-                    isActive ? 'border-primary scale-[0.97]' : isNeu ? 'border-gray-200 hover:border-gray-400' : 'border-white/10 hover:border-white/40'
-                  }`}
-                >
-                  <img
-                    src={thumbUrl}
-                    alt={img.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    crossOrigin="anonymous"
-                  />
-                  {isActive && (
-                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                      <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                        <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5">
-                    <p className="text-white/90 text-[8px] leading-tight truncate">{img.title}</p>
-                  </div>
-                  {i === 0 && (
-                    <div className="absolute top-1 left-1 bg-primary text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">今日</div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+    // 必应每日内容
+    const bingContent = bingLoading ? (
+      <div className="flex flex-col items-center justify-center py-10 gap-2">
+        <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
+        <span className={`text-xs ${t.textDim}`}>正在加载必应壁纸…</span>
       </div>
-    );
-
-    // 本地文件 tab
-    const localTab = (
-      <div className="space-y-3">
-        <input ref={fileInputRef} type="file" accept="image/*,image/gif" className="hidden" onChange={handleBgFile} />
-        <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/ogg" className="hidden" onChange={handleVideoFile} />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder}`}
-        >
-          <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shrink-0">
-            <Image className="w-5 h-5 text-white" />
-          </div>
-          <div className="text-left">
-            <p className={`text-sm font-medium ${t.textPrimary}`}>选择图片 / GIF</p>
-            <p className={`text-xs ${t.textDim}`}>JPG · PNG · GIF · WEBP</p>
-          </div>
-          <ChevronRight className={`w-4 h-4 shrink-0 ml-auto ${t.textDim}`} />
-        </button>
-        <button
-          type="button"
-          onClick={() => videoInputRef.current?.click()}
-          className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder}`}
-        >
-          <div className="w-9 h-9 rounded-xl bg-orange-500 flex items-center justify-center shrink-0">
-            <Video className="w-5 h-5 text-white" />
-          </div>
-          <div className="text-left">
-            <p className={`text-sm font-medium ${t.textPrimary}`}>选择视频</p>
-            <p className={`text-xs ${t.textDim}`}>MP4 · WEBM（刷新后失效）</p>
-          </div>
-          <ChevronRight className={`w-4 h-4 shrink-0 ml-auto ${t.textDim}`} />
+    ) : bingError ? (
+      <div className="flex flex-col items-center justify-center py-10 gap-3">
+        <span className={`text-sm ${t.textDim}`}>加载失败</span>
+        <p className={`text-xs ${t.textDim} text-center px-4`}>请检查网络后重试，或切换其他分类</p>
+        <button type="button" onClick={fetchBingWallpapers}
+          className="px-4 py-1.5 rounded-full bg-primary/20 text-primary text-xs font-medium">
+          重试
         </button>
       </div>
-    );
-
-    // URL 输入 tab
-    const urlTab = (
-      <div className="space-y-3">
-        <p className={`text-xs ${t.textDim}`}>输入图片或视频的直链地址</p>
-        <div className={`flex rounded-2xl border overflow-hidden ${t.itemBorder}`}>
-          <input
-            type="text"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleBgUrl()}
-            placeholder="https://example.com/wallpaper.jpg"
-            className={`flex-1 min-w-0 bg-transparent px-4 py-3 text-sm outline-none ${t.textPrimary} placeholder:${t.textDim}`}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={handleBgUrl}
-          disabled={!urlInput.trim()}
-          className="w-full flex items-center justify-center gap-2 rounded-2xl px-4 py-3 bg-primary/20 hover:bg-primary/30 text-primary text-sm font-medium transition-colors disabled:opacity-40"
-        >
-          <Link className="w-4 h-4" /> 应用壁纸
-        </button>
-        <p className={`text-xs ${t.textDim}`}>视频链接（.mp4/.webm）将作为动态壁纸，页面刷新后失效</p>
-      </div>
+    ) : bingImages.length === 0 ? null : (
+      <WallpaperGrid
+        items={bingImages.map((img) => ({
+          thumb: img.url.replace(/1920x1080/g, '640x360'),
+          full: img.url,
+          title: img.title,
+        }))}
+        isActive={(full) => settings.bgImage === full}
+      />
     );
 
     return (
       <div className="flex flex-col h-full">
-        {/* 固定头部：返回 + 标题 + 紧凑预览条 */}
-        <div className="px-5 pt-3 pb-2 shrink-0">
-          <div className="flex items-center justify-between mb-2">
-            <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1 text-sm ${t.backText}`}>
-              <ChevronLeft className="w-4 h-4" /> 返回
-            </button>
-            <h3 className={`text-sm font-semibold ${t.textPrimary}`}>背景设置</h3>
-            {(settings.bgImage || settings.bgVideo) ? (
-              <button type="button" onClick={handleClearBg} className={`text-xs ${t.textDim} hover:text-red-400 transition-colors`}>
-                恢复默认
+        {/* 固定头部 */}
+        <div className="px-5 pt-3 pb-2 shrink-0 flex items-center justify-between">
+          <button type="button" onClick={() => setPanel('main')}
+            className={`flex items-center gap-1 text-sm ${t.backText}`}>
+            <ChevronLeft className="w-4 h-4" /> 返回
+          </button>
+          <h3 className={`text-sm font-semibold ${t.textPrimary}`}>壁纸</h3>
+          <div className="flex items-center gap-2">
+            {bgCat === 'bing' && (
+              <button type="button" onClick={fetchBingWallpapers} disabled={bingLoading}
+                className={`${t.textDim} disabled:opacity-40`}>
+                <RefreshCw className={`w-4 h-4 ${bingLoading ? 'animate-spin' : ''}`} />
               </button>
-            ) : <div className="w-14" />}
-          </div>
-          {/* 紧凑预览条 */}
-          <div className={`relative w-full h-14 rounded-xl overflow-hidden ${t.itemBg}`}>
-            {settings.bgType === 'video' && settings.bgVideo ? (
-              <video src={settings.bgVideo} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-            ) : settings.bgType === 'image' && settings.bgImage ? (
-              <img src={settings.bgImage} alt="当前壁纸" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-r from-blue-600/40 to-purple-600/40" />
             )}
-            <div className="absolute inset-0 bg-black/30 flex items-center px-3">
-              <span className="text-white/90 text-xs font-medium">
-                {settings.bgType === 'default' ? '默认渐变背景' : settings.bgType === 'video' ? '🎬 视频壁纸' : '🖼️ 图片壁纸'}
-              </span>
-            </div>
+            {(settings.bgImage || settings.bgVideo) && (
+              <button type="button" onClick={handleClearBg}
+                className="text-xs text-red-400/80 hover:text-red-400 transition-colors">
+                重置
+              </button>
+            )}
           </div>
         </div>
 
-        {/* 固定标签栏 */}
+        {/* 分类横向滚动 chips */}
         <div className="px-5 pb-2 shrink-0">
-          {tabBar}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => {
+                  setBgCat(cat.id);
+                  if (cat.id === 'bing' && bingImages.length === 0 && !bingLoading) fetchBingWallpapers();
+                }}
+                className={`flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  bgCat === cat.id
+                    ? 'bg-primary text-white shadow-sm'
+                    : isNeu
+                      ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                      : 'bg-white/10 text-white/70 hover:bg-white/20'
+                }`}
+              >
+                <span>{cat.emoji}</span>{cat.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* 可滚动内容区 */}
-        <div className="flex-1 overflow-y-auto px-5 pb-5 min-h-0">
-          {bgTab === 'bing'  && bingTab}
-          {bgTab === 'local' && localTab}
-          {bgTab === 'url'   && urlTab}
+        {/* 可滚动壁纸区 */}
+        <div className="flex-1 overflow-y-auto px-5 min-h-0 pb-2">
+          {bgCat === 'bing' && bingContent}
+          {bgCat !== 'bing' && (
+            <WallpaperGrid
+              items={CURATED[bgCat as Exclude<BgCategory, 'bing'>]}
+              isActive={(full) => settings.bgImage === full}
+            />
+          )}
+        </div>
+
+        {/* 底部本地/URL 操作栏 */}
+        <div className={`shrink-0 px-5 py-3 border-t ${t.itemBorder}`}>
+          <input ref={fileInputRef} type="file" accept="image/*,image/gif" className="hidden" onChange={handleBgFile} />
+          <input ref={videoInputRef} type="file" accept="video/mp4,video/webm,video/ogg" className="hidden" onChange={handleVideoFile} />
+          <div className="flex gap-2 mb-2">
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder} ${t.textMuted}`}>
+              <Image className="w-3.5 h-3.5" /> 本地图片
+            </button>
+            <button type="button" onClick={() => videoInputRef.current?.click()}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium border transition-colors ${t.itemBg} ${t.itemBgHover} ${t.itemBorder} ${t.textMuted}`}>
+              <Video className="w-3.5 h-3.5" /> 本地视频
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleBgUrl()}
+              placeholder="粘贴图片/视频 URL…"
+              className={`flex-1 min-w-0 bg-transparent border rounded-xl px-3 py-2 text-xs outline-none ${t.itemBorder} ${t.textPrimary}`}
+            />
+            <button type="button" onClick={handleBgUrl} disabled={!urlInput.trim()}
+              className="shrink-0 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium transition-colors disabled:opacity-40 flex items-center gap-1">
+              <Link className="w-3.5 h-3.5" /> 应用
+            </button>
+          </div>
         </div>
       </div>
     );
