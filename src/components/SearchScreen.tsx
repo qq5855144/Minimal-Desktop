@@ -6,7 +6,7 @@
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 
@@ -190,18 +190,16 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
               spellCheck={false}
             />
 
-            {/* 清空 / 折叠 */}
+            {/* 右侧唯一按钮：有内容=清空输入，无内容=关闭搜索屏 */}
             {query ? (
-              <button type="button" onClick={() => setQuery('')} className={actionCls} aria-label="清空">
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setQuery('')} className={actionCls} aria-label="清空输入">
+                <X className="w-4.5 h-4.5" />
               </button>
-            ) : null}
-            <button type="button" onClick={onClose} className={actionCls} aria-label="关闭搜索">
-              {/* 向左折叠箭头，参考图片右上角 */}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                <path d="M18 6 6 18M6 6h12v12" />
-              </svg>
-            </button>
+            ) : (
+              <button type="button" onClick={onClose} className={actionCls} aria-label="关闭搜索">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </form>
 
