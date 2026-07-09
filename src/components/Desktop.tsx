@@ -361,29 +361,47 @@ const Desktop: React.FC = () => {
 
         if (isWidget) {
           // ── 组件拖拽 ──
-          // 检查落点是否是另一个组件（widget ↔ widget 交换）
-          const targetIsOtherWidget =
-            !!targetItemId &&
-            targetItemId !== g.source.itemId &&
-            d.pages[targetPage]?.find(it => it.id === targetItemId)?.type === 'widget';
+          // 用 Y 轴距离重新确定目标行（防止 2D 近邻算法在行间隙处跳到相邻的应用行）
+          const rowYMap = new Map<number, number[]>();
+          for (const cellEl of allCells) {
+            const rPage = Number(cellEl.dataset.page);
+            if (rPage !== targetPage) continue;
+            const rNum = Number(cellEl.dataset.row);
+            const rect = cellEl.getBoundingClientRect();
+            const cy = (rect.top + rect.bottom) / 2;
+            if (!rowYMap.has(rNum)) rowYMap.set(rNum, []);
+            rowYMap.get(rNum)!.push(cy);
+          }
+          let widgetTargetRow = targetRow;
+          let minYDist = Infinity;
+          rowYMap.forEach((ys, rowIdx) => {
+            const avgY = ys.reduce((a, b) => a + b, 0) / ys.length;
+            const dist = Math.abs(e.clientY - avgY);
+            if (dist < minYDist) { minYDist = dist; widgetTargetRow = rowIdx; }
+          });
 
-          if (targetIsOtherWidget) {
+          // 检查落点是否是另一个组件（widget ↔ widget 交换）
+          const targetPageItems = d.pages[targetPage] ?? [];
+          const otherWidget = targetPageItems.find(
+            it => it.row === widgetTargetRow && it.type === 'widget' && it.id !== g.source.itemId,
+          );
+
+          if (otherWidget) {
             // 两个组件互换行位置
-            const tgtWidget = d.pages[targetPage]!.find(it => it.id === targetItemId)!;
             swap(
               g.source.itemId, src.page, src.row, '0',
-              tgtWidget.id, targetPage, tgtWidget.row, '0',
+              otherWidget.id, targetPage, otherWidget.row, '0',
             );
           } else {
             // 检查目标行是否有普通应用（排除自身）
-            const hasApps = d.pages[targetPage]?.some(
-              it => it.row === targetRow && it.id !== g.source.itemId && it.type !== 'widget',
+            const hasApps = targetPageItems.some(
+              it => it.row === widgetTargetRow && it.id !== g.source.itemId && it.type !== 'widget',
             );
             if (hasApps) {
               toast.error('该行已有应用，请拖到空行放置');
               return; // 不移动，组件自动复位
             }
-            moveTo(g.source.itemId, src.page, targetPage, targetRow, 0);
+            moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
           }
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
