@@ -6,7 +6,7 @@
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpLeft, Clock, Search, X } from 'lucide-react';
+import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 
@@ -190,16 +190,15 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
               spellCheck={false}
             />
 
-            {/* 右侧唯一按钮：有内容=清空输入，无内容=关闭搜索屏 */}
-            {query ? (
-              <button type="button" onClick={() => setQuery('')} className={actionCls} aria-label="清空输入">
-                <X className="w-4.5 h-4.5" />
-              </button>
-            ) : (
-              <button type="button" onClick={onClose} className={actionCls} aria-label="关闭搜索">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
+            {/* 右侧唯一 × 按钮：有内容=清空，无内容=关闭搜索屏 */}
+            <button
+              type="button"
+              onClick={() => (query ? setQuery('') : onClose())}
+              className={actionCls}
+              aria-label={query ? '清空输入' : '关闭搜索'}
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </form>
 
