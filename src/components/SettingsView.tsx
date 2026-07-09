@@ -236,34 +236,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       { id: 'url', label: '图片 URL' },
     ];
 
-    // 当前壁纸预览
-    const preview = (
-      <div className={`relative w-full aspect-[16/7] rounded-2xl overflow-hidden mb-4 ${t.itemBg}`}>
-        {settings.bgType === 'video' && settings.bgVideo ? (
-          <video src={settings.bgVideo} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-        ) : settings.bgType === 'image' && settings.bgImage ? (
-          <img src={settings.bgImage} alt="当前壁纸" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-blue-600/40 to-purple-600/40 flex items-center justify-center">
-            <span className={`text-xs ${t.textDim}`}>默认渐变背景</span>
-          </div>
-        )}
-        {(settings.bgImage || settings.bgVideo) && (
-          <button
-            type="button"
-            onClick={handleClearBg}
-            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 transition-colors"
-          >
-            <X className="w-3.5 h-3.5 text-white" />
-          </button>
-        )}
-        <div className="absolute bottom-0 left-0 right-0 px-3 py-1.5 bg-black/30 backdrop-blur-sm">
-          <span className="text-white/80 text-[10px]">
-            {settings.bgType === 'default' ? '默认渐变背景' : settings.bgType === 'video' ? '视频壁纸' : '图片壁纸'}
-          </span>
-        </div>
-      </div>
-    );
+    // 当前壁纸状态标识（已内联到 return）
+
 
     // 标签切换栏
     const tabBar = (
@@ -321,7 +295,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             >重试</button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {bingImages.map((img, i) => {
               const thumbUrl = img.url.replace(/1920x1080/g, '640x360');
               const isActive = settings.bgImage === img.url;
@@ -343,16 +317,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                   />
                   {isActive && (
                     <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                      <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                        <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+                      <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                        <Check className="w-3 h-3 text-white" strokeWidth={3} />
                       </div>
                     </div>
                   )}
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/40 px-1.5 py-1">
-                    <p className="text-white/90 text-[9px] leading-tight truncate">{img.title}</p>
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5">
+                    <p className="text-white/90 text-[8px] leading-tight truncate">{img.title}</p>
                   </div>
                   {i === 0 && (
-                    <div className="absolute top-1.5 left-1.5 bg-primary text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">今日</div>
+                    <div className="absolute top-1 left-1 bg-primary text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">今日</div>
                   )}
                 </button>
               );
@@ -425,16 +399,48 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     );
 
     return (
-      <div className="px-5 py-4">
-        <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm mb-3 ${t.backText}`}>
-          <ChevronLeft className="w-4 h-4" /> 返回
-        </button>
-        <h3 className={`text-base font-semibold mb-4 ${t.textPrimary}`}>背景设置</h3>
-        {preview}
-        {tabBar}
-        {bgTab === 'bing'  && bingTab}
-        {bgTab === 'local' && localTab}
-        {bgTab === 'url'   && urlTab}
+      <div className="flex flex-col h-full">
+        {/* 固定头部：返回 + 标题 + 紧凑预览条 */}
+        <div className="px-5 pt-3 pb-2 shrink-0">
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1 text-sm ${t.backText}`}>
+              <ChevronLeft className="w-4 h-4" /> 返回
+            </button>
+            <h3 className={`text-sm font-semibold ${t.textPrimary}`}>背景设置</h3>
+            {(settings.bgImage || settings.bgVideo) ? (
+              <button type="button" onClick={handleClearBg} className={`text-xs ${t.textDim} hover:text-red-400 transition-colors`}>
+                恢复默认
+              </button>
+            ) : <div className="w-14" />}
+          </div>
+          {/* 紧凑预览条 */}
+          <div className={`relative w-full h-14 rounded-xl overflow-hidden ${t.itemBg}`}>
+            {settings.bgType === 'video' && settings.bgVideo ? (
+              <video src={settings.bgVideo} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+            ) : settings.bgType === 'image' && settings.bgImage ? (
+              <img src={settings.bgImage} alt="当前壁纸" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-r from-blue-600/40 to-purple-600/40" />
+            )}
+            <div className="absolute inset-0 bg-black/30 flex items-center px-3">
+              <span className="text-white/90 text-xs font-medium">
+                {settings.bgType === 'default' ? '默认渐变背景' : settings.bgType === 'video' ? '🎬 视频壁纸' : '🖼️ 图片壁纸'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 固定标签栏 */}
+        <div className="px-5 pb-2 shrink-0">
+          {tabBar}
+        </div>
+
+        {/* 可滚动内容区 */}
+        <div className="flex-1 overflow-y-auto px-5 pb-5 min-h-0">
+          {bgTab === 'bing'  && bingTab}
+          {bgTab === 'local' && localTab}
+          {bgTab === 'url'   && urlTab}
+        </div>
       </div>
     );
   };
@@ -589,19 +595,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center" onClick={handleClose}>
       <div
-        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up ${t.sheetBg} ${t.sheetBorder}`}
-        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle}
+        className={`w-full max-w-lg rounded-t-3xl animate-slide-up flex flex-col ${t.sheetBg} ${t.sheetBorder}`}
+        style={{
+          maxHeight: '85dvh',
+          overflow: 'hidden',
+          ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : (t.sheetStyle as React.CSSProperties)),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-center pt-3 pb-1">
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
           <div className={`w-10 h-1 rounded-full ${t.handle}`} />
         </div>
-        {panel === 'main'    && renderMain()}
-        {panel === 'bg'      && renderBg()}
-        {panel === 'view'    && renderView()}
-        {panel === 'style'   && renderStyle()}
-        {panel === 'widgets' && renderWidgets()}
-        <div className="pb-6" />
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {panel === 'main'    && renderMain()}
+          {panel === 'bg'      && renderBg()}
+          {panel === 'view'    && renderView()}
+          {panel === 'style'   && renderStyle()}
+          {panel === 'widgets' && renderWidgets()}
+          {panel !== 'bg' && <div className="pb-6" />}
+        </div>
       </div>
     </div>
   );
