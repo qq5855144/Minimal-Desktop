@@ -360,8 +360,30 @@ const Desktop: React.FC = () => {
         if (!src) return;
 
         if (isWidget || !targetItemId || targetItemId === g.source.itemId) {
-          // 落在空格或自身格 → 移动
-          moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
+          // widget 落点：若目标行已有普通应用，自动寻找最近的空行
+          let finalRow = targetRow;
+          if (isWidget) {
+            const hasOthers = d.pages[targetPage]?.some(
+              it => it.row === targetRow && it.id !== g.source.itemId,
+            );
+            if (hasOthers) {
+              const maxRows = latestRef.current.gridRows;
+              let emptyRow = -1;
+              for (let delta = 1; delta < maxRows && emptyRow < 0; delta++) {
+                for (const sign of [1, -1]) {
+                  const candidate = targetRow + sign * delta;
+                  if (candidate < 0 || candidate >= maxRows) continue;
+                  const occupied = d.pages[targetPage]?.some(
+                    it => it.row === candidate && it.id !== g.source.itemId,
+                  );
+                  if (!occupied) { emptyRow = candidate; break; }
+                }
+              }
+              if (emptyRow < 0) { toast.error('没有空行可放置组件'); return; }
+              finalRow = emptyRow;
+            }
+          }
+          moveTo(g.source.itemId, src.page, targetPage, finalRow, isWidget ? 0 : targetCol);
         } else {
           // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);

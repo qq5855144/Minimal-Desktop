@@ -1,15 +1,14 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { getEngineById, buildSearchUrl, getEngineIconSrc } from '@/lib/searchEngines';
+import { getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
+import SearchScreen from './SearchScreen';
 
 
 const SearchBar: React.FC = () => {
-  const [query, setQuery] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
+  const [searchScreenOpen, setSearchScreenOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const engineBtnRef = useRef<HTMLButtonElement>(null);
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
@@ -17,24 +16,6 @@ const SearchBar: React.FC = () => {
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
   const [iconErr, setIconErr] = useState(false);
   const iconSrc = getEngineIconSrc(currentEngine);
-
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      const trimmed = query.trim();
-      if (!trimmed) return;
-      const isUrl =
-        /^https?:\/\//i.test(trimmed) ||
-        /^[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})(\/.*)?$/.test(trimmed);
-      const url = isUrl
-        ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
-        : buildSearchUrl(currentEngine, trimmed);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setQuery('');
-      inputRef.current?.blur();
-    },
-    [query, currentEngine],
-  );
 
   const openPanel = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -49,16 +30,22 @@ const SearchBar: React.FC = () => {
     : 'flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 bg-white/25 ring-2 ring-white/40 shadow-lg';
   const formStyle = isNeu ? {} : { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' };
   const inputCls = isNeu
-    ? 'flex-1 min-w-0 bg-transparent text-slate-700 text-sm placeholder:text-slate-400 outline-none'
-    : 'flex-1 min-w-0 bg-transparent text-white text-sm placeholder:text-white/50 outline-none';
-  const btnCls = isNeu
-    ? 'text-slate-400 hover:text-slate-600 transition-colors'
-    : 'text-white/60 hover:text-white transition-colors';
+    ? 'flex-1 min-w-0 bg-transparent text-slate-700 text-sm placeholder:text-slate-400 outline-none cursor-pointer'
+    : 'flex-1 min-w-0 bg-transparent text-white text-sm placeholder:text-white/50 outline-none cursor-pointer';
 
   return (
     <div className="px-[7%] md:px-[15%] pb-3">
-      <form onSubmit={handleSubmit} className={formCls} style={formStyle}>
-        {/* 搜索引擎图标按钮 */}
+      {/* 搜索栏外壳：点击任意位置打开搜索专用屏 */}
+      <div
+        className={formCls}
+        style={formStyle}
+        onClick={() => setSearchScreenOpen(true)}
+        role="button"
+        tabIndex={0}
+        aria-label="打开搜索"
+        onKeyDown={(e) => e.key === 'Enter' && setSearchScreenOpen(true)}
+      >
+        {/* 搜索引擎图标按钮（点击不打开搜索屏，改为切换引擎面板） */}
         <button
           ref={engineBtnRef}
           type="button"
@@ -75,28 +62,22 @@ const SearchBar: React.FC = () => {
           )}
         </button>
 
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索或输入网址后回车"
-          className={inputCls}
-          style={{ fontSize: 16 }}
-        />
-        <div className="flex items-center gap-2 shrink-0">
-          <button type="button" aria-label="语音搜索" className={btnCls}>
-            <Mic className="w-4 h-4" />
-          </button>
-          <button type="button" aria-label="图片搜索" className={btnCls}>
-            <Camera className="w-4 h-4" />
-          </button>
-        </div>
-      </form>
+        {/* 只读占位输入框（视觉一致，点击由父层打开搜索屏） */}
+        <span className={inputCls} style={{ fontSize: 14 }}>
+          搜索或输入网址后回车
+        </span>
+      </div>
 
+      {/* 搜索引擎切换面板 */}
       {panelOpen && (
         <SearchEnginePanel anchorRect={anchorRect} onClose={() => setPanelOpen(false)} />
       )}
+
+      {/* 搜索专用屏 */}
+      <SearchScreen
+        open={searchScreenOpen}
+        onClose={() => setSearchScreenOpen(false)}
+      />
     </div>
   );
 };
