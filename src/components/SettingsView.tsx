@@ -3,8 +3,8 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import type { DesktopStyle } from '@/types';
 import {
   Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
-  RotateCcw, FilePlus, X, Check, Clock, Search, Layers, Link,
-  RefreshCw, Loader2,
+  RotateCcw, FilePlus, X, Check, Clock, Search, Layers,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
@@ -216,8 +216,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       const apiKey = PIXABAY_KEY_DEFAULT;
       const items = await fetchPixabayImages(cat, page, apiKey);
       setCatImages((prev) => ({ ...prev, [key]: items }));
-    } catch (err) {
-      console.warn('[Pixabay] 加载失败，切换 Unsplash 兜底:', err);
+    } catch {
       // Pixabay 失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
       const items = unsplashFallback(cat, page, sessionSeedRef.current);
       setCatImages((prev) => ({ ...prev, [key]: items }));
@@ -495,8 +494,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           <div className="flex items-center gap-2">
             {bgCat === 'bing' ? (
               <button type="button" onClick={fetchBingWallpapers} disabled={bingLoading}
-                className={`${t.textDim} disabled:opacity-40`}>
-                <RefreshCw className={`w-4 h-4 ${bingLoading ? 'animate-spin' : ''}`} />
+                className={`text-xs font-medium ${t.textDim} disabled:opacity-40 hover:text-primary transition-colors`}>
+                {bingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : '刷新'}
               </button>
             ) : (
               <button type="button" onClick={() => {
@@ -504,8 +503,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
                 const next = (catPage[cat] ?? 0) + 1;
                 setCatPage((prev) => ({ ...prev, [cat]: next }));
               }} disabled={catLoading === bgCat}
-                className={`${t.textDim} disabled:opacity-40`}>
-                <RefreshCw className={`w-4 h-4 ${catLoading === bgCat ? 'animate-spin' : ''}`} />
+                className={`text-xs font-medium ${t.textDim} disabled:opacity-40 hover:text-primary transition-colors`}>
+                {catLoading === bgCat ? <Loader2 className="w-4 h-4 animate-spin" /> : '更多'}
               </button>
             )}
             {(settings.bgImage || settings.bgVideo) && (
@@ -551,9 +550,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             const key = `${cat}-${page}-${sessionSeedRef.current}`;
             const items = catImages[key];
             if (catLoading === cat) return (
-              <div className="flex flex-col items-center justify-center py-10 gap-2">
-                <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
-                <span className={`text-xs ${t.textDim}`}>正在从 Pixabay 加载壁纸…</span>
+              <div className="grid grid-cols-3 gap-2 py-2">
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <div key={i} className={`aspect-video rounded-xl animate-pulse ${isNeu ? 'bg-gray-200' : 'bg-white/10'}`} />
+                ))}
               </div>
             );
             if (!items) return null;
@@ -590,8 +590,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
               className={`flex-1 min-w-0 bg-transparent border rounded-xl px-3 py-2 text-xs outline-none ${t.itemBorder} ${t.textPrimary}`}
             />
             <button type="button" onClick={handleBgUrl} disabled={!urlInput.trim()}
-              className="shrink-0 px-3 py-2 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary text-xs font-medium transition-colors disabled:opacity-40 flex items-center gap-1">
-              <Link className="w-3.5 h-3.5" /> 应用
+              className="shrink-0 px-4 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-semibold transition-colors disabled:opacity-40">
+              应用
             </button>
           </div>
         </div>
