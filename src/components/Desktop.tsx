@@ -359,31 +359,35 @@ const Desktop: React.FC = () => {
         const src = findItem(d.pages, g.source.itemId);
         if (!src) return;
 
-        if (isWidget || !targetItemId || targetItemId === g.source.itemId) {
-          // widget 落点：若目标行已有普通应用，自动寻找最近的空行
-          let finalRow = targetRow;
-          if (isWidget) {
-            const hasOthers = d.pages[targetPage]?.some(
-              it => it.row === targetRow && it.id !== g.source.itemId,
+        if (isWidget) {
+          // ── 组件拖拽 ──
+          // 检查落点是否是另一个组件（widget ↔ widget 交换）
+          const targetIsOtherWidget =
+            !!targetItemId &&
+            targetItemId !== g.source.itemId &&
+            d.pages[targetPage]?.find(it => it.id === targetItemId)?.type === 'widget';
+
+          if (targetIsOtherWidget) {
+            // 两个组件互换行位置
+            const tgtWidget = d.pages[targetPage]!.find(it => it.id === targetItemId)!;
+            swap(
+              g.source.itemId, src.page, src.row, '0',
+              tgtWidget.id, targetPage, tgtWidget.row, '0',
             );
-            if (hasOthers) {
-              const maxRows = latestRef.current.gridRows;
-              let emptyRow = -1;
-              for (let delta = 1; delta < maxRows && emptyRow < 0; delta++) {
-                for (const sign of [1, -1]) {
-                  const candidate = targetRow + sign * delta;
-                  if (candidate < 0 || candidate >= maxRows) continue;
-                  const occupied = d.pages[targetPage]?.some(
-                    it => it.row === candidate && it.id !== g.source.itemId,
-                  );
-                  if (!occupied) { emptyRow = candidate; break; }
-                }
-              }
-              if (emptyRow < 0) { toast.error('没有空行可放置组件'); return; }
-              finalRow = emptyRow;
+          } else {
+            // 检查目标行是否有普通应用（排除自身）
+            const hasApps = d.pages[targetPage]?.some(
+              it => it.row === targetRow && it.id !== g.source.itemId && it.type !== 'widget',
+            );
+            if (hasApps) {
+              toast.error('该行已有应用，请拖到空行放置');
+              return; // 不移动，组件自动复位
             }
+            moveTo(g.source.itemId, src.page, targetPage, targetRow, 0);
           }
-          moveTo(g.source.itemId, src.page, targetPage, finalRow, isWidget ? 0 : targetCol);
+        } else if (!targetItemId || targetItemId === g.source.itemId) {
+          // 普通图标落在空格或自身格 → 移动
+          moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
         } else {
           // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
