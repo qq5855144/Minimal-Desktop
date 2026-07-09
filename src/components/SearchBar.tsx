@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react';
+import { Mic, ScanLine } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
@@ -66,6 +67,18 @@ const SearchBar: React.FC = () => {
         <span className={inputCls} style={{ fontSize: 14 }}>
           搜索或输入网址后回车
         </span>
+
+        {/* 右侧功能图标 */}
+        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button type="button" aria-label="语音搜索"
+            className={isNeu ? 'text-slate-400 hover:text-slate-600 transition-colors' : 'text-white/60 hover:text-white transition-colors'}>
+            <Mic className="w-4 h-4" />
+          </button>
+          <button type="button" aria-label="扫码搜索"
+            className={isNeu ? 'text-slate-400 hover:text-slate-600 transition-colors' : 'text-white/60 hover:text-white transition-colors'}>
+            <ScanLine className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* 搜索引擎切换面板 */}
