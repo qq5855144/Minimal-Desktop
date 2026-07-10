@@ -6,28 +6,29 @@ import { CLOCK_VISUAL_MIN_HEIGHT_PX } from '@/lib/widgetConfig';
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
 // 用 lunar-javascript 获取精确农历信息及节日
+// getMonth() < 0 表示闰月，getMonthInChinese() 已包含"闰"前缀（如"闰六"）
 function getLunarInfo(date: Date): { lunarLabel: string } {
-  const solar = Solar.fromDate(date);
-  const lunar = solar.getLunar();
+  try {
+    const solar = Solar.fromDate(date);
+    const lunar = solar.getLunar();
 
-  // 农历月日
-  const monthCn = lunar.getMonthInChinese() + '月';
-  const dayCn = lunar.getDayInChinese();
-  const leapPrefix = lunar.isLeap() ? '闰' : '';
-  const lunarDate = `${leapPrefix}${monthCn}${dayCn}`;
+    // 农历月日：getMonthInChinese() 闰月时已返回"闰六"等，直接拼月
+    const monthCn = lunar.getMonthInChinese() + '月';
+    const dayCn = lunar.getDayInChinese();
+    const lunarDate = `${monthCn}${dayCn}`;
 
-  // 节日优先级：公历节日 > 农历节日 > 节气
-  const solarFestivals: string[] = solar.getFestivals();
-  const lunarFestivals: string[] = lunar.getFestivals();
-  const jieQi: string = lunar.getJieQi();
+    // 节日优先级：公历节日 > 农历节日 > 节气
+    const solarFestivals: string[] = solar.getFestivals();
+    const lunarFestivals: string[] = lunar.getFestivals();
+    const jieQi: string = lunar.getJieQi();
 
-  const festival =
-    solarFestivals[0] ||
-    lunarFestivals[0] ||
-    (jieQi ? jieQi : '');
-
-  const lunarLabel = festival ? `${lunarDate} · ${festival}` : lunarDate;
-  return { lunarLabel };
+    const festival = solarFestivals[0] || lunarFestivals[0] || jieQi || '';
+    const lunarLabel = festival ? `${lunarDate} · ${festival}` : lunarDate;
+    return { lunarLabel };
+  } catch {
+    // 兜底：若库异常则仅显示公历
+    return { lunarLabel: '' };
+  }
 }
 
 const ClockWidget: React.FC = () => {
