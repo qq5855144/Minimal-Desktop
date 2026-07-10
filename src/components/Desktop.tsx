@@ -263,7 +263,6 @@ const Desktop: React.FC = () => {
               cur.source.type === 'folder' ? cur.source.folderId : undefined,
             );
             if (!merged) return;
-            toast.success(target.type === 'folder' ? `已添加到「${target.name}」` : '已创建文件夹');
             ghostRef.current = null;
             setGhost(null);
             setIsDragging(false);
