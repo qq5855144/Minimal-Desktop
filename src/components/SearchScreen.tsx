@@ -31,26 +31,21 @@ function pushHistory(query: string) {
   saveHistory([query, ...list]);
 }
 
-// ── 百度搜索建议（JSONP）──────────────────────────────────────────────────────
-function fetchBaiduSuggest(wd: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    const cbName = `__bsug_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const script = document.createElement('script');
-    const cleanup = () => {
-      try { document.head.removeChild(script); } catch { /* ignore */ }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any)[cbName];
-    };
-    script.onerror = () => { cleanup(); resolve([]); };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any)[cbName] = (data: { s?: string[] }) => {
-      cleanup();
-      resolve(data?.s ?? []);
-    };
-    script.src = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cbName}`;
-    document.head.appendChild(script);
-    setTimeout(() => { cleanup(); resolve([]); }, 5000);
-  });
+// ── 百度搜索建议（fetch 替代 JSONP，兼容扩展 CSP）────────────────────────────
+async function fetchBaiduSuggest(wd: string): Promise<string[]> {
+  try {
+    // 百度建议接口返回 JSONP 格式：cb({s:[...]})，用固定 cb 名再手动解析
+    const cb = 'sugg';
+    const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cb}`;
+    const text = await fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.text());
+    // 解析 JSONP：sugg({q:"...",s:[...]})
+    const m = text.match(/sugg\s*\(\s*(\{[\s\S]*?\})\s*\)/);
+    if (!m) return [];
+    const data = JSON.parse(m[1]) as { s?: string[] };
+    return data.s ?? [];
+  } catch {
+    return [];
+  }
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────

@@ -63,6 +63,8 @@ export default defineConfig({
         index: path.resolve(__dirname, "index.html"),
         // MV3 Service Worker（background script）独立打包
         background: path.resolve(__dirname, "src/extension/background.ts"),
+        // 工具栏弹出面板脚本
+        popup: path.resolve(__dirname, "src/extension/popup.ts"),
       },
       output: {
         // 静态文件名（无 hash），background.js 路径需与 manifest.json 一致
