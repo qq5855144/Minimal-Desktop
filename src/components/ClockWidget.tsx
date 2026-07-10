@@ -74,7 +74,7 @@ const ClockWidget: React.FC = () => {
 
   return (
     <div
-      className="flex select-none flex-col items-center justify-center py-3"
+      className="flex select-none flex-col items-center justify-end pt-2 pb-4"
       style={{ minHeight: CLOCK_VISUAL_MIN_HEIGHT_PX }}
     >
       <div
