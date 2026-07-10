@@ -481,9 +481,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
     // 必应每日内容
     const bingContent = bingLoading ? (
-      <div className="flex flex-col items-center justify-center py-10 gap-2">
-        <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
-        <span className={`text-xs ${t.textDim}`}>正在加载必应壁纸…</span>
+      <div className="grid grid-cols-3 gap-2 py-2">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div key={i} className={`aspect-video rounded-xl animate-pulse ${isNeu ? 'bg-gray-200' : 'bg-white/10'}`} />
+        ))}
       </div>
     ) : bingError ? (
       <div className="flex flex-col items-center justify-center py-10 gap-3">
