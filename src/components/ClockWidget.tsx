@@ -53,14 +53,17 @@ const ClockWidget: React.FC = () => {
       className="flex select-none flex-col items-center justify-end pt-2 pb-1"
       style={{ minHeight: CLOCK_VISUAL_MIN_HEIGHT_PX }}
     >
-      <div
-        className={`font-bold leading-none ${isNeu ? 'text-slate-700' : 'text-white drop-shadow-lg'}`}
-        style={{ fontSize: 'clamp(56px, 14vw, 88px)', letterSpacing: '-2px' }}
-      >
-        {hours}<span className="opacity-80">:</span>{minutes}
-      </div>
-      <div className={`mt-1 text-sm md:text-base font-medium tracking-wide ${isNeu ? 'text-slate-500' : 'text-white/90 drop-shadow-md'}`}>
-        {solarMonth}月{solarDay}日 {weekday} {lunarLabel}
+      {/* 整体下移 10px，视觉上拉近与下方行的距离 */}
+      <div className="translate-y-[10px]">
+        <div
+          className={`font-bold leading-none text-center ${isNeu ? 'text-slate-700' : 'text-white drop-shadow-lg'}`}
+          style={{ fontSize: 'clamp(56px, 14vw, 88px)', letterSpacing: '-2px' }}
+        >
+          {hours}<span className="opacity-80">:</span>{minutes}
+        </div>
+        <div className={`mt-1 text-sm md:text-base font-medium tracking-wide ${isNeu ? 'text-slate-500' : 'text-white/90 drop-shadow-md'}`}>
+          {solarMonth}月{solarDay}日 {weekday} {lunarLabel}
+        </div>
       </div>
     </div>
   );
