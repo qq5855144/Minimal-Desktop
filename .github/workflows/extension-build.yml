@@ -1,0 +1,138 @@
+name: Build Browser Extension
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # 发布 Release 时需要写权限
+
+concurrency:
+  group: extension-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. 检出代码 ────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js + pnpm ─────────────────────────────────────────────────
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-ext-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-ext-
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # ── 3. 生成扩展图标（从 favicon.png 缩放为规范尺寸）─────────────────
+      - name: Install ImageMagick
+        run: sudo apt-get install -y imagemagick
+
+      - name: Generate extension icons
+        run: |
+          mkdir -p public/icons
+          for size in 16 32 48 128; do
+            convert public/favicon.png -resize ${size}x${size} public/icons/icon${size}.png
+          done
+          echo "Icons generated:"
+          ls -lh public/icons/
+
+      # ── 4. 构建扩展（使用扩展专用 Vite 配置）────────────────────────────
+      - name: Build extension
+        run: npx vite build --config vite.config.extension.ts
+        env:
+          NODE_ENV: production
+
+      # ── 5. MV3 合规校验 ───────────────────────────────────────────────────
+      - name: Validate manifest.json
+        run: |
+          echo "=== manifest.json ==="
+          cat dist-ext/manifest.json
+
+          # 确认 manifest_version = 3
+          MV=$(node -e "const m=require('./dist-ext/manifest.json');process.exit(m.manifest_version===3?0:1)")
+          echo "✅ manifest_version: 3"
+
+          # 确认 index.html 无内联脚本块（MV3 CSP）
+          if grep -qP '<script(?![^>]*type=["\']module["\'])[^>]*>[^<]' dist-ext/index.html 2>/dev/null; then
+            echo "❌ index.html 含内联脚本，违反 MV3 CSP！"
+            exit 1
+          fi
+          echo "✅ index.html 无内联脚本，CSP 合规"
+
+          # 确认 chrome_url_overrides.newtab 存在
+          NT=$(node -e "const m=require('./dist-ext/manifest.json');process.exit(m.chrome_url_overrides&&m.chrome_url_overrides.newtab?0:1)")
+          echo "✅ chrome_url_overrides.newtab 已声明"
+
+          echo "=== 构建产物文件列表 ==="
+          find dist-ext -type f | sort
+
+      # ── 6. 打包为 .zip（Chrome Web Store / Firefox Add-ons 通用格式）─────
+      - name: Package extension as zip
+        run: |
+          cd dist-ext
+          zip -r ../minimal-desktop-extension.zip . -x "*.map"
+          cd ..
+          echo "Package size: $(du -sh minimal-desktop-extension.zip | cut -f1)"
+
+      # ── 7. 上传构建产物（每次 push 均可下载）────────────────────────────
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimal-desktop-extension
+          path: minimal-desktop-extension.zip
+          retention-days: 30
+
+      # ── 8. 发布 GitHub Release（仅在推送 tag 时触发）─────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Minimal Desktop ${{ github.ref_name }}
+          body: |
+            ## Minimal Desktop ${{ github.ref_name }} — 浏览器扩展
+
+            ### 安装方式
+            1. 下载 `minimal-desktop-extension.zip` 并解压
+            2. 打开 Chrome → 地址栏输入 `chrome://extensions/`
+            3. 开启右上角「开发者模式」
+            4. 点击「加载已解压的扩展程序」，选择解压目录
+            5. 打开新标签页即可看到 Minimal Desktop ✨
+
+            ### Firefox 安装
+            1. 打开 `about:debugging#/runtime/this-firefox`
+            2. 点击「临时载入附加组件」，选择 zip 包内的 `manifest.json`
+
+            ### 合规说明
+            - Manifest V3 标准
+            - 无内联脚本，符合严格 CSP
+            - 仅使用 `storage` 权限（本地数据持久化）
+          files: minimal-desktop-extension.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
