@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { DesktopItem } from '@/types';
 import { getColorStyle } from '@/lib/colors';
+import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
@@ -72,10 +73,8 @@ const AppIcon: React.FC<AppIconProps> = ({
   // 防止释放指针捕获后路过的其他图标误触发 onDragBegin
   const pointerDownActiveRef = useRef(false);
 
-  const isSmall = size === 'small';
-  // 图标尺寸：small 固定, normal 使用 settings 或 iconPx 覆盖
-  const px = isSmall ? 48 : (iconPx ?? settings.iconSize ?? 46);
-  const textSize = isSmall ? 'text-[10px]' : 'text-[11px]';
+  const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize);
+  const px = metrics.iconPx;
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
@@ -137,7 +136,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const iconStyle: React.CSSProperties = {
     width: px, height: px,
-    borderRadius: '22%',
+    borderRadius: metrics.iconRadius,
     flexShrink: 0,
     ...(isNeumorphism ? {
       boxShadow: '4px 4px 10px rgba(0,0,0,0.12), -4px -4px 10px rgba(255,255,255,0.7)',
@@ -161,8 +160,7 @@ const AppIcon: React.FC<AppIconProps> = ({
       // 取前 4 个子项，以 2×2 网格展示缩略图
       const preview = (item.children || []).slice(0, 4);
       const isNeu = settings.style === 'neumorphism';
-      // 单个格子边长（去掉间距后均分）
-      const cellPx = (px * 0.68 - 4) / 2; // gap=4px，共 1 条
+      const cellPx = metrics.folderPreviewCellPx;
       return (
         <div
           className="ios-icon-shadow overflow-hidden flex items-center justify-center"
@@ -176,8 +174,9 @@ const AppIcon: React.FC<AppIconProps> = ({
         >
           {preview.length > 0 ? (
             <div
-              className="grid gap-[4px]"
+              className="grid"
               style={{
+                gap: metrics.folderPreviewGapPx,
                 gridTemplateColumns: `repeat(2, ${cellPx}px)`,
                 gridTemplateRows: `repeat(2, ${cellPx}px)`,
               }}
@@ -210,7 +209,7 @@ const AppIcon: React.FC<AppIconProps> = ({
               ))}
             </div>
           ) : (
-            <Folder style={{ width: px * 0.5, height: px * 0.5 }} className="text-white drop-shadow" />
+            <Folder style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />
           )}
         </div>
       );
@@ -229,7 +228,7 @@ const AppIcon: React.FC<AppIconProps> = ({
           {/* shimmer 始终在最底层，img 加载后叠盖在上面 → 无需等待 React 状态更新 */}
           <div
             className="absolute inset-0 animate-skeleton-pulse"
-            style={{ borderRadius: '22%', background: 'linear-gradient(90deg,rgba(200,200,200,0.3) 25%,rgba(220,220,220,0.5) 50%,rgba(200,200,200,0.3) 75%)', backgroundSize: '200% 100%' }}
+            style={{ borderRadius: metrics.iconRadius, background: 'linear-gradient(90deg,rgba(200,200,200,0.3) 25%,rgba(220,220,220,0.5) 50%,rgba(200,200,200,0.3) 75%)', backgroundSize: '200% 100%' }}
           />
           <img
             src={iconSrc}
@@ -263,9 +262,9 @@ const AppIcon: React.FC<AppIconProps> = ({
         }}
       >
         {item.url ? (
-          <Globe style={{ width: px * 0.5, height: px * 0.5 }} className="text-white drop-shadow" />
+          <Globe style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />
         ) : (
-          <span className="text-white font-bold uppercase drop-shadow" style={{ fontSize: px * 0.35 }}>{item.name.slice(0, 1)}</span>
+          <span className="text-white font-bold uppercase drop-shadow" style={{ fontSize: metrics.initialFontPx }}>{item.name.slice(0, 1)}</span>
         )}
       </div>
     );
@@ -286,8 +285,8 @@ const AppIcon: React.FC<AppIconProps> = ({
       >
         {renderIconContent()}
         <span
-          className={`app-icon-label ${textSize} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
-          style={{ maxWidth: px + 8 }}
+          className={`app-icon-label ${metrics.textClass} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
+          style={{ maxWidth: metrics.labelMaxWidthPx }}
         >
           {item.name}
         </span>

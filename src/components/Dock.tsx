@@ -1,5 +1,6 @@
 import React from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import type { DesktopItem } from '@/types';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
@@ -10,6 +11,7 @@ const Dock: React.FC<{
   onDeleteItem: (id: string) => void;
 }> = ({ onDragBegin, onLongPress, onDeleteItem }) => {
   const { data, loading } = useDesktop();
+  const dockIconMetrics = getIconLayoutMetrics('small');
 
   return (
     <div className="flex justify-center px-4 pb-4 md:pb-6">
@@ -39,7 +41,8 @@ const Dock: React.FC<{
                   data-row={-1}
                   data-col={data.dock.length + i}
                   data-page={-1}
-                  className="w-12 h-12 md:w-14 md:h-14 rounded-[22%]"
+                  className="shrink-0"
+                  style={{ width: dockIconMetrics.iconPx, height: dockIconMetrics.iconPx, borderRadius: dockIconMetrics.iconRadius }}
                 />
               ))}
           </>

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
+import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
@@ -591,6 +592,7 @@ const Desktop: React.FC = () => {
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
     const renderRows = settings.rows ?? 7;
+    const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize);
 
     for (let r = 0; r < renderRows; r++) {
       const widgetItem = items.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
@@ -646,7 +648,6 @@ const Desktop: React.FC = () => {
             </div>,
           );
         } else {
-          const cellH = settings.iconSize + 22;
           cells.push(
             <div
               key={`empty-${r}-${c}`}
@@ -655,7 +656,7 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={pageIndex}
               className="flex items-center justify-center rounded-xl"
-              style={{ minHeight: cellH }}
+              style={{ minHeight: iconMetrics.cellMinHeightPx }}
             >
               {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
             </div>,

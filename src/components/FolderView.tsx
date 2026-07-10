@@ -280,20 +280,8 @@ const FolderView: React.FC<FolderViewProps> = ({
                           />
                         </div>
                       ) : (
-                        /* ─ 空槽：虚线占位框 + 透明标签行（保持与 AppIcon 等高）─ */
-                        <>
-                          <div
-                            className={`
-                              w-12 h-12 rounded-[22%] border-2 border-dashed
-                              transition-all duration-150
-                              ${isTarget
-                                ? 'border-white/60 bg-white/15'
-                                : 'border-white/20 bg-white/5'}
-                            `}
-                          />
-                          {/* 占位标签行：与 AppIcon 的 <span> 等高（text-[10px] leading normal ≈ 14px）*/}
-                          <div className="h-[14px] w-10" />
-                        </>
+                        /* ─ 空槽：复用与 AppIcon 同步的占位尺寸 ─ */
+                        <SkeletonIcon size="small" variant="empty" active={isTarget} />
                       )}
                     </div>
                   );
