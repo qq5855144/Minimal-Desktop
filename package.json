@@ -49,6 +49,7 @@
     "input-otp": "^1.4.2",
     "ky": "^1.13.0",
     "lucide-react": "^0.576.0",
+    "lunar-javascript": "^1.7.7",
     "miaoda-react-devkit": "0.1.1-beta.15",
     "miaoda-sc-plugin": "1.0.62",
     "motion": "^12.23.25",

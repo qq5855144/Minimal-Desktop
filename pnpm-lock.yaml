@@ -131,6 +131,9 @@ importers:
       lucide-react:
         specifier: ^0.576.0
         version: 0.576.0(react@18.3.1)
+      lunar-javascript:
+        specifier: ^1.7.7
+        version: 1.7.7
       miaoda-react-devkit:
         specifier: 0.1.1-beta.15
         version: 0.1.1-beta.15(@sentry/core@9.47.1)(@sentry/react@9.47.1(react@18.3.1))(miaoda-sc-plugin@1.0.62(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(jiti@1.21.7)))(rolldown-vite@7.3.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.1.0)(jiti@1.21.7))
@@ -2496,6 +2499,9 @@ packages:
     resolution: {integrity: sha512-koNxU14BXrxUfZQ9cUaP0ES1uyPZKYDjk31FQZB6dQ/x+tXk979sVAn9ppZ/pVeJJyOxVM8j1E+8QEuSc02Vug==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lunar-javascript@1.7.7:
+    resolution: {integrity: sha512-u/KYiwPIBo/0bT+WWfU7qO1d+aqeB90Tuy4ErXenr2Gam0QcWeezUvtiOIyXR7HbVnW2I1DKfU0NBvzMZhbVQw==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -5772,6 +5778,8 @@ snapshots:
   lucide-react@0.576.0(react@18.3.1):
     dependencies:
       react: 18.3.1
+
+  lunar-javascript@1.7.7: {}
 
   magic-string@0.30.21:
     dependencies:
