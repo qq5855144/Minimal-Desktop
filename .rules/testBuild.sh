@@ -8,7 +8,8 @@ elif [ ! -e "$VITE_TEMP" ]; then
     mkdir -p "$VITE_TEMP"
 fi
 
-OUTPUT=$(npx vite build --minify false --logLevel error --outDir /workspace/.dist 2>&1)
+# 平台预览部署到 /workspace/.dist，base 必须为 /（而非 GitHub Pages 用的 /Minimal-Desktop/）
+OUTPUT=$(npx vite build --minify false --logLevel error --base=/ --outDir /workspace/.dist 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
