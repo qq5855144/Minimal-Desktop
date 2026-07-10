@@ -15,12 +15,14 @@ interface AddEditDialogProps {
   onAdd?: (app: { name: string; url: string; iconUrl?: string }) => void;
   onEdit?: (id: string, patch: Partial<DesktopItem>) => void;
   onDelete?: (id: string) => void;
+  /** 剪藏预填：打开时自动填入 name/url/iconUrl */
+  prefill?: { name: string; url: string; iconUrl?: string };
 }
 
 type IconSource = 'auto' | 'url' | 'local';
 
 const AddEditDialog: React.FC<AddEditDialogProps> = ({
-  open, onOpenChange, item, onAdd, onEdit, onDelete,
+  open, onOpenChange, item, onAdd, onEdit, onDelete, prefill,
 }) => {
   const isEdit = !!item;
   const { settings } = useDesktop();
@@ -47,7 +49,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     iconSource === 'url'  ? (customIconUrl.trim() || undefined) :
     localIconData;
 
-  // 重置表单
+  // 重置表单（支持剪藏预填 prefill）
   useEffect(() => {
     if (!open) return;
     lastProbedUrl.current = '';
@@ -64,12 +66,23 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         setIconSource('auto'); setAutoFavicon(undefined);
         setCustomIconUrl(''); setLocalIconData(undefined); setProbeFailed(false);
       }
+    } else if (prefill) {
+      // 剪藏预填：直接用工具栏传来的标题/URL/favicon
+      setName(prefill.name);
+      setUrl(prefill.url);
+      if (prefill.iconUrl) {
+        setIconSource('url'); setCustomIconUrl(prefill.iconUrl);
+        setAutoFavicon(undefined); setLocalIconData(undefined); setProbeFailed(false);
+      } else {
+        setIconSource('auto'); setAutoFavicon(undefined);
+        setCustomIconUrl(''); setLocalIconData(undefined); setProbeFailed(false);
+      }
     } else {
       setName(''); setUrl('');
       setIconSource('auto'); setAutoFavicon(undefined);
       setCustomIconUrl(''); setLocalIconData(undefined); setProbeFailed(false);
     }
-  }, [open, item]);
+  }, [open, item, prefill]);
 
   // 多源探测 favicon + 自动填充名称
   const runProbe = useCallback(async (rawUrl: string, fillName = false) => {

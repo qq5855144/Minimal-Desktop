@@ -69,6 +69,8 @@ const Desktop: React.FC = () => {
   const [openSync, setOpenSync] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
+  // 剪藏预填数据（扩展工具栏点击后传入）
+  const [clipPrefill, setClipPrefill] = useState<{ name: string; url: string; iconUrl?: string } | null>(null);
   const [dragSource, setDragSource] = useState<DragSource | null>(null);
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -98,6 +100,18 @@ const Desktop: React.FC = () => {
 
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
+
+  // 扩展环境：启动时检测 pendingClip（用户点击工具栏「剪藏」后留下的数据）
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
+    chrome.storage.local.get(['pendingClip'], (result: Record<string, unknown>) => {
+      const clip = result.pendingClip as { url: string; title: string; favicon?: string } | undefined;
+      if (!clip) return;
+      chrome.storage.local.remove(['pendingClip']);
+      setClipPrefill({ name: clip.title, url: clip.url, iconUrl: clip.favicon });
+      setAddDialogOpen(true);
+    });
+  }, []);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
@@ -787,7 +801,12 @@ const Desktop: React.FC = () => {
       )}
 
       {/* 添加应用弹窗 */}
-      <AddEditDialog open={addDialogOpen} onOpenChange={setAddDialogOpen} onAdd={handleAddApp} />
+      <AddEditDialog
+        open={addDialogOpen}
+        onOpenChange={(v) => { setAddDialogOpen(v); if (!v) setClipPrefill(null); }}
+        onAdd={handleAddApp}
+        prefill={clipPrefill ?? undefined}
+      />
 
       {/* 编辑应用弹窗 */}
       <AddEditDialog

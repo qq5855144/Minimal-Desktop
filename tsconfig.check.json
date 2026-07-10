@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noEmit": true,
+    "types": ["chrome"],
     "paths": {
       "@/*": ["./src/*"]
     }
