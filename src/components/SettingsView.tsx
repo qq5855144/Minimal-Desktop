@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
+import { saveVideoDB, clearVideoDB, IDB_VIDEO_MARKER, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
@@ -152,7 +153,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   // 每次打开面板时生成新随机基数，保证每次壁纸不同
   const sessionSeedRef = useRef(Math.floor(Math.random() * 10000));
   const isNeu = settings.style === 'neumorphism';
-  const dockEnabled = settings.dockEnabled !== false;
   const t = getPanelTheme(isNeu);
 
   const handleClose = () => { setPanel('main'); onClose(); };
@@ -252,17 +252,39 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     e.target.value = '';
   }, [updateSettings]);
 
-  const handleVideoFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    updateSettings({ bgVideo: url, bgImage: undefined, bgType: 'video' });
-    toast.success('视频壁纸已应用（刷新后失效，建议使用图片）');
+    // 大小限制：50 MB
+    if (file.size > VIDEO_MAX_BYTES) {
+      toast.error(`视频文件过大（${(file.size / 1024 / 1024).toFixed(1)} MB），请选择 50 MB 以内的视频`);
+      e.target.value = '';
+      return;
+    }
+    try {
+      // 先创建 blob URL 供即时预览
+      const blobUrl = URL.createObjectURL(file);
+      // 异步写入 IndexedDB 持久化
+      await saveVideoDB(file);
+      // 更新设置：内存中用 blobUrl 播放，localStorage 存标记 '__idb__'
+      updateSettings({ bgVideo: blobUrl, bgImage: undefined, bgType: 'video' });
+      // 手动将 __idb__ 写入 localStorage（绕过 updateSettings 的 blob 拦截）
+      const raw = localStorage.getItem('ios_desktop_settings');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        parsed.bgVideo = IDB_VIDEO_MARKER;
+        localStorage.setItem('ios_desktop_settings', JSON.stringify(parsed));
+      }
+      toast.success('视频壁纸已应用并持久化保存');
+    } catch {
+      toast.error('视频保存失败，请重试');
+    }
     e.target.value = '';
   }, [updateSettings]);
 
   const handleClearBg = useCallback(() => {
     updateSettings({ bgImage: undefined, bgVideo: undefined, bgType: 'default' });
+    clearVideoDB(); // 同步清除 IndexedDB 中的视频
     toast.success('已恢复默认背景');
   }, [updateSettings]);
 
@@ -323,11 +345,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [data, importData]);
 
-  const toggleDock = useCallback(() => {
-    updateSettings({ dockEnabled: !dockEnabled });
-    toast.success(dockEnabled ? '已隐藏 Dock 栏' : '已显示 Dock 栏');
-  }, [dockEnabled, updateSettings]);
-
   if (!open) return null;
 
   // ── 主面板 ──
@@ -349,7 +366,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           id: 'widgets' as Panel,
           icon: <Layers className="w-5 h-5" />,
           label: '组件管理',
-          desc: `Dock ${dockEnabled ? '已显示' : '已隐藏'} · 时钟 ${widgetExists('widget-clock') ? '已启用' : '已隐藏'} · 搜索栏 ${widgetExists('widget-search') ? '已启用' : '已隐藏'}`,
+          desc: `时钟 ${widgetExists('widget-clock') ? '已启用' : '已隐藏'} · 搜索栏 ${widgetExists('widget-search') ? '已启用' : '已隐藏'}`,
           color: 'bg-teal-500',
           disabled: false,
         },
@@ -713,7 +730,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   // ── 组件管理面板 ──
   const renderWidgets = () => {
     const widgetDefs = [
-      { id: 'dock' as const, label: 'Dock 栏', desc: '显示底部固定栏，支持与桌面应用双向拖拽放置', icon: <Layers className="w-5 h-5" /> },
       { id: 'widget-clock' as const, label: '时钟', desc: '显示实时时间、日期与农历', icon: <Clock className="w-5 h-5" /> },
       { id: 'widget-search' as const, label: '搜索栏', desc: '点击左侧引擎图标可切换 / 添加搜索引擎', icon: <Search className="w-5 h-5" /> },
     ];
@@ -723,18 +739,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           <ChevronLeft className="w-4 h-4" /> 返回
         </button>
         <h3 className={`text-base font-semibold ${t.textPrimary}`}>组件管理</h3>
-        <p className={`text-xs ${t.textDim}`}>点击开关可显示或隐藏对应组件，Dock 隐藏后会保留已固定应用</p>
+        <p className={`text-xs ${t.textDim}`}>点击开关可在桌面上显示或隐藏对应组件</p>
         <div className="space-y-3">
           {widgetDefs.map((w) => {
-            const enabled = w.id === 'dock' ? dockEnabled : widgetExists(w.id);
+            const enabled = widgetExists(w.id);
             return (
               <button
                 key={w.id}
                 type="button"
-                onClick={() => {
-                  if (w.id === 'dock') toggleDock();
-                  else toggleWidget(w.id);
-                }}
+                onClick={() => toggleWidget(w.id)}
                 className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 ${t.itemBg} ${t.itemBgHover} border ${t.itemBorder} transition-colors`}
               >
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${enabled ? 'bg-teal-500 text-white' : isNeu ? 'bg-gray-200 text-gray-400' : 'bg-white/10 text-white/40'}`}>

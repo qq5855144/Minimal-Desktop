@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
 import { loadDesktopData, saveDesktopData, loadSettings, saveSettings } from '@/lib/storage';
 import { pruneIconCaches } from '@/lib/iconCache';
+import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 
 const MAX_ROWS = 14;  // 绝对上限，用户可配置 1-14
 const MAX_COLS = 6;
@@ -38,8 +39,6 @@ interface DesktopContextType {
   moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
   // 拖拽：从桌面移到 Dock
   moveDesktopToDock: (itemId: string, dockIdx: number) => void;
-  // 拖拽：Dock 内调整顺序
-  moveDockItem: (itemId: string, dockIdx: number) => void;
   // 合并两个应用为文件夹
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   // 重命名文件夹
@@ -141,6 +140,23 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
   const firstRender = useRef(true);
+
+  // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
+  useEffect(() => {
+    const s = loadSettings();
+    if (s.bgType === 'video' && s.bgVideo === IDB_VIDEO_MARKER) {
+      loadVideoDB().then((file) => {
+        if (file) {
+          const url = URL.createObjectURL(file);
+          setSettings((prev) => ({ ...prev, bgVideo: url }));
+        } else {
+          // IndexedDB 中视频已丢失，回退到默认背景
+          setSettings((prev) => ({ ...prev, bgVideo: undefined, bgType: 'default' }));
+          saveSettings({ ...s, bgVideo: undefined, bgType: 'default' });
+        }
+      });
+    }
+  }, []);
 
   // 持久化
   useEffect(() => {
@@ -456,7 +472,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           item = next.pages[p][ii];
           itemPage = p;
           itemIdx = ii;
-          break;
         }
       }
       if (!item) return prev;
@@ -471,19 +486,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         next.dock.push({ ...item, page: -1 });
       }
       next.pages[itemPage].splice(itemIdx, 1);
-      return next;
-    });
-  }, []);
-
-  const moveDockItem = useCallback((itemId: string, dockIdx: number) => {
-    setData((prev) => {
-      const next = structuredClone(prev);
-      const fromIdx = next.dock.findIndex((it) => it.id === itemId);
-      if (fromIdx < 0) return prev;
-      const boundedIdx = Math.max(0, Math.min(dockIdx, next.dock.length - 1));
-      if (fromIdx === boundedIdx) return prev;
-      const [item] = next.dock.splice(fromIdx, 1);
-      next.dock.splice(boundedIdx, 0, item);
       return next;
     });
   }, []);
@@ -709,7 +711,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reorderFolderChildren,
         moveDockToDesktop,
         moveDesktopToDock,
-        moveDockItem,
         mergeToFolder,
         renameFolder,
         dissolveFolder,

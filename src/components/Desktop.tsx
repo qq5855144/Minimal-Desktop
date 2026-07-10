@@ -12,7 +12,6 @@ import AddEditDialog from './AddEditDialog';
 import SettingsView from './SettingsView';
 import SyncView from './SyncView';
 import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
-import Dock from './Dock';
 import { toast } from 'sonner';
 
 function getOverlayGradient(scheme: BgOverlayScheme): string {
@@ -56,9 +55,6 @@ const Desktop: React.FC = () => {
     removeItem,
     moveItemTo,
     swapDesktopItems,
-    moveDockToDesktop,
-    moveDesktopToDock,
-    moveDockItem,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -75,7 +71,6 @@ const Desktop: React.FC = () => {
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
   const [dragSource, setDragSource] = useState<DragSource | null>(null);
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
-  const [dragOverDockIndex, setDragOverDockIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
 
@@ -89,7 +84,6 @@ const Desktop: React.FC = () => {
   const mergeHoverIdRef = useRef<string | null>(null);
   // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
   const dragOverItemRef = useRef<string | null>(null);
-  const dragOverDockIndexRef = useRef<number | null>(null);
 
   // 响应式列数：始终使用用户设置，桌面端不强制扩展为 MAX_COLS（避免图标偏左不对称）
   const [screenMd, setScreenMd] = useState<boolean>(
@@ -138,13 +132,13 @@ const Desktop: React.FC = () => {
   }, []);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveDockToDesktop, moveDesktopToDock, moveDockItem, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveDockToDesktop, moveDesktopToDock, moveDockItem, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
     };
@@ -198,31 +192,20 @@ const Desktop: React.FC = () => {
       }
       handleEdgeHover(e.clientX);
 
-      // 用几何矩形检测当前悬停格子，不受 z-index / pointer-events 影响
-      // 桌面格子可能因滚动溢出而与 Dock 区域几何重叠，优先匹配 Dock 格子(data-page=-1)
-      let hoverCell: HTMLElement | null = null;
-      let desktopHit: HTMLElement | null = null;
-      const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
-      for (const cellEl of allCells) {
+      // 用几何矩形检测穿透 ghost：遍历所有带 data-itemid 的格子，判断指针是否在其内
+      // 比 elementsFromPoint 更可靠，不受 z-index / pointer-events 影响
+      let hoverId: string | null = null;
+      const itemCells = document.querySelectorAll<HTMLElement>('[data-cell][data-itemid]');
+      for (const cellEl of itemCells) {
         const r = cellEl.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          if (cellEl.dataset.page === '-1') { hoverCell = cellEl; break; }
-          if (!desktopHit) desktopHit = cellEl;
+          hoverId = cellEl.dataset.itemid!;
+          break;
         }
       }
-      if (!hoverCell) hoverCell = desktopHit;
-      const hoverId = hoverCell?.dataset.itemid ?? null;
       if ((hoverId ?? null) !== dragOverItemRef.current) {
         setDragOverItem(hoverId ?? null);
         dragOverItemRef.current = hoverId;
-      }
-      const hoverDockIndex =
-        hoverCell?.dataset.page === '-1' && g.item.type !== 'widget'
-          ? Number(hoverCell.dataset.col)
-          : null;
-      if ((hoverDockIndex ?? null) !== dragOverDockIndexRef.current) {
-        setDragOverDockIndex(Number.isFinite(hoverDockIndex ?? NaN) ? hoverDockIndex : null);
-        dragOverDockIndexRef.current = Number.isFinite(hoverDockIndex ?? NaN) ? hoverDockIndex : null;
       }
 
       // 仅桌面图标参与悬停合并；widget/system/dock(page=-1)全部排除
@@ -230,7 +213,6 @@ const Desktop: React.FC = () => {
       const isValidMergeTarget =
         hoverId !== null &&
         hoverId !== g.source.itemId &&
-        hoverCell?.dataset.page !== '-1' &&
         isDesktopDrag;
 
       if (isValidMergeTarget) {
@@ -287,13 +269,11 @@ const Desktop: React.FC = () => {
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
       dragOverItemRef.current = null;
-      dragOverDockIndexRef.current = null;
       ghostRef.current = null;
       setGhost(null);
       setIsDragging(false);
       setDragSource(null);
       setDragOverItem(null);
-      setDragOverDockIndex(null);
       clearEdgeTimer();
       clearMergeTimer(); // 若 800ms 计时器还未触发，取消它（快速松手走交换分支）
       if (!g) return;
@@ -307,46 +287,30 @@ const Desktop: React.FC = () => {
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
               swapDesktopItems: swap,
-              moveDockToDesktop: moveDockOut,
-              moveDesktopToDock: moveToDock,
-              moveDockItem: moveDockWithin,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
       // 几何矩形检测落点格子（含空格子），不受 z-index/pointer-events 影响
-      // 桌面格子可能因滚动溢出而与 Dock 区域几何重叠，优先匹配 Dock 格子(data-page=-1)
       let cell: HTMLElement | null = null;
-      let desktopHit: HTMLElement | null = null;
       const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
       for (const cellEl of allCells) {
         const r = cellEl.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          if (cellEl.dataset.page === '-1') { cell = cellEl; break; }
-          if (!desktopHit) desktopHit = cellEl;
+          cell = cellEl; break;
         }
       }
-      if (!cell) cell = desktopHit;
       // 落在行/列间隙时（gap 区域无命中），改为找中心点最近的格子，
       // 避免触发 findFirstEmpty 把图标甩到第一行
-      // 同样优先 Dock 格子，避免溢出的桌面格子抢夺 Dock 落点
       if (!cell) {
-        let dockMinDist = Infinity;
-        let desktopMinDist = Infinity;
-        let desktopNearest: HTMLElement | null = null;
+        let minDist = Infinity;
         for (const cellEl of allCells) {
           const r = cellEl.getBoundingClientRect();
-          if (r.width === 0 || r.height === 0) continue; // 跳过 display:none 的隐藏页格子
           const cx = (r.left + r.right) / 2;
           const cy = (r.top + r.bottom) / 2;
           const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
-          if (cellEl.dataset.page === '-1') {
-            if (dist < dockMinDist) { dockMinDist = dist; cell = cellEl; }
-          } else {
-            if (dist < desktopMinDist) { desktopMinDist = dist; desktopNearest = cellEl; }
-          }
+          if (dist < minDist) { minDist = dist; cell = cellEl; }
         }
-        if (!cell) cell = desktopNearest;
       }
       // 极端情况（指针完全飞出屏幕外）：findFirstEmpty 兜底
       if (!cell) {
@@ -371,24 +335,6 @@ const Desktop: React.FC = () => {
       const rawCol = isWidget ? 0 : Number(cell.dataset.col);
       const targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
-      const dockSlotIndex = Number(cell.dataset.col);
-      const isDockTarget = targetPage === -1;
-
-      if (isDockTarget) {
-        if (isWidget) return;
-        if (g.source.type === 'folder') {
-          toast.error('请先将应用拖出文件夹，再固定到 Dock');
-          return;
-        }
-        if (g.source.type === 'desktop') {
-          moveToDock(g.source.itemId, Math.max(0, dockSlotIndex));
-          return;
-        }
-        if (g.source.type === 'dock') {
-          moveDockWithin(g.source.itemId, Math.max(0, dockSlotIndex));
-          return;
-        }
-      }
 
       if (!isWidget) {
         // widget 独占整行，不允许其他图标放入该行
@@ -405,11 +351,6 @@ const Desktop: React.FC = () => {
         if (g.source.folderId) {
           moveOut(g.source.folderId, g.source.itemId, targetPage, targetRow, targetCol);
         }
-        return;
-      }
-
-      if (g.source.type === 'dock') {
-        moveDockOut(g.source.itemId, targetPage, targetRow, targetCol);
         return;
       }
 
@@ -503,7 +444,6 @@ const Desktop: React.FC = () => {
       setIsDragging(false);
       setDragSource(null);
       setDragOverItem(null);
-      setDragOverDockIndex(null);
       clearEdgeTimer();
       clearMergeTimer();
     };
@@ -829,16 +769,6 @@ const Desktop: React.FC = () => {
             />
           ))}
         </div>
-
-        {settings.dockEnabled !== false && (
-          <Dock
-            onDragBegin={(item, x, y) => handleDragBegin(item, 'dock', x, y)}
-            onLongPress={(item, x, y) => handleLongPress(item, x, y)}
-            onDeleteItem={handleDeleteApp}
-            activeSlot={dragOverDockIndex}
-            dropActive={dragOverDockIndex !== null}
-          />
-        )}
       </div>
 
       {/* 文件夹展开 */}

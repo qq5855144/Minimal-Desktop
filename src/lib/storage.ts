@@ -44,8 +44,6 @@ export function loadDesktopData(): DesktopData {
       const parsed = JSON.parse(raw) as DesktopData;
       if (parsed.pages && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
         const ensured = structuredClone(parsed);
-        // 确保 dock 字段存在（旧版本数据可能没有 dock 字段）
-        if (!Array.isArray(ensured.dock)) ensured.dock = [];
         const allItems = ensured.pages.flat();
 
         // ── 迁移 1：确保三个系统应用始终存在 ──
@@ -133,7 +131,6 @@ const DEFAULT_BG_IMAGE = 'https://images.unsplash.com/photo-1506905925346-21bda4
 
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
-  dockEnabled: true,
   iconSize: 46,
   cols: 4,
   rows: 7,
@@ -155,7 +152,9 @@ export function loadSettings(): import('@/types').DesktopSettings {
 }
 
 export function saveSettings(s: import('@/types').DesktopSettings): void {
-  // 视频 objectURL 不持久化
-  const toSave = { ...s, bgVideo: undefined };
+  // blob: URL 不持久化（刷新后失效）；'__idb__' 标记和真实 URL 均可持久化
+  const bgVideo =
+    s.bgVideo?.startsWith('blob:') ? undefined : s.bgVideo;
+  const toSave = { ...s, bgVideo };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSave));
 }
