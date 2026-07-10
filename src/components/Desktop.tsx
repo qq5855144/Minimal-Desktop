@@ -851,7 +851,10 @@ const Desktop: React.FC = () => {
                 borderRadius: ghostWidgetLayout?.ghostRadiusPx,
               }}
             >
-              {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
+              {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
+              <div className="w-full">
+                {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
+              </div>
             </div>
           ) : (
             <AppIcon item={ghost.item} size="normal" />
