@@ -1,4 +1,4 @@
-name: Build Browser Extension
+name: Build & Release Browser Extension
 
 on:
   push:
@@ -6,9 +6,14 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      release:
+        description: "发布正式 Release（输入版本号，如 v1.0.0）"
+        required: false
+        default: ""
 
 permissions:
-  contents: write  # 发布 Release 时需要写权限
+  contents: write
 
 concurrency:
   group: extension-build-${{ github.ref }}
@@ -36,6 +41,7 @@ jobs:
 
       - name: Get pnpm store directory
         id: pnpm-cache
+        shell: bash
         run: echo "store=$(pnpm store path)" >> $GITHUB_OUTPUT
 
       - name: Cache pnpm modules
@@ -46,6 +52,7 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-ext-
 
       - name: Install dependencies
+        # 无 lockfile 时使用 --no-frozen-lockfile；安装后生成 lockfile 加速下次构建
         run: pnpm install --no-frozen-lockfile
 
       # ── 3. 生成扩展图标（从 favicon.png 缩放为规范尺寸）─────────────────
@@ -56,83 +63,129 @@ jobs:
         run: |
           mkdir -p public/icons
           for size in 16 32 48 128; do
-            convert public/favicon.png -resize ${size}x${size} public/icons/icon${size}.png
+            convert public/favicon.png -resize ${size}x${size} "public/icons/icon${size}.png"
           done
           echo "Icons generated:"
           ls -lh public/icons/
 
-      # ── 4. 构建扩展（使用扩展专用 Vite 配置）────────────────────────────
+      # ── 4. 构建扩展 ────────────────────────────────────────────────────────
+      # 使用 pnpm exec 而非 npx，确保使用项目内的 rolldown-vite 而非全局 vite
       - name: Build extension
-        run: npx vite build --config vite.config.extension.ts
+        run: pnpm exec vite build --config vite.config.extension.ts
         env:
           NODE_ENV: production
 
       # ── 5. MV3 合规校验 ───────────────────────────────────────────────────
-      - name: Validate manifest.json
+      - name: Validate manifest & CSP
         run: |
           echo "=== manifest.json ==="
           cat dist-ext/manifest.json
 
-          # 确认 manifest_version = 3
-          MV=$(node -e "const m=require('./dist-ext/manifest.json');process.exit(m.manifest_version===3?0:1)")
-          echo "✅ manifest_version: 3"
+          # 验证 manifest_version = 3（用 node 解析 JSON）
+          node -e "
+            const m = JSON.parse(require('fs').readFileSync('./dist-ext/manifest.json','utf8'));
+            if (m.manifest_version !== 3) { console.error('❌ manifest_version 不是 3'); process.exit(1); }
+            if (!m.chrome_url_overrides?.newtab) { console.error('❌ chrome_url_overrides.newtab 未声明'); process.exit(1); }
+            console.log('✅ manifest_version: 3');
+            console.log('✅ chrome_url_overrides.newtab:', m.chrome_url_overrides.newtab);
+          "
 
-          # 确认 index.html 无内联脚本块（MV3 CSP）
-          if grep -qP '<script(?![^>]*type=["\']module["\'])[^>]*>[^<]' dist-ext/index.html 2>/dev/null; then
-            echo "❌ index.html 含内联脚本，违反 MV3 CSP！"
-            exit 1
-          fi
-          echo "✅ index.html 无内联脚本，CSP 合规"
-
-          # 确认 chrome_url_overrides.newtab 存在
-          NT=$(node -e "const m=require('./dist-ext/manifest.json');process.exit(m.chrome_url_overrides&&m.chrome_url_overrides.newtab?0:1)")
-          echo "✅ chrome_url_overrides.newtab 已声明"
+          # 确认 index.html 不含非模块内联脚本（MV3 CSP 禁止）
+          # 用 python3 做 XML/HTML 安全解析，避免 grep -P 的依赖问题
+          python3 - <<'PYEOF'
+          import re, sys
+          html = open('dist-ext/index.html').read()
+          # 匹配非 type=module 的 <script> 块
+          bad = re.findall(r'<script(?![^>]*type=["\']module["\'])[^>]*>[^<\s]', html, re.IGNORECASE)
+          if bad:
+              print(f'❌ index.html 含内联脚本，违反 MV3 CSP: {bad}')
+              sys.exit(1)
+          print('✅ index.html 无内联脚本，CSP 合规')
+          PYEOF
 
           echo "=== 构建产物文件列表 ==="
           find dist-ext -type f | sort
 
-      # ── 6. 打包为 .zip（Chrome Web Store / Firefox Add-ons 通用格式）─────
+      # ── 6. 打包为 .zip ───────────────────────────────────────────────────
       - name: Package extension as zip
         run: |
-          cd dist-ext
-          zip -r ../minimal-desktop-extension.zip . -x "*.map"
-          cd ..
-          echo "Package size: $(du -sh minimal-desktop-extension.zip | cut -f1)"
+          # 从 package.json 读取版本号
+          VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+          ZIPNAME="minimal-desktop-extension-v${VERSION}.zip"
+          echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      # ── 7. 上传构建产物（每次 push 均可下载）────────────────────────────
+          cd dist-ext
+          zip -r "../${ZIPNAME}" . -x "*.map"
+          cd ..
+          echo "Package: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
+
+      # ── 7. 上传构建产物 ───────────────────────────────────────────────────
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: minimal-desktop-extension
-          path: minimal-desktop-extension.zip
+          path: ${{ env.ZIPNAME }}
           retention-days: 30
 
-      # ── 8. 发布 GitHub Release（仅在推送 tag 时触发）─────────────────────
-      - name: Create GitHub Release
+      # ── 8a. main 分支 push：自动更新滚动版 "latest" Release ───────────────
+      - name: Auto-release to latest (main push)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Minimal Desktop — 最新构建 (latest)"
+          body: |
+            ## 自动发布 — 最新构建
+
+            > 本 Release 由 `main` 分支每次 push 自动更新，始终对应最新代码。
+
+            ### 安装方式（Chrome）
+            1. 下载下方的 `minimal-desktop-extension-*.zip` 并解压
+            2. 打开 `chrome://extensions/` → 开启「开发者模式」
+            3. 点击「加载已解压的扩展程序」，选择解压目录
+            4. 打开新标签页，即可看到 Minimal Desktop ✨
+
+            ### 安装方式（Firefox）
+            1. 打开 `about:debugging#/runtime/this-firefox`
+            2. 点击「临时载入附加组件」，选择 zip 包内的 `manifest.json`
+
+            ---
+            **构建提交：** `${{ github.sha }}`
+            **触发时间：** `${{ github.event.head_commit.timestamp }}`
+          files: ${{ env.ZIPNAME }}
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 8b. 推送 tag：发布正式版 Release ─────────────────────────────────
+      - name: Create versioned Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: Minimal Desktop ${{ github.ref_name }}
+          name: "Minimal Desktop ${{ github.ref_name }}"
           body: |
-            ## Minimal Desktop ${{ github.ref_name }} — 浏览器扩展
+            ## Minimal Desktop ${{ github.ref_name }} — 浏览器扩展正式版
 
-            ### 安装方式
-            1. 下载 `minimal-desktop-extension.zip` 并解压
-            2. 打开 Chrome → 地址栏输入 `chrome://extensions/`
-            3. 开启右上角「开发者模式」
-            4. 点击「加载已解压的扩展程序」，选择解压目录
-            5. 打开新标签页即可看到 Minimal Desktop ✨
+            ### 安装方式（Chrome）
+            1. 下载 `minimal-desktop-extension-${{ github.ref_name }}.zip` 并解压
+            2. 打开 `chrome://extensions/` → 开启「开发者模式」
+            3. 点击「加载已解压的扩展程序」，选择解压目录
+            4. 打开新标签页，即可看到 Minimal Desktop ✨
 
-            ### Firefox 安装
+            ### 安装方式（Firefox）
             1. 打开 `about:debugging#/runtime/this-firefox`
             2. 点击「临时载入附加组件」，选择 zip 包内的 `manifest.json`
 
             ### 合规说明
-            - Manifest V3 标准
-            - 无内联脚本，符合严格 CSP
-            - 仅使用 `storage` 权限（本地数据持久化）
-          files: minimal-desktop-extension.zip
+            - ✅ Manifest V3 标准
+            - ✅ 无内联脚本，符合严格 CSP（`script-src 'self'`）
+            - ✅ 仅使用 `storage` 权限
+          files: ${{ env.ZIPNAME }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
