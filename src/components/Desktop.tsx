@@ -199,15 +199,18 @@ const Desktop: React.FC = () => {
       handleEdgeHover(e.clientX);
 
       // 用几何矩形检测当前悬停格子，不受 z-index / pointer-events 影响
+      // 桌面格子可能因滚动溢出而与 Dock 区域几何重叠，优先匹配 Dock 格子(data-page=-1)
       let hoverCell: HTMLElement | null = null;
+      let desktopHit: HTMLElement | null = null;
       const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
       for (const cellEl of allCells) {
         const r = cellEl.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          hoverCell = cellEl;
-          break;
+          if (cellEl.dataset.page === '-1') { hoverCell = cellEl; break; }
+          if (!desktopHit) desktopHit = cellEl;
         }
       }
+      if (!hoverCell) hoverCell = desktopHit;
       const hoverId = hoverCell?.dataset.itemid ?? null;
       if ((hoverId ?? null) !== dragOverItemRef.current) {
         setDragOverItem(hoverId ?? null);
@@ -312,25 +315,38 @@ const Desktop: React.FC = () => {
       const isWidget = g.item.type === 'widget';
 
       // 几何矩形检测落点格子（含空格子），不受 z-index/pointer-events 影响
+      // 桌面格子可能因滚动溢出而与 Dock 区域几何重叠，优先匹配 Dock 格子(data-page=-1)
       let cell: HTMLElement | null = null;
+      let desktopHit: HTMLElement | null = null;
       const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
       for (const cellEl of allCells) {
         const r = cellEl.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          cell = cellEl; break;
+          if (cellEl.dataset.page === '-1') { cell = cellEl; break; }
+          if (!desktopHit) desktopHit = cellEl;
         }
       }
+      if (!cell) cell = desktopHit;
       // 落在行/列间隙时（gap 区域无命中），改为找中心点最近的格子，
       // 避免触发 findFirstEmpty 把图标甩到第一行
+      // 同样优先 Dock 格子，避免溢出的桌面格子抢夺 Dock 落点
       if (!cell) {
-        let minDist = Infinity;
+        let dockMinDist = Infinity;
+        let desktopMinDist = Infinity;
+        let desktopNearest: HTMLElement | null = null;
         for (const cellEl of allCells) {
           const r = cellEl.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue; // 跳过 display:none 的隐藏页格子
           const cx = (r.left + r.right) / 2;
           const cy = (r.top + r.bottom) / 2;
           const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
-          if (dist < minDist) { minDist = dist; cell = cellEl; }
+          if (cellEl.dataset.page === '-1') {
+            if (dist < dockMinDist) { dockMinDist = dist; cell = cellEl; }
+          } else {
+            if (dist < desktopMinDist) { desktopMinDist = dist; desktopNearest = cellEl; }
+          }
         }
+        if (!cell) cell = desktopNearest;
       }
       // 极端情况（指针完全飞出屏幕外）：findFirstEmpty 兜底
       if (!cell) {

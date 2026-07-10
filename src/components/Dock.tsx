@@ -13,6 +13,7 @@ const Dock: React.FC<{
   dropActive: boolean;
 }> = ({ onDragBegin, onLongPress, onDeleteItem, activeSlot, dropActive }) => {
   const { data, loading } = useDesktop();
+  const dockItems = data.dock ?? [];
   const dockIconMetrics = getIconLayoutMetrics('small');
   const slotRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -102,7 +103,7 @@ const Dock: React.FC<{
         ) : (
           <>
             {Array.from({ length: 4 }).map((_, i) => {
-              const item = data.dock[i];
+              const item = dockItems[i];
               if (item) {
                 return (
                   <div
@@ -165,7 +166,7 @@ const Dock: React.FC<{
                 />
               );
             })}
-            {data.dock.length === 0 && (
+            {dockItems.length === 0 && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <p className={`text-xs transition-colors ${dropActive ? 'text-white/90' : 'text-white/50'}`}>
                   长按图标拖到此处添加到 Dock

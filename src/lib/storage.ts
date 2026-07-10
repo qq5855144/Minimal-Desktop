@@ -44,6 +44,8 @@ export function loadDesktopData(): DesktopData {
       const parsed = JSON.parse(raw) as DesktopData;
       if (parsed.pages && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
         const ensured = structuredClone(parsed);
+        // 确保 dock 字段存在（旧版本数据可能没有 dock 字段）
+        if (!Array.isArray(ensured.dock)) ensured.dock = [];
         const allItems = ensured.pages.flat();
 
         // ── 迁移 1：确保三个系统应用始终存在 ──

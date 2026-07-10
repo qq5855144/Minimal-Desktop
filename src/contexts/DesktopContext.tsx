@@ -456,6 +456,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           item = next.pages[p][ii];
           itemPage = p;
           itemIdx = ii;
+          break;
         }
       }
       if (!item) return prev;
