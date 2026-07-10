@@ -96,43 +96,58 @@ export function pruneIconCaches(validUrls: Set<string>): void {
 }
 
 /**
- * 异步 fetch 远程图标并缓存为 base64 DataURL。
- * - 已缓存 → 直接返回缓存
- * - fetch 失败 / CORS 阻断 → 返回 null（不影响显示）
+ * 异步加载远程图标并缓存为 base64 DataURL。
+ *
+ * 使用 <img crossOrigin="anonymous"> + Canvas 方案替代 fetch()：
+ *  - 不触发浏览器 CORS 控制台警告（fetch mode:'cors' 被 CORS 拒绝时会强制打印警告）
+ *  - 若服务端允许跨域（返回 ACAO 头），canvas.toDataURL() 成功 → 写入缓存
+ *  - 若 CORS 拒绝（canvas 被污染），捕获 SecurityError → 返回 null，图标仍由 <img src> 正常显示
  */
-export async function fetchAndCacheIcon(url: string): Promise<string | null> {
-  if (!url) return null;
-  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+export function fetchAndCacheIcon(url: string): Promise<string | null> {
+  if (!url) return Promise.resolve(null);
+  if (url.startsWith('data:') || url.startsWith('blob:')) return Promise.resolve(url);
 
   const cached = getIconCache(url);
-  if (cached) return cached;
+  if (cached) return Promise.resolve(cached);
 
   const inflight = inflightFetches.get(url);
   if (inflight) return inflight;
 
-  const request = (async () => {
-    try {
-      const resp = await fetch(url, { mode: 'cors', cache: 'force-cache' });
-      if (!resp.ok) return null;
-      const blob = await resp.blob();
-      if (!blob.type.startsWith('image/')) return null;
+  const request = new Promise<string | null>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // 尝试 CORS，失败时 canvas 抛 SecurityError 而非控制台警告
 
-      return await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          setIconCache(url, dataUrl);
-          resolve(dataUrl);
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      return null;
-    } finally {
+    const cleanup = () => {
+      img.onload = null;
+      img.onerror = null;
       inflightFetches.delete(url);
-    }
-  })();
+    };
+
+    const timer = setTimeout(() => { cleanup(); resolve(null); }, 6000);
+
+    img.onload = () => {
+      clearTimeout(timer);
+      cleanup();
+      try {
+        const size = Math.min(Math.max(img.naturalWidth, img.naturalHeight, 1), 256);
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(null); return; }
+        ctx.drawImage(img, 0, 0, size, size);
+        const dataUrl = canvas.toDataURL('image/png');
+        setIconCache(url, dataUrl);
+        resolve(dataUrl);
+      } catch {
+        // canvas 被污染（CORS 拒绝）— 静默忽略，不缓存，图标依旧可显示
+        resolve(null);
+      }
+    };
+
+    img.onerror = () => { clearTimeout(timer); cleanup(); resolve(null); };
+    img.src = url;
+  });
 
   inflightFetches.set(url, request);
   return request;

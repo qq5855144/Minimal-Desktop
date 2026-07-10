@@ -32,7 +32,6 @@ async function init() {
     addBtn.textContent = '不支持此页面';
     return;
   }
-
   const pageUrl = tab.url!;
   const pageTitle = clampTitle(tab.title ?? new URL(pageUrl).hostname);
   const pageFavicon = tab.favIconUrl ?? '';
@@ -48,7 +47,9 @@ async function init() {
 
   addBtn.addEventListener('click', async () => {
     addBtn.disabled = true;
-    addBtn.textContent = '正在添加…';
+    // 移除文字，只保留 SVG 子元素（按钮内有 svg + 文字节点）
+    const btnText = addBtn.childNodes[addBtn.childNodes.length - 1];
+    if (btnText?.nodeType === Node.TEXT_NODE) btnText.textContent = '正在添加…';
 
     await chrome.storage.local.set({
       pendingClip: { url: pageUrl, title: pageTitle, favicon: pageFavicon || undefined },
@@ -60,7 +61,7 @@ async function init() {
     // 显示成功状态后自动关闭
     mainEl.style.display = 'none';
     statusEl.style.display = 'flex';
-    setTimeout(() => window.close(), 900);
+    setTimeout(() => window.close(), 1200);
   });
 }
 
