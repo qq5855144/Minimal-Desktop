@@ -140,11 +140,11 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     ? 'bg-black/30 backdrop-blur-2xl'
     : 'bg-[#dde3ea]';
   const inputBar = isGlass
-    ? 'flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-white/20 ring-2 ring-white/40 shadow-lg'
-    : 'flex items-center gap-2.5 px-3 py-2.5 rounded-2xl neu-raised-focused';
+    ? 'flex items-center gap-2 px-3 py-[9px] rounded-full bg-white/25 shadow-lg'
+    : 'flex items-center gap-2 px-3 py-[9px] rounded-full neu-raised-focused';
   const inputCls = isGlass
-    ? 'flex-1 min-w-0 bg-transparent text-white placeholder:text-white/50 outline-none text-base'
-    : 'flex-1 min-w-0 bg-transparent text-slate-700 placeholder:text-slate-400 outline-none text-base';
+    ? 'flex-1 min-w-0 bg-transparent text-white placeholder:text-white/50 outline-none text-sm'
+    : 'flex-1 min-w-0 bg-transparent text-slate-700 placeholder:text-slate-400 outline-none text-sm';
   const labelCls = isGlass ? 'text-white/70 text-sm font-medium' : 'text-slate-500 text-sm font-medium';
   const itemBg = isGlass ? 'bg-white/15 hover:bg-white/25' : 'bg-white hover:bg-slate-50 shadow-sm';
   const itemTextCls = isGlass ? 'text-white text-sm' : 'text-slate-700 text-sm';
@@ -183,7 +183,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索或输入网址后回车"
               className={inputCls}
-              style={{ fontSize: 16 }}
+              style={{ fontSize: 14 }}
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="none"
