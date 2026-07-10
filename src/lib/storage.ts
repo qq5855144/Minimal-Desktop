@@ -131,6 +131,7 @@ const DEFAULT_BG_IMAGE = 'https://images.unsplash.com/photo-1506905925346-21bda4
 
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
+  dockEnabled: true,
   iconSize: 46,
   cols: 4,
   rows: 7,

@@ -152,6 +152,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   // 每次打开面板时生成新随机基数，保证每次壁纸不同
   const sessionSeedRef = useRef(Math.floor(Math.random() * 10000));
   const isNeu = settings.style === 'neumorphism';
+  const dockEnabled = settings.dockEnabled !== false;
   const t = getPanelTheme(isNeu);
 
   const handleClose = () => { setPanel('main'); onClose(); };
@@ -322,6 +323,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [data, importData]);
 
+  const toggleDock = useCallback(() => {
+    updateSettings({ dockEnabled: !dockEnabled });
+    toast.success(dockEnabled ? '已隐藏 Dock 栏' : '已显示 Dock 栏');
+  }, [dockEnabled, updateSettings]);
+
   if (!open) return null;
 
   // ── 主面板 ──
@@ -343,7 +349,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           id: 'widgets' as Panel,
           icon: <Layers className="w-5 h-5" />,
           label: '组件管理',
-          desc: `时钟 ${widgetExists('widget-clock') ? '已启用' : '已隐藏'} · 搜索栏 ${widgetExists('widget-search') ? '已启用' : '已隐藏'}`,
+          desc: `Dock ${dockEnabled ? '已显示' : '已隐藏'} · 时钟 ${widgetExists('widget-clock') ? '已启用' : '已隐藏'} · 搜索栏 ${widgetExists('widget-search') ? '已启用' : '已隐藏'}`,
           color: 'bg-teal-500',
           disabled: false,
         },
@@ -707,6 +713,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   // ── 组件管理面板 ──
   const renderWidgets = () => {
     const widgetDefs = [
+      { id: 'dock' as const, label: 'Dock 栏', desc: '显示底部固定栏，支持与桌面应用双向拖拽放置', icon: <Layers className="w-5 h-5" /> },
       { id: 'widget-clock' as const, label: '时钟', desc: '显示实时时间、日期与农历', icon: <Clock className="w-5 h-5" /> },
       { id: 'widget-search' as const, label: '搜索栏', desc: '点击左侧引擎图标可切换 / 添加搜索引擎', icon: <Search className="w-5 h-5" /> },
     ];
@@ -716,15 +723,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           <ChevronLeft className="w-4 h-4" /> 返回
         </button>
         <h3 className={`text-base font-semibold ${t.textPrimary}`}>组件管理</h3>
-        <p className={`text-xs ${t.textDim}`}>点击开关可在桌面上显示或隐藏对应组件</p>
+        <p className={`text-xs ${t.textDim}`}>点击开关可显示或隐藏对应组件，Dock 隐藏后会保留已固定应用</p>
         <div className="space-y-3">
           {widgetDefs.map((w) => {
-            const enabled = widgetExists(w.id);
+            const enabled = w.id === 'dock' ? dockEnabled : widgetExists(w.id);
             return (
               <button
                 key={w.id}
                 type="button"
-                onClick={() => toggleWidget(w.id)}
+                onClick={() => {
+                  if (w.id === 'dock') toggleDock();
+                  else toggleWidget(w.id);
+                }}
                 className={`flex items-center gap-3 w-full rounded-2xl px-4 py-3.5 ${t.itemBg} ${t.itemBgHover} border ${t.itemBorder} transition-colors`}
               >
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${enabled ? 'bg-teal-500 text-white' : isNeu ? 'bg-gray-200 text-gray-400' : 'bg-white/10 text-white/40'}`}>

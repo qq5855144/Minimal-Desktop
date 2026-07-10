@@ -38,6 +38,8 @@ interface DesktopContextType {
   moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
   // 拖拽：从桌面移到 Dock
   moveDesktopToDock: (itemId: string, dockIdx: number) => void;
+  // 拖拽：Dock 内调整顺序
+  moveDockItem: (itemId: string, dockIdx: number) => void;
   // 合并两个应用为文件夹
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   // 重命名文件夹
@@ -472,6 +474,19 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
+  const moveDockItem = useCallback((itemId: string, dockIdx: number) => {
+    setData((prev) => {
+      const next = structuredClone(prev);
+      const fromIdx = next.dock.findIndex((it) => it.id === itemId);
+      if (fromIdx < 0) return prev;
+      const boundedIdx = Math.max(0, Math.min(dockIdx, next.dock.length - 1));
+      if (fromIdx === boundedIdx) return prev;
+      const [item] = next.dock.splice(fromIdx, 1);
+      next.dock.splice(boundedIdx, 0, item);
+      return next;
+    });
+  }, []);
+
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
     let success = false;
     setData((prev) => {
@@ -693,6 +708,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reorderFolderChildren,
         moveDockToDesktop,
         moveDesktopToDock,
+        moveDockItem,
         mergeToFolder,
         renameFolder,
         dissolveFolder,
