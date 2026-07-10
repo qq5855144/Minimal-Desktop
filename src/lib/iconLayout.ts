@@ -1,12 +1,12 @@
 export type IconSizeVariant = 'normal' | 'small';
 
-const SMALL_ICON_PX = 48;
+const SMALL_ICON_PX = 44;
 const DEFAULT_ICON_PX = 46;
 const ICON_RADIUS = '22%';
 const ICON_LABEL_GAP_PX = 4;
 const ICON_LABEL_PADDING_X_PX = 8;
-const FOLDER_PREVIEW_SCALE = 0.68;
-const FOLDER_PREVIEW_GAP_PX = 4;
+const FOLDER_PREVIEW_SCALE = 0.78;
+const FOLDER_PREVIEW_GAP_PX = 3;
 
 const TEXT_CLASS_MAP: Record<IconSizeVariant, string> = {
   normal: 'text-[11px] leading-[18px]',

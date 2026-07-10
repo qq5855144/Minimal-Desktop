@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { CLOCK_VISUAL_MIN_HEIGHT_PX } from '@/lib/widgetConfig';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 const LUNAR_MONTHS = ['正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊'];
@@ -72,7 +73,10 @@ const ClockWidget: React.FC = () => {
   const lunar = getLunarDate(now);
 
   return (
-    <div className="flex flex-col items-center py-3 select-none">
+    <div
+      className="flex select-none flex-col items-center justify-center py-3"
+      style={{ minHeight: CLOCK_VISUAL_MIN_HEIGHT_PX }}
+    >
       <div
         className={`font-bold leading-none ${isNeu ? 'text-slate-700' : 'text-white drop-shadow-lg'}`}
         style={{ fontSize: 'clamp(56px, 14vw, 88px)', letterSpacing: '-2px' }}

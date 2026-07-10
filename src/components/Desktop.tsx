@@ -2,12 +2,11 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
+import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import { getWidgetComponent } from './widgetRenderer';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
-import CombinedWidget from './CombinedWidget';
-import ClockWidget from './ClockWidget';
-import SearchBar from './SearchBar';
 import FolderView from './FolderView';
 import AddEditDialog from './AddEditDialog';
 import SettingsView from './SettingsView';
@@ -675,6 +674,13 @@ const Desktop: React.FC = () => {
     );
   };
 
+  const ghostWidgetLayout = ghost?.item.type === 'widget'
+    ? getWidgetLayoutMetrics(ghost.item.widgetType, settings.iconSize, screenMd)
+    : null;
+  const GhostWidgetComponent = ghost?.item.type === 'widget'
+    ? getWidgetComponent(ghost.item.widgetType)
+    : null;
+
   return (
     <div
       className="relative w-full h-screen overflow-hidden select-none"
@@ -837,14 +843,15 @@ const Desktop: React.FC = () => {
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
           {ghost.item.type === 'widget' ? (
-            <div className="w-[320px] md:w-[480px] overflow-hidden rounded-3xl bg-white/5 backdrop-blur-sm pt-2">
-              {ghost.item.widgetType === 'combined' ? (
-                <CombinedWidget />
-              ) : ghost.item.widgetType === 'clock' ? (
-                <ClockWidget />
-              ) : (
-                <SearchBar />
-              )}
+            <div
+              className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"
+              style={{
+                width: ghostWidgetLayout?.ghostWidthPx,
+                minHeight: ghostWidgetLayout?.cellMinHeightPx,
+                borderRadius: ghostWidgetLayout?.ghostRadiusPx,
+              }}
+            >
+              {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
             </div>
           ) : (
             <AppIcon item={ghost.item} size="normal" />

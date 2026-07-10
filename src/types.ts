@@ -13,6 +13,7 @@ export type IconColor =
 
 // 桌面项类型（widget = 全宽组件，占满一整行）
 export type ItemType = 'app' | 'folder' | 'system' | 'widget';
+export type WidgetType = 'clock' | 'search' | 'combined';
 
 // 桌面项（应用 / 文件夹 / 系统应用 / 组件）
 export interface DesktopItem {
@@ -33,7 +34,7 @@ export interface DesktopItem {
   // 文件夹内应用列表
   children?: DesktopItem[];
   // 组件类型（仅 type='widget' 时有效）
-  widgetType?: 'clock' | 'search' | 'combined';
+  widgetType?: WidgetType;
 }
 
 // 桌面数据

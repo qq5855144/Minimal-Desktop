@@ -1,4 +1,5 @@
-import type { DesktopData, SyncConfig } from '@/types';
+import type { DesktopData, SyncConfig, WidgetType } from '@/types';
+import { createWidgetItem } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
@@ -10,11 +11,12 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = [
   { id: 'sys-sync',     type: 'system', name: '同步',     color: 'indigo', page: 0, row: 2, col: 2 },
 ];
 
-// 两个独立组件：时钟（row=0）和搜索栏（row=1），各占一行
-export const WIDGET_ITEMS: import('@/types').DesktopItem[] = [
-  { id: 'widget-clock',  type: 'widget', name: '时钟',   color: 'blue', widgetType: 'clock',  page: 0, row: 0, col: 0 },
-  { id: 'widget-search', type: 'widget', name: '搜索栏', color: 'blue', widgetType: 'search', page: 0, row: 1, col: 0 },
-];
+// 默认组件通过配置声明占位与基础信息，新增桌面组件时只需补配置并声明默认顺序
+const DEFAULT_WIDGET_TYPES: WidgetType[] = ['clock', 'search'];
+
+export const WIDGET_ITEMS: import('@/types').DesktopItem[] = DEFAULT_WIDGET_TYPES.map((widgetType, index) =>
+  createWidgetItem(widgetType, 0, index),
+);
 
 export const defaultDesktopData: DesktopData = {
   pages: [structuredClone([...WIDGET_ITEMS, ...SYSTEM_APPS])],

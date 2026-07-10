@@ -1,8 +1,7 @@
 import React, { useRef, useCallback } from 'react';
 import type { DesktopItem } from '@/types';
-import CombinedWidget from './CombinedWidget';
-import ClockWidget from './ClockWidget';
-import SearchBar from './SearchBar';
+import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import { getWidgetComponent } from './widgetRenderer';
 
 interface WidgetGridCellProps {
   item: DesktopItem;
@@ -25,6 +24,8 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   const startYRef = useRef(0);
   const dragStartedRef = useRef(false);
   const longFiredRef = useRef(false);
+  const layout = getWidgetLayoutMetrics(item.widgetType);
+  const WidgetComponent = getWidgetComponent(item.widgetType);
 
   const cancelLong = useCallback(() => {
     if (longTimerRef.current) {
@@ -63,23 +64,27 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     cancelLong();
   }, [cancelLong]);
 
-  const skeletonH = item.widgetType === 'combined' ? 'h-[180px]' : item.widgetType === 'clock' ? 'h-[96px]' : 'h-[56px]';
-
   if (ghost) {
     return (
-      <div className={`rounded-2xl bg-white/10 animate-pulse mx-0 ${skeletonH}`} />
+      <div
+        className="mx-0 rounded-2xl bg-white/10 animate-pulse"
+        style={{ minHeight: layout.cellMinHeightPx }}
+      />
     );
   }
 
   return (
     <div
-      className="relative w-full touch-none"
+      className="relative flex w-full touch-none items-center"
+      style={{ minHeight: layout.cellMinHeightPx }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {item.widgetType === 'combined' ? <CombinedWidget /> : item.widgetType === 'clock' ? <ClockWidget /> : <SearchBar />}
+      <div className="w-full">
+        <WidgetComponent />
+      </div>
     </div>
   );
 };
