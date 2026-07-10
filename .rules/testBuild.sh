@@ -9,7 +9,8 @@ elif [ ! -e "$VITE_TEMP" ]; then
 fi
 
 # 平台预览部署到 /workspace/.dist，base 必须为 /（而非 GitHub Pages 用的 /Minimal-Desktop/）
-OUTPUT=$(npx vite build --minify false --logLevel error --base=/ --outDir /workspace/.dist 2>&1)
+# --emptyOutDir: .dist 在项目根外，Vite 默认不清理，需显式指定避免旧产物残留
+OUTPUT=$(npx vite build --minify false --logLevel error --base=/ --emptyOutDir --outDir /workspace/.dist 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
