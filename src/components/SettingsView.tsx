@@ -573,14 +573,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
             const page = catPage[cat] ?? 0;
             const key = `${cat}-${page}-${sessionSeedRef.current}`;
             const items = catImages[key];
-            if (catLoading === cat) return (
+            // catLoading 或 items 尚未就绪时，均用骨架占位，避免面板高度收缩
+            if (catLoading === cat || !items) return (
               <div className="grid grid-cols-3 gap-2 py-2">
                 {Array.from({ length: 9 }).map((_, i) => (
                   <div key={i} className={`aspect-video rounded-xl animate-pulse ${isNeu ? 'bg-gray-200' : 'bg-white/10'}`} />
                 ))}
               </div>
             );
-            if (!items) return null;
             return (
               <WallpaperGrid
                 items={items}
