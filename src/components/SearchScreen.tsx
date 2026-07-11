@@ -5,7 +5,7 @@
  * - 有输入时实时拉取百度搜索建议（JSONP）
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
@@ -115,12 +115,10 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 原生 touch 事件拦截：SearchScreen 挂载在 Desktop 的 swipeContainerRef 内部，
-  // React 合成事件 stopPropagation 无法阻断 Desktop 注册的原生 addEventListener，
-  // 必须在顶层 div 上注册原生监听器，在原生冒泡阶段直接截断。
-  // ⚠️ 依赖 [open]：open=false 时 div 未渲染（return null），overlayRef.current=null，
-  //    空依赖数组只在首次挂载（open=false）时运行，永远拿不到 div，监听器无法注册。
-  //    改为 [open] 后，open 变 true → div 渲染 → effect 重跑 → 监听器正确挂载。
-  useEffect(() => {
+  // React 合成事件 stopPropagation 无法阻断 Desktop 注册的原生 addEventListener。
+  // useLayoutEffect（同步，DOM commit 后立即执行）确保监听器在浏览器处理任何触摸前挂载，
+  // 避免 useEffect（异步，paint 后）存在的极短窗口期导致事件溜过。
+  useLayoutEffect(() => {
     const el = overlayRef.current;
     if (!el) return;
     const stop = (e: TouchEvent) => e.stopPropagation();
@@ -134,7 +132,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
       el.removeEventListener('touchend', stop);
       el.removeEventListener('touchcancel', stop);
     };
-  }, [open]); // open 变 true 时 div 才存在，必须依赖 open 而非空数组
+  }, [open]); // open 变 true → div 渲染 → layoutEffect 同步挂载监听器
 
   // 实时拉取建议（防抖 150ms + AbortController 取消旧请求）
   useEffect(() => {
@@ -216,6 +214,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   return (
     <div
       ref={overlayRef}
+      data-search-overlay="true"
       className={`fixed inset-0 z-[500] flex flex-col rounded-none ${overlayBg}`}
       style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderRadius: 0 } : { borderRadius: 0 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -290,11 +289,11 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
                   >
                     <Search className={iconCls} />
                     <span className={`${itemTextCls} flex-1 min-w-0 truncate`}>{s}</span>
-                    {/* 填入输入框箭头 */}
+                    {/* 填入输入框——44×44 最小触摸目标 */}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); fillQuery(s); }}
-                      className={actionCls}
+                      className={`${actionCls} min-w-[44px] min-h-[44px] flex items-center justify-center -mr-1`}
                       aria-label="填入搜索框"
                     >
                       <ArrowUpLeft className="w-4 h-4" />
@@ -322,10 +321,11 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
                     >
                       <Clock className={iconCls} />
                       <span className={`${itemTextCls} flex-1 min-w-0 truncate`}>{h}</span>
+                      {/* 删除历史——44×44 最小触摸目标 */}
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); deleteHistory(h); }}
-                        className={actionCls}
+                        className={`${actionCls} min-w-[44px] min-h-[44px] flex items-center justify-center -mr-1`}
                         aria-label="删除该条历史"
                       >
                         <X className="w-4 h-4" />

@@ -552,6 +552,8 @@ const Desktop: React.FC = () => {
       const target = e.target as HTMLElement;
       // 输入框内保留浏览器默认长按行为，不启动翻页追踪
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      // 搜索全屏覆盖层打开时禁用翻页（双重保险：SearchScreen 已在原生冒泡阶段 stopPropagation）
+      if (target.closest('[data-search-overlay="true"]')) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       tracking = true;
