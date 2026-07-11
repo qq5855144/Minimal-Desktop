@@ -96,6 +96,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const [suggests, setSuggests] = useState<string[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [iconErr, setIconErr] = useState(false);
@@ -112,6 +113,25 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     setSuggests([]);
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 原生 touch 事件拦截：SearchScreen 挂载在 Desktop 的 swipeContainerRef 内部，
+  // React 合成事件 stopPropagation 无法阻断 Desktop 注册的原生 addEventListener，
+  // 必须在顶层 div 上注册原生监听器，在原生冒泡阶段直接截断。
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const stop = (e: TouchEvent) => e.stopPropagation();
+    el.addEventListener('touchstart', stop, { passive: true });
+    el.addEventListener('touchmove', stop, { passive: false });
+    el.addEventListener('touchend', stop, { passive: true });
+    el.addEventListener('touchcancel', stop, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', stop);
+      el.removeEventListener('touchmove', stop);
+      el.removeEventListener('touchend', stop);
+      el.removeEventListener('touchcancel', stop);
+    };
+  }, []);
 
   // 实时拉取建议（防抖 150ms + AbortController 取消旧请求）
   useEffect(() => {
@@ -192,6 +212,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
 
   return (
     <div
+      ref={overlayRef}
       className={`fixed inset-0 z-[500] flex flex-col rounded-none ${overlayBg}`}
       style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderRadius: 0 } : { borderRadius: 0 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -241,7 +262,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
 
         {/* 内容区：建议 / 历史 */}
         <div
-          className="flex-1 overflow-y-auto min-h-0 scrollbar-none space-y-2 pb-8 px-1"
+          className="flex-1 overflow-y-auto min-h-0 scrollbar-none space-y-2 pb-8 px-3 py-1"
           onTouchMove={(e) => e.stopPropagation()}
         >
           {query.trim() ? (
