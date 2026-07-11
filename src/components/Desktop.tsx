@@ -564,7 +564,8 @@ const Desktop: React.FC = () => {
       const dx = Math.abs(e.touches[0].clientX - startX);
       const dy = Math.abs(e.touches[0].clientY - startY);
       // 明确水平滑动：阻止浏览器默认行为（防止 pointercancel / scroll 覆盖）
-      if (dx > dy && dx > 10) e.preventDefault();
+      // cancelable=false 时浏览器已提交原生滚动，跳过以避免控制台警告
+      if (dx > dy && dx > 10 && e.cancelable) e.preventDefault();
     };
 
     const onTouchEnd = (e: TouchEvent) => {
