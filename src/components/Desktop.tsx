@@ -218,17 +218,32 @@ const Desktop: React.FC = () => {
           break;
         }
       }
-      if ((hoverId ?? null) !== dragOverItemRef.current) {
-        setDragOverItem(hoverId ?? null);
-        dragOverItemRef.current = hoverId;
+
+      // 提前查询悬停目标项类型：用于判断是否可合并、是否高亮
+      const { data: dataNow } = latestRef.current;
+      const hoverItem = hoverId !== null
+        ? dataNow.pages.flat().find(it => it.id === hoverId) ?? null
+        : null;
+      const isHoverWidget = hoverItem?.type === 'widget';
+
+      // 文件夹拖出时不高亮 widget（无法合并/放置），避免误导用户以为可放入组件
+      const isFolderDrag = g.source.type === 'folder';
+      const effectiveHoverId = (isFolderDrag && isHoverWidget) ? null : (hoverId ?? null);
+      if (effectiveHoverId !== dragOverItemRef.current) {
+        setDragOverItem(effectiveHoverId);
+        dragOverItemRef.current = effectiveHoverId;
       }
 
       // 仅桌面图标参与悬停合并；widget/system/dock(page=-1)全部排除
+      // 提前排除 widget/system 目标，避免启动 800ms 计时器后才发现无法合并
       const isDesktopDrag = g.source.type === 'desktop' || g.source.type === 'folder';
       const isValidMergeTarget =
         hoverId !== null &&
         hoverId !== g.source.itemId &&
-        isDesktopDrag;
+        isDesktopDrag &&
+        hoverItem !== null &&
+        hoverItem.type !== 'widget' &&
+        hoverItem.type !== 'system';
 
       if (isValidMergeTarget) {
         if (hoverId !== mergeHoverIdRef.current) {
@@ -245,7 +260,7 @@ const Desktop: React.FC = () => {
               ? d.pages.flat().find((it) => it.id === cur.source.folderId)?.children?.find((child) => child.id === cur.source.itemId)
               : d.pages.flat().find((it) => it.id === cur.source.itemId);
             const target = d.pages.flat().find(it => it.id === hoverIdNonNull);
-            // widget / system 不参与合并
+            // widget / system 不参与合并（兜底：数据可能在 800ms 内变化）
             if (dragItem?.type === 'widget' || target?.type === 'widget') return;
             if (!target || target.type === 'system') return;
             // 阻止 folder 拖入 folder（避免无限嵌套）
@@ -264,6 +279,10 @@ const Desktop: React.FC = () => {
               cur.source.type === 'folder' ? cur.source.folderId : undefined,
             );
             if (!merged) return;
+            // 合并成功后若来源是文件夹，需立即关闭文件夹：
+            // onUp 会因 ghostRef 已被清空而提前 return，跳过关闭逻辑，
+            // 导致 openFolderId 残留、文件夹遮罩（已被 DOM display:none 隐藏）无法再次打开
+            const wasFromFolder = cur.source.type === 'folder';
             ghostRef.current = null;
             setGhost(null);
             setIsDragging(false);
@@ -271,11 +290,16 @@ const Desktop: React.FC = () => {
             setDragOverItem(null);
             dragOverItemRef.current = null;
             mergeHoverIdRef.current = null;
+            mergeTimerRef.current = null;
+            if (wasFromFolder) {
+              setOpenFolderId(null);
+              setFolderRenameId(null);
+            }
           }, MERGE_DELAY);
         }
         // hoverId 未变化 → 继续等待计时器，无需任何操作
       } else {
-        // 离开有效合并目标（到空白、回到自身、非桌面拖拽）→ 清除计时器
+        // 离开有效合并目标（到空白、回到自身、非桌面拖拽、widget/system）→ 清除计时器
         clearMergeTimer();
       }
     };
