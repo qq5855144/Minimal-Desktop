@@ -117,6 +117,9 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   // 原生 touch 事件拦截：SearchScreen 挂载在 Desktop 的 swipeContainerRef 内部，
   // React 合成事件 stopPropagation 无法阻断 Desktop 注册的原生 addEventListener，
   // 必须在顶层 div 上注册原生监听器，在原生冒泡阶段直接截断。
+  // ⚠️ 依赖 [open]：open=false 时 div 未渲染（return null），overlayRef.current=null，
+  //    空依赖数组只在首次挂载（open=false）时运行，永远拿不到 div，监听器无法注册。
+  //    改为 [open] 后，open 变 true → div 渲染 → effect 重跑 → 监听器正确挂载。
   useEffect(() => {
     const el = overlayRef.current;
     if (!el) return;
@@ -131,7 +134,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
       el.removeEventListener('touchend', stop);
       el.removeEventListener('touchcancel', stop);
     };
-  }, []);
+  }, [open]); // open 变 true 时 div 才存在，必须依赖 open 而非空数组
 
   // 实时拉取建议（防抖 150ms + AbortController 取消旧请求）
   useEffect(() => {
