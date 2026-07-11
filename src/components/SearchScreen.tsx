@@ -31,14 +31,28 @@ function pushHistory(query: string) {
   saveHistory([query, ...list]);
 }
 
-// ── 百度搜索建议（fetch 替代 JSONP，兼容扩展 CSP）────────────────────────────
+// ── 百度搜索建议 ──────────────────────────────────────────────────────────────
+// 策略：扩展环境 → 通过 background service worker 代理请求（绕过 CORS）
+//       Web 环境   → 直接 fetch（非扩展上下文，无 CORS 限制问题）
 async function fetchBaiduSuggest(wd: string): Promise<string[]> {
+  // 扩展环境：转发给 background service worker
+  if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+    try {
+      const resp = await new Promise<{ ok: boolean; data: string[] }>((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'FETCH_SUGGEST', query: wd }, (res) => {
+          if (chrome.runtime.lastError) { reject(chrome.runtime.lastError); return; }
+          resolve(res);
+        });
+      });
+      if (resp?.ok) return resp.data ?? [];
+    } catch {
+      // 回退到直接 fetch
+    }
+  }
+  // Web 环境兜底
   try {
-    const cb = 'sugg';
-    const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cb}`;
+    const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
     const text = await fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.text());
-    // 百度返回 JS 对象字面量（键名无引号），不能直接 JSON.parse 整个对象
-    // 直接提取 s 数组（数组值是合法 JSON）
     const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
     if (!m) return [];
     return JSON.parse(m[1]) as string[];
