@@ -6,6 +6,7 @@
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
@@ -114,10 +115,9 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 原生 touch 事件拦截：SearchScreen 挂载在 Desktop 的 swipeContainerRef 内部，
-  // React 合成事件 stopPropagation 无法阻断 Desktop 注册的原生 addEventListener。
-  // useLayoutEffect（同步，DOM commit 后立即执行）确保监听器在浏览器处理任何触摸前挂载，
-  // 避免 useEffect（异步，paint 后）存在的极短窗口期导致事件溜过。
+  // 原生 touch 事件拦截（防御性）：经 Portal 渲染后覆盖层已脱离 swipeContainerRef
+  // 的 DOM 子树，touch 事件不会再冒泡到 Desktop 的原生翻页监听器。此处保留
+  // stopPropagation 作为双重保险，防止后续重构改变挂载位置时回归。
   useLayoutEffect(() => {
     const el = overlayRef.current;
     if (!el) return;
@@ -211,13 +211,26 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     ? 'shrink-0 text-white/40 hover:text-white/80 transition-colors'
     : 'shrink-0 text-slate-400 hover:text-slate-600 transition-colors';
 
-  return (
+  // 通过 Portal 渲染到 document.body：
+  // SearchScreen 在 React 树中挂载于 WidgetGridCell 内（SearchBar 作为 widget），
+  // 而 WidgetGridCell 容器带有 `touch-none`（touch-action: none）。
+  // CSS 规范规定：祖先的 touch-action: none 会禁用所有后代的原生触摸滚动，
+  // 导致建议列表 overflow-y-auto 失效——手指滑动列表时无法滚动，浏览器转而把触摸
+  // 判定为「点击」→ 触发建议项 onClick → doSearch → onClose →「返回桌面」。
+  // 渲染到 body 后脱离 touch-none 祖先，原生滚动恢复。
+  // 同时拦截 pointer 事件冒泡：React 合成事件即使经 Portal 仍按 React 树冒泡，
+  // 不拦截会触发 WidgetGridCell 的 setPointerCapture / 拖拽逻辑（>8px 即起 ghost）。
+  return createPortal(
     <div
       ref={overlayRef}
       data-search-overlay="true"
       className={`fixed inset-0 z-[500] flex flex-col rounded-none ${overlayBg}`}
       style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderRadius: 0 } : { borderRadius: 0 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerMove={(e) => e.stopPropagation()}
+      onPointerUp={(e) => e.stopPropagation()}
+      onPointerCancel={(e) => e.stopPropagation()}
     >
       <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-12 gap-4 flex-1 min-h-0">
         {/* 搜索栏 */}
@@ -338,7 +351,8 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
