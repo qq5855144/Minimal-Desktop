@@ -33,9 +33,11 @@ function pushHistory(query: string) {
 }
 
 // ── 百度搜索建议 ──────────────────────────────────────────────────────────────
-// 三种环境策略：
+// 两种环境策略：
 //   1. 扩展环境 (VITE_IS_EXTENSION=true)：background SW 代理（无 Origin 头，绕过 CORS）
-//   2. Web 环境：通过 cors.sh 代理转发（返回 Access-Control-Allow-Origin: *）
+//   2. Web 环境：动态 <script> 标签加载百度 JSONP（<script src> 不受同源策略限制，
+//      无需任何第三方 CORS 代理，延迟与百度直连持平）。此前走 cors.sh 公共代理
+//      实测每次 1.6–4.1s，是建议严重滞后的根因。
 
 // 内存缓存：最近 30 条，避免重复请求同一关键词
 const suggestCache = new Map<string, string[]>();
@@ -43,6 +45,53 @@ const CACHE_MAX = 30;
 function cacheSet(key: string, val: string[]) {
   if (suggestCache.size >= CACHE_MAX) suggestCache.delete(suggestCache.keys().next().value!);
   suggestCache.set(key, val);
+}
+
+// ── Web 环境：JSONP 全局回调注册表 ───────────────────────────────────────────
+// 每个待处理请求分配一个唯一回调名，挂到 window；脚本加载完成/失败/取消时清理。
+const jsonpCallbacks = new Map<string, { resolve: (v: string[]) => void; script: HTMLScriptElement; timer: ReturnType<typeof setTimeout> }>();
+
+function jsonpBaiduSuggest(wd: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const cbName = `__md_sug_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const script = document.createElement('script');
+
+    // 超时兜底：8s 未返回视为失败，返回空数组并清理
+    const timer = setTimeout(() => cleanup(cbName, []), 8000);
+
+    const cleanup = (name: string, value: string[]) => {
+      const entry = jsonpCallbacks.get(name);
+      if (entry) {
+        clearTimeout(entry.timer);
+        entry.script.remove();
+        jsonpCallbacks.delete(name);
+        try { delete (window as any)[name]; } catch { (window as any)[name] = undefined; }
+      }
+      resolve(value);
+    };
+
+    // 注册回调：百度会以 sugg({s:[...]}) 形式调用
+    (window as any)[cbName] = (data: { s?: string[] } | undefined) => {
+      const list = data?.s ?? [];
+      if (list.length) cacheSet(wd, list);
+      cleanup(cbName, list);
+    };
+
+    script.onerror = () => cleanup(cbName, []);
+    script.src = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cbName}`;
+    jsonpCallbacks.set(cbName, { resolve, script, timer });
+    document.head.appendChild(script);
+  });
+}
+
+// 取消所有待处理的 JSONP 请求（对应 AbortController.abort() 的语义）
+function abortJsonp() {
+  jsonpCallbacks.forEach((entry, name) => {
+    clearTimeout(entry.timer);
+    entry.script.remove();
+    try { delete (window as any)[name]; } catch { (window as any)[name] = undefined; }
+  });
+  jsonpCallbacks.clear();
 }
 
 async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<string[]> {
@@ -68,19 +117,17 @@ async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<strin
     }
   }
 
-  // ── Web 环境：cors.sh 代理（支持 CORS，适用于 dev 和 GitHub Pages prod）──
-  try {
-    const baiduUrl = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
-    const url = `https://cors.sh/${baiduUrl}`;
-    const text = await fetch(url, { signal }).then((r) => r.text());
-    const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
-    if (!m) return [];
-    const result = JSON.parse(m[1]) as string[];
-    if (result.length) cacheSet(wd, result);
-    return result;
-  } catch {
-    return [];
-  }
+  // ── Web 环境：动态 <script> JSONP（无代理，延迟≈百度直连）──────────────────
+  // signal.aborted 时返回空，Promise 不会 resolve 出过期结果
+  return new Promise<string[]>((resolve) => {
+    if (signal.aborted) { resolve([]); return; }
+    const onAbort = () => { abortJsonp(); resolve([]); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    jsonpBaiduSuggest(wd).then((list) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(list);
+    });
+  });
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
