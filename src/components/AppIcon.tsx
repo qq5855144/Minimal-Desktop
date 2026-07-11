@@ -188,7 +188,7 @@ const AppIcon: React.FC<AppIconProps> = ({
                   style={{
                     width: cellPx,
                     height: cellPx,
-                    background: child.iconUrl ? 'transparent' : 'rgba(255,255,255,0.25)',
+                    background: child.iconUrl ? 'transparent' : 'rgba(255,255,255,0.92)',
                     flexShrink: 0,
                   }}
                 >
@@ -220,7 +220,7 @@ const AppIcon: React.FC<AppIconProps> = ({
           className="overflow-hidden ios-icon-shadow relative"
           style={{
             ...iconStyle,
-            background: 'rgba(255,255,255,0.82)',
+            background: 'rgba(255,255,255,0.92)',
             backdropFilter: 'blur(12px)',
             WebkitBackdropFilter: 'blur(12px)',
           }}
@@ -255,7 +255,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         className="flex items-center justify-center ios-icon-shadow"
         style={{
           ...iconStyle,
-          background: 'rgba(255,255,255,0.82)',
+          background: 'rgba(255,255,255,0.92)',
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
         }}
