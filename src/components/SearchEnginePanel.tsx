@@ -109,30 +109,47 @@ function parseEngineUrl(input: string): {
 }
 
 // 将远程图标 URL 转为 base64 DataURL，实现真正持久化（不依赖外部服务）
-async function fetchIconAsDataUrl(url: string): Promise<string | null> {
+// 使用 <img> + Canvas 方案（不设 crossOrigin），避免触发 CORS 控制台警告。
+// 跨域图片会污染 canvas → toDataURL 抛 SecurityError → 静默忽略返回 null。
+function fetchIconAsDataUrl(url: string): Promise<string | null> {
   // 已经是 DataURL，直接返回
-  if (url.startsWith('data:')) return url;
+  if (url.startsWith('data:')) return Promise.resolve(url);
   // 尝试多个备用源（DDG favicon 在国内可用）
   const candidates = [
     url,
     url.replace('www.google.com/s2/favicons', 'icons.duckduckgo.com/ip3').replace(/&sz=\d+/, '').replace(/\?domain=([^&]+).*/, '/$1.ico'),
   ];
-  for (const src of candidates) {
-    try {
-      const res = await fetch(src, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      if (!blob.size) continue;
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      return dataUrl;
-    } catch { /* 继续下一个候选 */ }
-  }
-  return null;
+
+  // 逐一尝试候选源：img 加载后用 canvas 转 DataURL，失败则继续
+  const tryNext = (i: number): Promise<string | null> => {
+    if (i >= candidates.length) return Promise.resolve(null);
+    return new Promise<string | null>((resolve) => {
+      const src = candidates[i];
+      const img = new Image();
+      const timer = setTimeout(() => {
+        img.onload = img.onerror = null;
+        resolve(tryNext(i + 1));
+      }, 5000);
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          const size = Math.min(Math.max(img.naturalWidth, img.naturalHeight, 1), 128);
+          const canvas = document.createElement('canvas');
+          canvas.width = size; canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(tryNext(i + 1)); return; }
+          ctx.drawImage(img, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/png'));
+        } catch {
+          // canvas 被污染（跨域）— 静默忽略，不产生控制台警告
+          resolve(tryNext(i + 1));
+        }
+      };
+      img.onerror = () => { clearTimeout(timer); resolve(tryNext(i + 1)); };
+      img.src = src;
+    });
+  };
+  return tryNext(0);
 }
 
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({

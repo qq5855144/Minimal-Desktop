@@ -98,10 +98,11 @@ export function pruneIconCaches(validUrls: Set<string>): void {
 /**
  * 异步加载远程图标并缓存为 base64 DataURL。
  *
- * 使用 <img crossOrigin="anonymous"> + Canvas 方案替代 fetch()：
- *  - 不触发浏览器 CORS 控制台警告（fetch mode:'cors' 被 CORS 拒绝时会强制打印警告）
- *  - 若服务端允许跨域（返回 ACAO 头），canvas.toDataURL() 成功 → 写入缓存
- *  - 若 CORS 拒绝（canvas 被污染），捕获 SecurityError → 返回 null，图标仍由 <img src> 正常显示
+ * 使用无 crossOrigin 属性的 <img> + Canvas 方案：
+ *  - 不设置 crossOrigin='anonymous'，浏览器以普通模式加载图片，不发送 Origin 头
+ *  - 服务端无需返回 CORS 头，不会产生任何控制台 CORS 警告
+ *  - 图片加载后尝试 canvas.toDataURL()；若跨域导致 canvas 被污染（SecurityError）则静默忽略
+ *  - 缓存失败时返回 null，图标依旧可由组件层 <img src> 正常显示
  */
 export function fetchAndCacheIcon(url: string): Promise<string | null> {
   if (!url) return Promise.resolve(null);
@@ -115,7 +116,9 @@ export function fetchAndCacheIcon(url: string): Promise<string | null> {
 
   const request = new Promise<string | null>((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous'; // 尝试 CORS，失败时 canvas 抛 SecurityError 而非控制台警告
+    // 不设置 crossOrigin='anonymous'：浏览器以普通模式加载，
+    // 服务端无 ACAO 头时也不会触发控制台 CORS 警告。
+    // 代价是跨域图片会污染 canvas → toDataURL 抛 SecurityError → 静默忽略，不缓存。
 
     const cleanup = () => {
       img.onload = null;
