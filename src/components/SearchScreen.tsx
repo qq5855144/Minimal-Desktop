@@ -153,6 +153,34 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
   const iconSrc = getEngineIconSrc(currentEngine);
 
+  // 浏览器返回键 → 关闭搜索屏回到桌面
+  // 原理：open=true 时向 history 栈 push 一条记录，监听 popstate；
+  //      其他途径关闭时主动 go(-1) 清掉该记录，避免 history 累积。
+  const pushedRef = useRef(false);
+  useEffect(() => {
+    if (open) {
+      window.history.pushState({ searchScreen: true }, '');
+      pushedRef.current = true;
+    } else {
+      // 非 popstate 触发的关闭（如点击遮罩/Esc）：回退刚才 push 的记录
+      if (pushedRef.current) {
+        pushedRef.current = false;
+        window.history.go(-1);
+      }
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (pushedRef.current) {
+        pushedRef.current = false;
+        onClose();
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [onClose]);
+
   // 打开时刷新历史 & 聚焦
   useEffect(() => {
     if (!open) return;
