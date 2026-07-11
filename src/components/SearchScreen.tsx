@@ -34,15 +34,14 @@ function pushHistory(query: string) {
 // ── 百度搜索建议（fetch 替代 JSONP，兼容扩展 CSP）────────────────────────────
 async function fetchBaiduSuggest(wd: string): Promise<string[]> {
   try {
-    // 百度建议接口返回 JSONP 格式：cb({s:[...]})，用固定 cb 名再手动解析
     const cb = 'sugg';
     const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cb}`;
     const text = await fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.text());
-    // 解析 JSONP：sugg({q:"...",s:[...]})
-    const m = text.match(/sugg\s*\(\s*(\{[\s\S]*?\})\s*\)/);
+    // 百度返回 JS 对象字面量（键名无引号），不能直接 JSON.parse 整个对象
+    // 直接提取 s 数组（数组值是合法 JSON）
+    const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
     if (!m) return [];
-    const data = JSON.parse(m[1]) as { s?: string[] };
-    return data.s ?? [];
+    return JSON.parse(m[1]) as string[];
   } catch {
     return [];
   }
