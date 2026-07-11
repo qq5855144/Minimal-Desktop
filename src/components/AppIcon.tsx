@@ -188,7 +188,7 @@ const AppIcon: React.FC<AppIconProps> = ({
                   style={{
                     width: cellPx,
                     height: cellPx,
-                    background: child.iconUrl ? 'transparent' : 'rgba(255,255,255,0.92)',
+                    background: 'rgba(255,255,255,0.92)', // 与桌面应用图标背景一致
                     flexShrink: 0,
                   }}
                 >
