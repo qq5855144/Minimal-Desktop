@@ -175,7 +175,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const isGlass = !isNeu;
   const overlayBg = isGlass
     ? 'bg-black/30 backdrop-blur-2xl'
-    : 'bg-[#dde3ea]';
+    : 'bg-[#dde4f0]';  // 与拟态底色精确匹配
   const inputBar = isGlass
     ? 'flex items-center gap-2 px-3 py-[9px] rounded-full bg-white/25 shadow-lg'
     : 'flex items-center gap-2 px-3 py-[9px] rounded-full neu-raised-focused';
@@ -183,12 +183,12 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     ? 'flex-1 min-w-0 bg-transparent text-white placeholder:text-white/50 outline-none text-sm'
     : 'flex-1 min-w-0 bg-transparent text-slate-700 placeholder:text-slate-400 outline-none text-sm';
   const labelCls = isGlass ? 'text-white/70 text-sm font-medium' : 'text-slate-500 text-sm font-medium';
-  const itemBg = isGlass ? 'bg-white/15 hover:bg-white/25' : 'bg-white hover:bg-slate-50 shadow-sm';
+  const itemBg = isGlass ? 'bg-white/15 hover:bg-white/25' : 'neu-suggest-item';  // 拟态用专属样式
   const itemTextCls = isGlass ? 'text-white text-sm' : 'text-slate-700 text-sm';
   const iconCls = isGlass ? 'text-white/50 shrink-0 w-4 h-4' : 'text-slate-400 shrink-0 w-4 h-4';
   const actionCls = isGlass
     ? 'shrink-0 text-white/40 hover:text-white/80 transition-colors'
-    : 'shrink-0 text-slate-300 hover:text-slate-500 transition-colors';
+    : 'shrink-0 text-slate-400 hover:text-slate-600 transition-colors';
 
   return (
     <div

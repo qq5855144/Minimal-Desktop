@@ -218,8 +218,24 @@ input, textarea, [contenteditable="true"] {
       -6px -6px 14px rgba(255, 255, 255, 1),
       0 0 0 2px rgba(91, 141, 238, 0.25);
   }
-  /* 旧的凹陷效果保留以防其他地方使用 */
-  .neu-inset {
+  /* 搜索建议条目——与桌面拟态底色一致，悬停时轻微上浮 */
+  .neu-suggest-item {
+    background: #dde4f0;
+    box-shadow:
+      3px 3px 8px rgba(163, 177, 198, 0.65),
+      -3px -3px 8px rgba(255, 255, 255, 0.85);
+    transition: box-shadow 0.15s ease;
+  }
+  .neu-suggest-item:hover {
+    box-shadow:
+      5px 5px 12px rgba(163, 177, 198, 0.75),
+      -5px -5px 12px rgba(255, 255, 255, 0.95);
+  }
+  .neu-suggest-item:active {
+    box-shadow:
+      inset 3px 3px 7px rgba(163, 177, 198, 0.6),
+      inset -3px -3px 7px rgba(255, 255, 255, 0.8);
+  }
     background: #dde4f0;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.6),
