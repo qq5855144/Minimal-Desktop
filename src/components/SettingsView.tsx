@@ -7,7 +7,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
+import { defaultDesktopData, WIDGET_ITEMS, DEFAULT_BG_IMAGE } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { saveVideoDB, clearVideoDB, IDB_VIDEO_MARKER, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
 
@@ -283,9 +283,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   }, [updateSettings]);
 
   const handleClearBg = useCallback(() => {
-    updateSettings({ bgImage: undefined, bgVideo: undefined, bgType: 'default' });
+    updateSettings({ bgImage: DEFAULT_BG_IMAGE, bgVideo: undefined, bgType: 'image' });
     clearVideoDB(); // 同步清除 IndexedDB 中的视频
-    toast.success('已恢复默认背景');
+    toast.success('已恢复默认壁纸');
   }, [updateSettings]);
 
   // ── 通过 URL 应用壁纸 ──

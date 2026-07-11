@@ -126,8 +126,8 @@ export function clearSyncConfig(): void {
 
 const SETTINGS_KEY = 'ios_desktop_settings';
 
-// 内置默认壁纸
-const DEFAULT_BG_IMAGE = 'https://miaoda-conversation-file.cdn.bcebos.com/user-a7uyohzdep6o/app-ctg0jdeaugap/20260711/e58e7365cac0d5957d2c6c7d8e0e9e41e58e7365cac0d5957d2c6c7d8e0e9e41.jpg';
+// 内置默认壁纸（导出供其他模块引用）
+export const DEFAULT_BG_IMAGE = 'https://miaoda-conversation-file.cdn.bcebos.com/user-a7uyohzdep6o/app-ctg0jdeaugap/20260711/e58e7365cac0d5957d2c6c7d8e0e9e41e58e7365cac0d5957d2c6c7d8e0e9e41.jpg';
 
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
