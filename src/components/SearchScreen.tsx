@@ -32,12 +32,11 @@ function pushHistory(query: string) {
 }
 
 // ── 百度搜索建议 ──────────────────────────────────────────────────────────────
-// 三种环境的不同策略：
-//   1. 扩展环境 (VITE_IS_EXTENSION=true)：通过 background SW 代理（无 Origin 头，绕过 CORS）
-//   2. Web dev：Vite proxy 将 /api/suggest 服务端转发到 suggestion.baidu.com（无 CORS 问题）
-//   3. Web prod (GitHub Pages)：/api/suggest 不存在 → fetch 失败 → 优雅降级为空
+// 三种环境策略：
+//   1. 扩展环境 (VITE_IS_EXTENSION=true)：background SW 代理（无 Origin 头，绕过 CORS）
+//   2. Web 环境：通过 cors.sh 代理转发（返回 Access-Control-Allow-Origin: *）
 async function fetchBaiduSuggest(wd: string): Promise<string[]> {
-  // ── 扩展环境：转发给 background service worker ──────────────────────────────
+  // ── 扩展环境：background service worker 代理 ──────────────────────────────
   if (import.meta.env.VITE_IS_EXTENSION === 'true') {
     try {
       const resp = await new Promise<{ ok: boolean; data: string[] }>((resolve, reject) => {
@@ -52,10 +51,11 @@ async function fetchBaiduSuggest(wd: string): Promise<string[]> {
     }
   }
 
-  // ── Web 环境：通过 /api/suggest 代理路径（dev=Vite proxy，prod=优雅降级）──
+  // ── Web 环境：cors.sh 代理（支持 CORS，适用于 dev 和 GitHub Pages prod）──
   try {
-    const url = `/api/suggest?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
-    const text = await fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.text());
+    const baiduUrl = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
+    const url = `https://cors.sh/${baiduUrl}`;
+    const text = await fetch(url, { signal: AbortSignal.timeout(5000) }).then((r) => r.text());
     const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
     if (!m) return [];
     return JSON.parse(m[1]) as string[];
