@@ -220,7 +220,9 @@ const AppIcon: React.FC<AppIconProps> = ({
           className="overflow-hidden ios-icon-shadow relative"
           style={{
             ...iconStyle,
-            background: '#ffffff',
+            background: 'rgba(255,255,255,0.82)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
           }}
         >
           {/* shimmer 始终在最底层，img 加载后叠盖在上面 → 无需等待 React 状态更新 */}
@@ -253,7 +255,9 @@ const AppIcon: React.FC<AppIconProps> = ({
         className="flex items-center justify-center ios-icon-shadow"
         style={{
           ...iconStyle,
-          background: '#ffffff',
+          background: 'rgba(255,255,255,0.82)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
         }}
       >
         {item.url ? (
