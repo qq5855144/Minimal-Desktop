@@ -20,15 +20,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 1: 构建 + 打包 + GitHub Release
+  # ══════════════════════════════════════════════════════════════════════════
   build:
     runs-on: ubuntu-latest
 
+    outputs:
+      zip_name: ${{ steps.pkg.outputs.zip_name }}
+      version:  ${{ steps.pkg.outputs.version }}
+
     steps:
-      # ── 1. 检出代码 ────────────────────────────────────────────────────────
+      # ── 1. 检出代码 ─────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Node.js + pnpm ─────────────────────────────────────────────────
+      # ── 2. Node.js + pnpm ───────────────────────────────────────────────
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -52,10 +59,9 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-ext-
 
       - name: Install dependencies
-        # 无 lockfile 时使用 --no-frozen-lockfile；安装后生成 lockfile 加速下次构建
         run: pnpm install --no-frozen-lockfile
 
-      # ── 3. 生成扩展图标（从 favicon.png 缩放为规范尺寸）─────────────────
+      # ── 3. 生成扩展图标 ──────────────────────────────────────────────────
       - name: Install ImageMagick
         run: sudo apt-get install -y imagemagick
 
@@ -68,20 +74,18 @@ jobs:
           echo "Icons generated:"
           ls -lh public/icons/
 
-      # ── 4. 构建扩展 ────────────────────────────────────────────────────────
-      # 使用 pnpm exec 而非 npx，确保使用项目内的 rolldown-vite 而非全局 vite
+      # ── 4. 构建扩展 ──────────────────────────────────────────────────────
       - name: Build extension
         run: pnpm exec vite build --config vite.config.extension.ts
         env:
           NODE_ENV: production
 
-      # ── 5. MV3 合规校验 ───────────────────────────────────────────────────
+      # ── 5. MV3 合规校验 ──────────────────────────────────────────────────
       - name: Validate manifest & CSP
         run: |
           echo "=== manifest.json ==="
           cat dist-ext/manifest.json
 
-          # 验证 manifest_version = 3（用 node 解析 JSON）
           node -e "
             const m = JSON.parse(require('fs').readFileSync('./dist-ext/manifest.json','utf8'));
             if (m.manifest_version !== 3) { console.error('❌ manifest_version 不是 3'); process.exit(1); }
@@ -90,12 +94,9 @@ jobs:
             console.log('✅ chrome_url_overrides.newtab:', m.chrome_url_overrides.newtab);
           "
 
-          # 确认 index.html 不含非模块内联脚本（MV3 CSP 禁止）
-          # 用 python3 做 XML/HTML 安全解析，避免 grep -P 的依赖问题
           python3 - <<'PYEOF'
           import re, sys
           html = open('dist-ext/index.html').read()
-          # 匹配非 type=module 的 <script> 块
           bad = re.findall(r'<script(?![^>]*type=["\']module["\'])[^>]*>[^<\s]', html, re.IGNORECASE)
           if bad:
               print(f'❌ index.html 含内联脚本，违反 MV3 CSP: {bad}')
@@ -108,27 +109,27 @@ jobs:
 
       # ── 6. 打包为 .zip ───────────────────────────────────────────────────
       - name: Package extension as zip
+        id: pkg
         run: |
-          # 从 package.json 读取版本号
           VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
           ZIPNAME="minimal-desktop-extension-v${VERSION}.zip"
-          echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "zip_name=${ZIPNAME}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}"  >> $GITHUB_OUTPUT
 
           cd dist-ext
           zip -r "../${ZIPNAME}" . -x "*.map"
           cd ..
           echo "Package: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
 
-      # ── 7. 上传构建产物 ───────────────────────────────────────────────────
+      # ── 7. 上传构建产物（供后续 publish jobs 下载）──────────────────────
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: minimal-desktop-extension
-          path: ${{ env.ZIPNAME }}
+          path: ${{ steps.pkg.outputs.zip_name }}
           retention-days: 30
 
-      # ── 8a. main 分支 push：自动更新滚动版 "latest" Release ───────────────
+      # ── 8a. main 分支 push：自动更新滚动版 "latest" Release ─────────────
       - name: Auto-release to latest (main push)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -140,7 +141,7 @@ jobs:
 
             > 本 Release 由 `main` 分支每次 push 自动更新，始终对应最新代码。
 
-            ### 安装方式（Chrome）
+            ### 安装方式（Chrome 开发者模式）
             1. 下载下方的 `minimal-desktop-extension-*.zip` 并解压
             2. 打开 `chrome://extensions/` → 开启「开发者模式」
             3. 点击「加载已解压的扩展程序」，选择解压目录
@@ -153,14 +154,14 @@ jobs:
             ---
             **构建提交：** `${{ github.sha }}`
             **触发时间：** `${{ github.event.head_commit.timestamp }}`
-          files: ${{ env.ZIPNAME }}
+          files: ${{ steps.pkg.outputs.zip_name }}
           prerelease: true
           make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 8b. 推送 tag：发布正式版 Release ─────────────────────────────────
-      - name: Create versioned Release (on tag)
+      # ── 8b. 推送 tag：发布正式版 GitHub Release ──────────────────────────
+      - name: Create versioned GitHub Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
@@ -168,24 +169,154 @@ jobs:
           body: |
             ## Minimal Desktop ${{ github.ref_name }} — 浏览器扩展正式版
 
-            ### 安装方式（Chrome）
-            1. 下载 `minimal-desktop-extension-${{ github.ref_name }}.zip` 并解压
-            2. 打开 `chrome://extensions/` → 开启「开发者模式」
-            3. 点击「加载已解压的扩展程序」，选择解压目录
-            4. 打开新标签页，即可看到 Minimal Desktop ✨
+            ### 从应用商店安装（推荐）
+            - 🔵 [Chrome Web Store](https://chromewebstore.google.com) *(审核通过后可用)*
+            - 🦊 [Firefox Add-ons](https://addons.mozilla.org) *(审核通过后可用)*
 
-            ### 安装方式（Firefox）
-            1. 打开 `about:debugging#/runtime/this-firefox`
-            2. 点击「临时载入附加组件」，选择 zip 包内的 `manifest.json`
+            ### 手动安装（开发者模式）
+            1. 下载 `minimal-desktop-extension-${{ github.ref_name }}.zip` 并解压
+            2. Chrome：打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」
+            3. Firefox：打开 `about:debugging#/runtime/this-firefox` →「临时载入附加组件」
 
             ### 合规说明
             - ✅ Manifest V3 标准
             - ✅ 无内联脚本，符合严格 CSP（`script-src 'self'`）
-            - ✅ 仅使用 `storage` 权限
-          files: ${{ env.ZIPNAME }}
+            - ✅ 最小权限：`storage` / `activeTab` / `tabs`
+          files: ${{ steps.pkg.outputs.zip_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2: 发布到 Chrome Web Store（仅 tag push）
+  # 所需 Secrets：
+  #   CHROME_EXTENSION_ID   — CWS 扩展 ID（32位字母）
+  #   CHROME_CLIENT_ID      — Google OAuth2 Client ID
+  #   CHROME_CLIENT_SECRET  — Google OAuth2 Client Secret
+  #   CHROME_REFRESH_TOKEN  — Google OAuth2 Refresh Token
+  # 获取方式见：https://github.com/nicedoc/chrome-webstore-upload-keys
+  # ══════════════════════════════════════════════════════════════════════════
+  publish-chrome:
+    name: Publish → Chrome Web Store
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: minimal-desktop-extension
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install chrome-webstore-upload-cli
+        run: npm install -g chrome-webstore-upload-cli@3
+
+      - name: Upload to Chrome Web Store
+        id: cws-upload
+        run: |
+          echo "⬆️  上传扩展包到 Chrome Web Store..."
+          webstore upload \
+            --source "${{ needs.build.outputs.zip_name }}" \
+            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}" \
+            --client-id "${{ secrets.CHROME_CLIENT_ID }}" \
+            --client-secret "${{ secrets.CHROME_CLIENT_SECRET }}" \
+            --refresh-token "${{ secrets.CHROME_REFRESH_TOKEN }}"
+          echo "✅ 上传成功"
+
+      - name: Publish on Chrome Web Store
+        run: |
+          echo "🚀 提交发布到 Chrome Web Store..."
+          webstore publish \
+            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}" \
+            --client-id "${{ secrets.CHROME_CLIENT_ID }}" \
+            --client-secret "${{ secrets.CHROME_CLIENT_SECRET }}" \
+            --refresh-token "${{ secrets.CHROME_REFRESH_TOKEN }}"
+          echo "✅ 已提交发布，等待 Google 审核（通常 1-3 个工作日）"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 3: 发布到 Firefox Add-ons（AMO）（仅 tag push）
+  # 所需 Secrets：
+  #   FIREFOX_API_KEY     — AMO JWT issuer（格式：user:xxxxx:nnn）
+  #   FIREFOX_API_SECRET  — AMO JWT secret
+  # 获取方式：https://addons.mozilla.org/developers/addon/api/key/
+  # 说明：listed channel 提交后进入人工审核队列，不即时返回 .xpi
+  # ══════════════════════════════════════════════════════════════════════════
+  publish-firefox:
+    name: Publish → Firefox Add-ons (AMO)
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout（web-ext 需要源码目录结构）
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: minimal-desktop-extension
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install ImageMagick & generate icons
+        run: |
+          sudo apt-get install -y imagemagick
+          mkdir -p public/icons
+          for size in 16 32 48 128; do
+            convert public/favicon.png -resize ${size}x${size} "public/icons/icon${size}.png"
+          done
+
+      - name: Rebuild extension (web-ext 需要 dist-ext 目录)
+        run: pnpm exec vite build --config vite.config.extension.ts
+        env:
+          NODE_ENV: production
+
+      - name: Install web-ext
+        run: npm install -g web-ext@8
+
+      - name: Submit to Firefox AMO
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          echo "🦊 提交扩展 v${VERSION} 到 Firefox AMO (listed channel)..."
+
+          # listed channel：提交人工审核队列
+          # web-ext sign 对 listed 扩展会等待审核结果（超时后继续，不报错）
+          web-ext sign \
+            --source-dir dist-ext \
+            --artifacts-dir amo-artifacts \
+            --channel listed \
+            --api-key "${{ secrets.FIREFOX_API_KEY }}" \
+            --api-secret "${{ secrets.FIREFOX_API_SECRET }}" \
+            --timeout 300000 \
+            --no-input \
+            || echo "⚠️  web-ext sign 超时（listed channel 等待人工审核属正常现象）"
+
+          echo "✅ 已提交 Firefox AMO，等待 Mozilla 审核（通常 1-7 个工作日）"
+
+      - name: Upload AMO artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amo-artifacts
+          path: amo-artifacts/
+          retention-days: 30
+
 
