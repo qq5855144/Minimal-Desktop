@@ -102,16 +102,17 @@ const Desktop: React.FC = () => {
   const gridCols = settings.cols ?? 4;
 
   // 扩展环境：启动时检测 pendingClip（用户点击工具栏「剪藏」后留下的数据）
+  // 直接添加到桌面，无需打开编辑对话框
   useEffect(() => {
     if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
     chrome.storage.local.get(['pendingClip'], (result: Record<string, unknown>) => {
       const clip = result.pendingClip as { url: string; title: string; favicon?: string } | undefined;
       if (!clip) return;
       chrome.storage.local.remove(['pendingClip']);
-      setClipPrefill({ name: clip.title, url: clip.url, iconUrl: clip.favicon });
-      setAddDialogOpen(true);
+      addItem({ name: clip.title, url: clip.url, iconUrl: clip.favicon, type: 'app', color: 'blue' }, currentPage);
+      toast.success(`已添加「${clip.title}」到桌面`);
     });
-  }, []);
+  }, [addItem]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
