@@ -24,6 +24,9 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   const startYRef = useRef(0);
   const dragStartedRef = useRef(false);
   const longFiredRef = useRef(false);
+  // 仅收到过本元素 pointerdown 才允许处理 pointermove，
+  // 防止文件夹拖出经过组件行时误触发 onDragBegin 覆盖全局拖拽状态
+  const pointerDownActiveRef = useRef(false);
   const layout = getWidgetLayoutMetrics(item.widgetType);
   const WidgetComponent = getWidgetComponent(item.widgetType);
 
@@ -41,6 +44,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     startYRef.current = e.clientY;
     dragStartedRef.current = false;
     longFiredRef.current = false;
+    pointerDownActiveRef.current = true;
     cancelLong();
     longTimerRef.current = setTimeout(() => {
       longFiredRef.current = true;
@@ -49,6 +53,8 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   }, [cancelLong, onLongPress]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // 未收到本元素的 pointerdown 时忽略，防止文件夹拖出经过组件行时误触发
+    if (!pointerDownActiveRef.current) return;
     if (dragStartedRef.current) return;
     const dx = e.clientX - startXRef.current;
     const dy = e.clientY - startYRef.current;
@@ -61,6 +67,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
 
   const handlePointerUp = useCallback(() => {
     dragStartedRef.current = false;
+    pointerDownActiveRef.current = false;
     cancelLong();
   }, [cancelLong]);
 
