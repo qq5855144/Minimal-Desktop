@@ -35,17 +35,33 @@ function pushHistory(query: string) {
 // 三种环境策略：
 //   1. 扩展环境 (VITE_IS_EXTENSION=true)：background SW 代理（无 Origin 头，绕过 CORS）
 //   2. Web 环境：通过 cors.sh 代理转发（返回 Access-Control-Allow-Origin: *）
-async function fetchBaiduSuggest(wd: string): Promise<string[]> {
+
+// 内存缓存：最近 30 条，避免重复请求同一关键词
+const suggestCache = new Map<string, string[]>();
+const CACHE_MAX = 30;
+function cacheSet(key: string, val: string[]) {
+  if (suggestCache.size >= CACHE_MAX) suggestCache.delete(suggestCache.keys().next().value!);
+  suggestCache.set(key, val);
+}
+
+async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<string[]> {
+  // 缓存命中直接返回
+  if (suggestCache.has(wd)) return suggestCache.get(wd)!;
+
   // ── 扩展环境：background service worker 代理 ──────────────────────────────
   if (import.meta.env.VITE_IS_EXTENSION === 'true') {
     try {
       const resp = await new Promise<{ ok: boolean; data: string[] }>((resolve, reject) => {
+        if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
         chrome.runtime.sendMessage({ type: 'FETCH_SUGGEST', query: wd }, (res) => {
           if (chrome.runtime.lastError) { reject(chrome.runtime.lastError); return; }
           resolve(res);
         });
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
       });
-      return resp?.ok ? (resp.data ?? []) : [];
+      const result = resp?.ok ? (resp.data ?? []) : [];
+      if (result.length) cacheSet(wd, result);
+      return result;
     } catch {
       return [];
     }
@@ -55,10 +71,12 @@ async function fetchBaiduSuggest(wd: string): Promise<string[]> {
   try {
     const baiduUrl = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
     const url = `https://cors.sh/${baiduUrl}`;
-    const text = await fetch(url, { signal: AbortSignal.timeout(5000) }).then((r) => r.text());
+    const text = await fetch(url, { signal }).then((r) => r.text());
     const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
     if (!m) return [];
-    return JSON.parse(m[1]) as string[];
+    const result = JSON.parse(m[1]) as string[];
+    if (result.length) cacheSet(wd, result);
+    return result;
   } catch {
     return [];
   }
@@ -79,6 +97,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const [history, setHistory] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [iconErr, setIconErr] = useState(false);
 
   const isNeu = settings.style === 'neumorphism';
@@ -94,16 +113,23 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 实时拉取建议（防抖 300ms）
+  // 实时拉取建议（防抖 150ms + AbortController 取消旧请求）
   useEffect(() => {
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
     const trimmed = query.trim();
     if (!trimmed) { setSuggests([]); return; }
-    suggestTimer.current = setTimeout(async () => {
-      const list = await fetchBaiduSuggest(trimmed);
-      setSuggests(list);
-    }, 300);
-    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
+    suggestTimer.current = setTimeout(() => {
+      // 取消上一次未完成的请求
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      const ctrl = abortRef.current;
+      fetchBaiduSuggest(trimmed, ctrl.signal).then((list) => {
+        if (!ctrl.signal.aborted) setSuggests(list);
+      });
+    }, 150);
+    return () => {
+      if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    };
   }, [query]);
 
   // 执行搜索
