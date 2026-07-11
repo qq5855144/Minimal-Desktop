@@ -184,7 +184,7 @@ const AppIcon: React.FC<AppIconProps> = ({
               {preview.map((child) => (
                 <div
                   key={child.id}
-                  className="rounded-[20%] overflow-hidden flex items-center justify-center"
+                  className="rounded-[25%] overflow-hidden flex items-center justify-center"
                   style={{
                     width: cellPx,
                     height: cellPx,
