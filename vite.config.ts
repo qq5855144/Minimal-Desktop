@@ -5,7 +5,6 @@ import path from "path";
 
 export default defineConfig(({ command }) => {
   // GitHub Pages 部署路径：https://<user>.github.io/Minimal-Desktop/
-  // 用 command 而非 NODE_ENV 判断，避免环境变量 NODE_ENV=production 影响 dev 预览的 base 路径
   const base = command === 'build' ? '/Minimal-Desktop/' : '/';
   return {
     base,
@@ -22,6 +21,16 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+      },
+    },
+    server: {
+      proxy: {
+        // dev 环境：将 /api/suggest 代理到百度建议接口，服务端转发无 CORS 限制
+        '/api/suggest': {
+          target: 'https://suggestion.baidu.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/suggest/, '/su'),
+        },
       },
     },
   };

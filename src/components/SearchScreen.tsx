@@ -32,11 +32,13 @@ function pushHistory(query: string) {
 }
 
 // ── 百度搜索建议 ──────────────────────────────────────────────────────────────
-// 策略：扩展环境 → 通过 background service worker 代理请求（绕过 CORS）
-//       Web 环境   → 直接 fetch（非扩展上下文，无 CORS 限制问题）
+// 三种环境的不同策略：
+//   1. 扩展环境 (VITE_IS_EXTENSION=true)：通过 background SW 代理（无 Origin 头，绕过 CORS）
+//   2. Web dev：Vite proxy 将 /api/suggest 服务端转发到 suggestion.baidu.com（无 CORS 问题）
+//   3. Web prod (GitHub Pages)：/api/suggest 不存在 → fetch 失败 → 优雅降级为空
 async function fetchBaiduSuggest(wd: string): Promise<string[]> {
-  // 扩展环境：转发给 background service worker
-  if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+  // ── 扩展环境：转发给 background service worker ──────────────────────────────
+  if (import.meta.env.VITE_IS_EXTENSION === 'true') {
     try {
       const resp = await new Promise<{ ok: boolean; data: string[] }>((resolve, reject) => {
         chrome.runtime.sendMessage({ type: 'FETCH_SUGGEST', query: wd }, (res) => {
@@ -44,14 +46,15 @@ async function fetchBaiduSuggest(wd: string): Promise<string[]> {
           resolve(res);
         });
       });
-      if (resp?.ok) return resp.data ?? [];
+      return resp?.ok ? (resp.data ?? []) : [];
     } catch {
-      // 回退到直接 fetch
+      return [];
     }
   }
-  // Web 环境兜底
+
+  // ── Web 环境：通过 /api/suggest 代理路径（dev=Vite proxy，prod=优雅降级）──
   try {
-    const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
+    const url = `/api/suggest?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;
     const text = await fetch(url, { signal: AbortSignal.timeout(4000) }).then((r) => r.text());
     const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
     if (!m) return [];
