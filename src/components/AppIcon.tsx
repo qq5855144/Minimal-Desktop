@@ -188,7 +188,9 @@ const AppIcon: React.FC<AppIconProps> = ({
                   style={{
                     width: cellPx,
                     height: cellPx,
-                    background: 'rgba(255,255,255,0.92)', // 与桌面应用图标背景一致
+                    background: 'rgba(255,255,255,0.92)',
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)',
                     flexShrink: 0,
                   }}
                 >
