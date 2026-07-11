@@ -236,8 +236,13 @@ input, textarea, [contenteditable="true"] {
       inset 3px 3px 7px rgba(163, 177, 198, 0.6),
       inset -3px -3px 7px rgba(255, 255, 255, 0.8);
   }
-  /* 旧的凹陷效果保留以防其他地方使用 */
-  .neu-inset {
+  /* 隐藏滚动条（搜索建议列表等内部滚动区域使用） */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
     background: #dde4f0;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.6),

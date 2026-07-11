@@ -196,7 +196,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
       style={isGlass ? { backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderRadius: 0 } : { borderRadius: 0 }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-12 gap-4 flex-1 overflow-hidden">
+      <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-12 gap-4 flex-1 min-h-0">
         {/* 搜索栏 */}
         <form onSubmit={handleSubmit}>
           <div className={inputBar} style={isGlass ? { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' } : {}}>
@@ -240,7 +240,10 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
         </form>
 
         {/* 内容区：建议 / 历史 */}
-        <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pb-8">
+        <div
+          className="flex-1 overflow-y-auto min-h-0 scrollbar-none space-y-2 pb-8 px-1"
+          onTouchMove={(e) => e.stopPropagation()}
+        >
           {query.trim() ? (
             /* 搜索建议 */
             <>
