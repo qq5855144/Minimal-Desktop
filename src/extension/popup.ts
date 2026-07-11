@@ -9,14 +9,27 @@ const MAX_TITLE_LEN = 64;
 
 /**
  * 从网页标题中提取纯网站名称。
- * 常见模式：「网站名 - 描述」「网站名 | 描述」「网站名，描述」「网站名 · 描述」
- * 只取第一个分隔符（ - | – — , · / ）前的内容。
+ *
+ * 第一步：按常见文字分隔符切割，取第一段
+ *   例：「秒哒-无代码应用搭建平台」→「秒哒」
+ *       「GitHub - Where the world builds software」→「GitHub」
+ *
+ * 第二步：若第一段中存在"空格 + 非正文字符"（括号、颜文字、符号等），
+ *   在该空格处进一步截断
+ *   例：「哔哩哔哩 (゜-゜)つロ 干杯~」→「哔哩哔哩」
+ *       「GitHub Actions」→ 保留（空格后是普通字母，不截断）
  */
 function extractSiteName(raw: string): string {
   const trimmed = raw.trim();
-  // 匹配常见分隔符（前后可有空格）
-  const m = trimmed.match(/^(.+?)\s*[-|–—,·\/]\s*.+$/);
-  const name = m ? m[1].trim() : trimmed;
+
+  // 第一步：按硬分隔符切割（- | – — , · /）
+  const sep1 = trimmed.match(/^(.+?)\s*[-|–—,·\/]\s*.+$/);
+  let name = sep1 ? sep1[1].trim() : trimmed;
+
+  // 第二步：若空格后紧跟非正文字符（括号/颜文字/装饰符号），在该空格处截断
+  const sep2 = name.match(/^(.+?)\s+(?=[\(\[\{<（【《『「'"'"@#$%^&*~`！？。，、；：☆★♪♫♬♩©®™°•])/u);
+  if (sep2) name = sep2[1].trim();
+
   return name.length > MAX_TITLE_LEN ? name.slice(0, MAX_TITLE_LEN - 1) + '…' : name;
 }
 
