@@ -274,7 +274,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
               <div className="space-y-1.5">
                 {suggests.length === 0 && (
                   /* 建议加载中 or 无结果：直接回车搜索提示 */
-                  <div className={`flex items-center gap-3 px-3 py-3 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
+                  <div className={`flex items-center gap-3 px-3 h-10 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
                     onClick={() => doSearch(query)}>
                     <Search className={iconCls} />
                     <span className={`${itemTextCls} flex-1 min-w-0 truncate`}>{query}</span>
@@ -284,7 +284,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
                 {suggests.map((s) => (
                   <div
                     key={s}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
+                    className={`flex items-center gap-3 px-3 h-10 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
                     onClick={() => doSearch(s)}
                   >
                     <Search className={iconCls} />
@@ -316,7 +316,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
                   {history.map((h) => (
                     <div
                       key={h}
-                      className={`flex items-center gap-3 px-3 py-3 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
+                      className={`flex items-center gap-3 px-3 h-10 rounded-2xl ${itemBg} cursor-pointer transition-all active:scale-[0.98]`}
                       onClick={() => doSearch(h)}
                     >
                       <Clock className={iconCls} />
