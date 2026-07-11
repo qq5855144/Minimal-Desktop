@@ -243,6 +243,8 @@ input, textarea, [contenteditable="true"] {
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }
+  /* 旧的凹陷效果保留以防其他地方使用 */
+  .neu-inset {
     background: #dde4f0;
     box-shadow:
       inset 4px 4px 8px rgba(163, 177, 198, 0.6),
