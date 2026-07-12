@@ -131,11 +131,10 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (longFiredRef.current || dragStartedRef.current) return;
     if (editMode && item.type !== 'system') return;
     if (item.type === 'app' && item.url) {
-      // 延迟到下一帧，让 active:scale-95 过渡动画先平滑完成再切换标签，
-      // 避免浏览器切焦时强制取消 :active 导致的桌面闪烁。
-      // Chrome 扩展环境中 setTimeout 内调用 window.open 不受弹窗拦截限制。
-      const url = item.url;
-      setTimeout(() => window.open(url, '_blank', 'noopener,noreferrer'), 0);
+      // 立即跳转，不等待 CSS transition 完成。
+      // 使用 setTimeout 会导致浏览器先渲染 :active 状态再切换标签，
+      // 切焦时 :active 被取消引起视觉回弹（闪烁）。
+      window.open(item.url, '_blank', 'noopener,noreferrer');
     } else onClick?.();
   }, [editMode, item, onClick]);
 
