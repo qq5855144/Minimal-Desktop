@@ -39,6 +39,19 @@ body[data-external-launch="true"] .app-icon-button * {
   -webkit-tap-highlight-color: transparent !important;
 }
 
+html[data-external-launch="true"] [data-custom-app-icon="true"],
+body[data-external-launch="true"] [data-custom-app-icon="true"] {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+}
+
+html[data-external-launch="true"] [data-app-icon-shimmer="true"],
+body[data-external-launch="true"] [data-app-icon-shimmer="true"] {
+  opacity: 0 !important;
+}
+
 [data-desktop-shell="true"] {
   isolation: isolate;
   contain: paint;

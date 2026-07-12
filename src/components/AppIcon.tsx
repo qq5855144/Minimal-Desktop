@@ -76,6 +76,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize);
   const px = metrics.iconPx;
+  const isCustomAppIcon = item.type === 'app' && !!item.url && !!iconSrc && !imgError;
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
@@ -225,6 +226,8 @@ const AppIcon: React.FC<AppIconProps> = ({
       return (
         <div
           className="overflow-hidden ios-icon-shadow relative"
+          data-app-icon-surface="true"
+          data-custom-app-icon={isCustomAppIcon ? 'true' : 'false'}
           style={{
             ...iconStyle,
             background: 'rgba(255,255,255,0.92)',
@@ -235,6 +238,7 @@ const AppIcon: React.FC<AppIconProps> = ({
           {/* shimmer 始终在最底层，img 加载后叠盖在上面 → 无需等待 React 状态更新 */}
           <div
             className="absolute inset-0 animate-skeleton-pulse"
+            data-app-icon-shimmer="true"
             style={{ borderRadius: metrics.iconRadius, background: 'linear-gradient(90deg,rgba(200,200,200,0.3) 25%,rgba(220,220,220,0.5) 50%,rgba(200,200,200,0.3) 75%)', backgroundSize: '200% 100%' }}
           />
           <img
@@ -243,6 +247,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             draggable={false}
             decoding="async"
             className="absolute inset-0 w-full h-full object-cover"
+            style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}
             onError={(e) => {
               const img = e.currentTarget;
               // 尝试直连 favicon.ico 作为回退
@@ -260,6 +265,8 @@ const AppIcon: React.FC<AppIconProps> = ({
     return (
       <div
         className="flex items-center justify-center ios-icon-shadow"
+        data-app-icon-surface="true"
+        data-custom-app-icon="false"
         style={{
           ...iconStyle,
           background: 'rgba(255,255,255,0.92)',

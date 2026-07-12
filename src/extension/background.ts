@@ -15,6 +15,12 @@ export interface PendingClip {
   favicon?: string;
 }
 
+interface OpenExternalMessage {
+  type: 'OPEN_EXTERNAL_URL';
+  url: string;
+  delayMs?: number;
+}
+
 // 工具栏图标点击 → 读取当前 tab 信息 → 存入 pendingClip
 chrome.action.onClicked.addListener(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -44,6 +50,18 @@ chrome.action.onClicked.addListener(async () => {
 // 扩展页面（new tab）的 fetch 会携带 Origin 头，百度不返回 CORS 头导致被浏览器拦截
 // Service Worker 的 fetch 不受 CORS 限制（host_permissions 足够）
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'OPEN_EXTERNAL_URL') {
+    const { url, delayMs } = msg as OpenExternalMessage;
+    const waitMs = Math.max(0, Math.min(300, Number(delayMs) || 0));
+
+    setTimeout(() => {
+      chrome.tabs.create({ url, active: true })
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    }, waitMs);
+    return true;
+  }
+
   if (msg?.type !== 'FETCH_SUGGEST') return false;
   const wd = msg.query as string;
   const url = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=sugg`;

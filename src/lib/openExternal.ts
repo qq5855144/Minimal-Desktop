@@ -1,3 +1,6 @@
+const IS_EXTENSION = import.meta.env.VITE_IS_EXTENSION === 'true';
+const EXTENSION_OPEN_DELAY_MS = 90;
+
 function markExternalLaunch() {
   if (typeof document === 'undefined') {
     return () => {};
@@ -42,6 +45,31 @@ function markExternalLaunch() {
   return release;
 }
 
+function openViaBackground(url: string): boolean {
+  if (
+    !IS_EXTENSION ||
+    typeof chrome === 'undefined' ||
+    !chrome?.runtime?.sendMessage
+  ) {
+    return false;
+  }
+
+  chrome.runtime.sendMessage(
+    {
+      type: 'OPEN_EXTERNAL_URL',
+      url,
+      delayMs: EXTENSION_OPEN_DELAY_MS,
+    },
+    (response?: { ok?: boolean }) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    },
+  );
+
+  return true;
+}
+
 export function openExternalUrl(url: string) {
   const trimmedUrl = url.trim();
   if (!trimmedUrl) return;
@@ -52,6 +80,9 @@ export function openExternalUrl(url: string) {
   // 以减少 active 态和 backdrop-filter 合成层一起抖动的概率。
   if (typeof document !== 'undefined' && document.body) {
     markExternalLaunch();
+    if (openViaBackground(trimmedUrl)) {
+      return;
+    }
     const anchor = document.createElement('a');
     anchor.href = trimmedUrl;
     anchor.target = '_blank';
