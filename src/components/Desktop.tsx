@@ -101,18 +101,29 @@ const Desktop: React.FC = () => {
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
 
-  // 同步 <html> 背景色：打开新标签页时浏览器可能短暂丢弃合成层（backdrop-filter），
-  // 导致页面显示白色。将 html 背景色设为与桌面一致，可避免白屏闪烁。
+  // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
+  // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
+  // 三层同时设为桌面底色才能彻底消除白屏闪烁。
   useEffect(() => {
-    const root = document.documentElement;
+    let bg: string;
     if (settings.style === 'neumorphism') {
-      root.style.backgroundColor = '#dde4f0';
+      bg = '#dde4f0';
     } else if (settings.bgType === 'image' || settings.bgType === 'video') {
-      root.style.backgroundColor = '#1a1a2e';
+      bg = '#1a1a2e';
     } else {
-      root.style.backgroundColor = 'hsl(240, 50%, 50%)';
+      bg = 'hsl(240, 50%, 50%)';
     }
-    return () => { root.style.backgroundColor = ''; };
+    const html = document.documentElement;
+    const body = document.body;
+    const appRoot = document.getElementById('root');
+    html.style.backgroundColor = bg;
+    if (body) body.style.backgroundColor = bg;
+    if (appRoot) appRoot.style.backgroundColor = bg;
+    return () => {
+      html.style.backgroundColor = '';
+      if (body) body.style.backgroundColor = '';
+      if (appRoot) appRoot.style.backgroundColor = '';
+    };
   }, [settings.style, settings.bgType]);
 
   // 扩展环境：启动时检测 pendingClip（用户点击工具栏「剪藏」后留下的数据）
