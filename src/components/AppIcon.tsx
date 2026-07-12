@@ -131,10 +131,17 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (longFiredRef.current || dragStartedRef.current) return;
     if (editMode && item.type !== 'system') return;
     if (item.type === 'app' && item.url) {
-      // 立即跳转，不等待 CSS transition 完成。
-      // 使用 setTimeout 会导致浏览器先渲染 :active 状态再切换标签，
-      // 切焦时 :active 被取消引起视觉回弹（闪烁）。
-      window.open(item.url, '_blank', 'noopener,noreferrer');
+      // 使用原生 <a> 元素模拟点击打开新标签页。
+      // 部分浏览器（如狐猴浏览器）对 window.open 的合成层处理有差异，
+      // 原生 <a> 点击更接近浏览器内置链接行为，跳转更平滑。
+      const a = document.createElement('a');
+      a.href = item.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } else onClick?.();
   }, [editMode, item, onClick]);
 
@@ -286,7 +293,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={handlePointerUp}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''}`}
+        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} transition-transform ${ghost ? '' : 'active:scale-95'}`}
       >
         {renderIconContent()}
         <span
