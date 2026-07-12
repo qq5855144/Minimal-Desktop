@@ -17,11 +17,39 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-user-drag: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .app-icon-button img,
 .app-icon-button svg {
   pointer-events: none;
+}
+
+html[data-external-launch="true"],
+body[data-external-launch="true"] {
+  cursor: default;
+}
+
+html[data-external-launch="true"] .app-icon-button,
+html[data-external-launch="true"] .app-icon-button *,
+body[data-external-launch="true"] .app-icon-button,
+body[data-external-launch="true"] .app-icon-button * {
+  transition: none !important;
+  animation: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+[data-desktop-shell="true"] {
+  isolation: isolate;
+  contain: paint;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+[data-desktop-layer="true"] {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 
 /* ── 输入框恢复浏览器默认长按 / 文字选择 / 粘贴菜单 ── */

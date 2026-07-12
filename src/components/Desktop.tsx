@@ -754,8 +754,12 @@ const Desktop: React.FC = () => {
   return (
     <div
       className="relative w-full h-screen overflow-hidden select-none"
+      data-desktop-shell="true"
       data-style={settings.style}
-      style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
+      style={{
+        WebkitTouchCallout: 'none',
+        WebkitTapHighlightColor: 'transparent',
+      } as React.CSSProperties}
       onContextMenu={(e) => {
         // 输入框 / 文本域长按唤起系统菜单，不拦截
         const target = e.target as HTMLElement;
@@ -765,11 +769,12 @@ const Desktop: React.FC = () => {
     >
       {/* 壁纸背景 —— neumorphism 不使用壁纸，固定浅灰色背景 */}
       {settings.style === 'neumorphism' ? (
-        <div className="absolute inset-0 neu-bg" />
+        <div className="absolute inset-0 neu-bg" data-desktop-layer="true" />
       ) : settings.bgType === 'video' && settings.bgVideo ? (
         <video
           className="absolute inset-0 w-full h-full object-cover"
           style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+          data-desktop-layer="true"
           src={settings.bgVideo}
           autoPlay loop muted playsInline
         />
@@ -777,13 +782,14 @@ const Desktop: React.FC = () => {
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${settings.bgImage})` }}
+          data-desktop-layer="true"
         />
       ) : (
-        <div className="absolute inset-0 bg-gradient-background" />
+        <div className="absolute inset-0 bg-gradient-background" data-desktop-layer="true" />
       )}
       {/* 光晕叠层：仅毛玻璃 + 无自定义壁纸时显示 */}
       {settings.style !== 'neumorphism' && !settings.bgImage && !settings.bgVideo && (
-        <div className="absolute inset-0 opacity-30">
+        <div className="absolute inset-0 opacity-30" data-desktop-layer="true">
           <div className="absolute top-[10%] left-[15%] w-72 h-72 rounded-full bg-primary/20 blur-[100px]" />
           <div className="absolute bottom-[20%] right-[10%] w-96 h-96 rounded-full bg-accent/20 blur-[120px]" />
           <div className="absolute top-[40%] right-[30%] w-64 h-64 rounded-full bg-purple-500/15 blur-[90px]" />
@@ -795,12 +801,13 @@ const Desktop: React.FC = () => {
         (settings.applyOverlayToWallpaper || (!settings.bgImage && !settings.bgVideo)) && (
         <div
           className="absolute inset-0 z-[1] pointer-events-none"
+          data-desktop-layer="true"
           style={{ background: getOverlayGradient(settings.bgOverlayScheme ?? 'aurora') }}
         />
       )}
 
       {/* 主内容区（无单独 widget 头部，全部在统一网格中） */}
-      <div ref={containerRef} className="relative z-10 flex flex-col h-full">
+      <div ref={containerRef} className="relative z-10 flex flex-col h-full" data-desktop-layer="true">
         {/* 统一网格：widget 行 + 应用图标行全在同一个 grid 中；监听 swipe 手势翻页 */}
         <div
           ref={swipeContainerRef}
