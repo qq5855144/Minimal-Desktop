@@ -286,7 +286,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={handlePointerUp}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} transition-transform ${ghost ? '' : 'active:scale-95'}`}
+        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} ${ghost ? '' : 'active:scale-95'}`}
       >
         {renderIconContent()}
         <span
