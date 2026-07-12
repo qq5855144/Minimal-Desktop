@@ -744,6 +744,7 @@ const Desktop: React.FC = () => {
       ) : settings.bgType === 'video' && settings.bgVideo ? (
         <video
           className="absolute inset-0 w-full h-full object-cover"
+          style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           src={settings.bgVideo}
           autoPlay loop muted playsInline
         />
