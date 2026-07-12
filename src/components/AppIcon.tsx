@@ -131,17 +131,7 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (longFiredRef.current || dragStartedRef.current) return;
     if (editMode && item.type !== 'system') return;
     if (item.type === 'app' && item.url) {
-      // 使用原生 <a> 元素模拟点击打开新标签页。
-      // 部分浏览器（如狐猴浏览器）对 window.open 的合成层处理有差异，
-      // 原生 <a> 点击更接近浏览器内置链接行为，跳转更平滑。
-      const a = document.createElement('a');
-      a.href = item.url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      window.open(item.url, '_blank', 'noopener,noreferrer');
     } else onClick?.();
   }, [editMode, item, onClick]);
 

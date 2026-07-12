@@ -101,6 +101,20 @@ const Desktop: React.FC = () => {
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
 
+  // 同步 <html> 背景色：打开新标签页时浏览器可能短暂丢弃合成层（backdrop-filter），
+  // 导致页面显示白色。将 html 背景色设为与桌面一致，可避免白屏闪烁。
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.style === 'neumorphism') {
+      root.style.backgroundColor = '#dde4f0';
+    } else if (settings.bgType === 'image' || settings.bgType === 'video') {
+      root.style.backgroundColor = '#1a1a2e';
+    } else {
+      root.style.backgroundColor = 'hsl(240, 50%, 50%)';
+    }
+    return () => { root.style.backgroundColor = ''; };
+  }, [settings.style, settings.bgType]);
+
   // 扩展环境：启动时检测 pendingClip（用户点击工具栏「剪藏」后留下的数据）
   // 直接添加到桌面，无需打开编辑对话框
   useEffect(() => {
