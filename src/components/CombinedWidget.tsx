@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, Camera } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { openExternalUrl } from '@/lib/openExternal';
 import { getEngineById, buildSearchUrl, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
 
@@ -67,7 +68,7 @@ const CombinedWidget: React.FC = () => {
     const url = isUrl
       ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
       : buildSearchUrl(currentEngine, trimmed);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternalUrl(url);
     setQuery('');
     inputRef.current?.blur();
   }, [query, currentEngine]);

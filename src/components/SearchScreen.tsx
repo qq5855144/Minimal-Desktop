@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { openExternalUrl } from '@/lib/openExternal';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 
 // ── 历史记录工具 ──────────────────────────────────────────────────────────────
@@ -239,7 +240,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     const url = isUrl
       ? (/^https?:\/\//i.test(t) ? t : `https://${t}`)
       : buildSearchUrl(currentEngine, t);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternalUrl(url);
     setHistory(loadHistory());
     onClose();
   }, [currentEngine, onClose]);

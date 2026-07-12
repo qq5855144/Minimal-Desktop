@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { DesktopItem } from '@/types';
 import { getColorStyle } from '@/lib/colors';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
+import { openExternalUrl } from '@/lib/openExternal';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
@@ -127,12 +128,15 @@ const AppIcon: React.FC<AppIconProps> = ({
     }
   }, [cancelLongPress]);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (longFiredRef.current || dragStartedRef.current) return;
     if (editMode && item.type !== 'system') return;
     if (item.type === 'app' && item.url) {
-      window.open(item.url, '_blank', 'noopener,noreferrer');
-    } else onClick?.();
+      e.currentTarget.blur();
+      openExternalUrl(item.url);
+      return;
+    }
+    onClick?.();
   }, [editMode, item, onClick]);
 
   const iconStyle: React.CSSProperties = {
@@ -272,6 +276,11 @@ const AppIcon: React.FC<AppIconProps> = ({
     );
   };
 
+  const pressFeedbackClass =
+    ghost || (item.type === 'app' && item.url)
+      ? ''
+      : 'transition-transform active:scale-95';
+
   return (
     <div className={`relative ${ghost ? 'opacity-40' : ''}`}>
       <button
@@ -283,7 +292,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={handlePointerUp}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} transition-transform ${ghost ? '' : 'active:scale-95'}`}
+        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
       >
         {renderIconContent()}
         <span
