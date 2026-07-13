@@ -12,6 +12,7 @@ import AddEditDialog from './AddEditDialog';
 import SettingsView from './SettingsView';
 import SyncView from './SyncView';
 import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
+import PrivacyScreen from './PrivacyScreen';
 import { toast } from 'sonner';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { uploadToGithub } from '@/lib/github';
@@ -64,6 +65,8 @@ const Desktop: React.FC = () => {
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
   const openFolder = openFolderId
     ? data.pages.flat().find((it) => it.id === openFolderId) ?? null
     : null;
@@ -656,6 +659,10 @@ const Desktop: React.FC = () => {
         setCurrentPage(currentPageRef.current + 1);
       } else if (dx > SWIPE_MIN_X && currentPageRef.current > 0) {
         setCurrentPage(currentPageRef.current - 1);
+      } else if (dx > SWIPE_MIN_X && currentPageRef.current === 0) {
+        // 第一页右滑 → 进入隐私屏，每次重置解锁状态
+        setPrivacyUnlocked(false);
+        setPrivacyOpen(true);
       }
     };
 
@@ -939,6 +946,13 @@ const Desktop: React.FC = () => {
 
       <SettingsView open={openSettings} onClose={() => setOpenSettings(false)} />
       <SyncView open={openSync} onClose={() => setOpenSync(false)} />
+      {/* 隐私屏：验证通过才显示内容，每次刷新重置解锁状态 */}
+      {privacyOpen && !privacyUnlocked && (
+        <PrivacyScreen
+          onUnlock={() => setPrivacyUnlocked(true)}
+          onClose={() => setPrivacyOpen(false)}
+        />
+      )}
 
       {/* 统一拖拽 Ghost：widget 渲染真实组件，app 显示图标 */}
       {ghost && (
