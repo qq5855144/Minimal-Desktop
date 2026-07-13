@@ -158,9 +158,9 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
+    <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
       <div
-        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up ${t.sheetBg} ${t.sheetBorder}`}
+        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
         style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle}
         onClick={(e) => e.stopPropagation()}
       >

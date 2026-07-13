@@ -376,12 +376,12 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ onClose }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-x-0 top-0 h-[100dvh] z-[200] flex items-end justify-center bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         ref={panelRef}
-        className="w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up"
+        className="w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)]"
         style={{
           background: 'rgba(28,28,32,0.92)',
           backdropFilter: 'blur(24px)',

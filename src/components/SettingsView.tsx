@@ -771,9 +771,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
+    <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
       <div
-        className={`w-full max-w-lg rounded-t-3xl animate-slide-up flex flex-col ${t.sheetBg} ${t.sheetBorder}`}
+        className={`w-full max-w-lg rounded-t-3xl animate-slide-up flex flex-col pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
         style={{
           maxHeight: '85dvh',
           overflow: 'hidden',
