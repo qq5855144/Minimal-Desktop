@@ -32,3 +32,4 @@ history/*.json
 .vite_cache
 /.skills
 /tasks
+.private/
