@@ -65,8 +65,9 @@ const Desktop: React.FC = () => {
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
-  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
+  // 隐私页：currentPage=-1 表示隐私桌面
+  const privacyPageRef = useRef(-1);
   const openFolder = openFolderId
     ? data.pages.flat().find((it) => it.id === openFolderId) ?? null
     : null;
@@ -660,9 +661,12 @@ const Desktop: React.FC = () => {
       } else if (dx > SWIPE_MIN_X && currentPageRef.current > 0) {
         setCurrentPage(currentPageRef.current - 1);
       } else if (dx > SWIPE_MIN_X && currentPageRef.current === 0) {
-        // 第一页右滑 → 进入隐私屏，每次重置解锁状态
+        // 第一页右滑 → 进入隐私桌面（currentPage=-1），重置解锁状态
         setPrivacyUnlocked(false);
-        setPrivacyOpen(true);
+        setCurrentPage(-1);
+      } else if (dx < -SWIPE_MIN_X && currentPageRef.current === -1) {
+        // 隐私页左滑 → 返回第一页
+        setCurrentPage(0);
       }
     };
 
@@ -851,6 +855,13 @@ const Desktop: React.FC = () => {
                   <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
                 ))}
               </div>
+            ) : currentPage === -1 ? (
+              /* 隐私桌面：空网格占位，遮罩由外层叠加 */
+              <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
+                {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => (
+                  <div key={`pv-${i}`} style={{ width: settings.iconSize ?? 60, height: settings.iconSize ?? 60, opacity: 0 }} />
+                ))}
+              </div>
             ) : (
               /* 所有页同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 → 不重新加载图标 */
               data.pages.map((pageData, i) => (
@@ -862,8 +873,21 @@ const Desktop: React.FC = () => {
           </div>
         </div>
 
-        {/* 页面指示器 */}
+        {/* 页面指示器：隐私页 + 普通页 */}
         <div className="flex items-center justify-center gap-1.5 pb-3">
+          {/* 隐私页锁图标指示 */}
+          <button
+            type="button"
+            onClick={() => { setPrivacyUnlocked(false); setCurrentPage(-1); }}
+            className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
+              currentPage === -1 ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+            }`}
+          >
+            <svg viewBox="0 0 12 14" fill="none" className={`w-3 h-3 ${settings.style === 'neumorphism' ? 'text-blue-500' : 'text-white'}`}>
+              <rect x="1" y="6" width="10" height="7" rx="1.5" fill="currentColor" opacity={currentPage === -1 ? '1' : '0.7'} />
+              <path d="M3 6V4a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+            </svg>
+          </button>
           {data.pages.map((_, i) => (
             <button
               key={`page-${i}`}
@@ -946,11 +970,11 @@ const Desktop: React.FC = () => {
 
       <SettingsView open={openSettings} onClose={() => setOpenSettings(false)} />
       <SyncView open={openSync} onClose={() => setOpenSync(false)} />
-      {/* 隐私屏：验证通过才显示内容，每次刷新重置解锁状态 */}
-      {privacyOpen && !privacyUnlocked && (
+      {/* 隐私屏遮罩：进入隐私桌面且未解锁时显示 */}
+      {currentPage === -1 && !privacyUnlocked && (
         <PrivacyScreen
           onUnlock={() => setPrivacyUnlocked(true)}
-          onClose={() => setPrivacyOpen(false)}
+          onClose={() => setCurrentPage(0)}
         />
       )}
 
