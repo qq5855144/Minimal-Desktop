@@ -29,7 +29,7 @@ const PinCell: React.FC<{ value: string; active: boolean; filled: boolean; maske
         : filled ? 'border-white/50 bg-white/10'
         : 'border-white/20 bg-white/5'}
     `}
-    style={{ width: 44, height: 52 }}
+    style={{ width: 38, height: 44 }}
   >
     {filled ? (masked ? (
       <div className="w-2.5 h-2.5 rounded-full bg-white/90" />
@@ -42,7 +42,7 @@ const PinCell: React.FC<{ value: string; active: boolean; filled: boolean; maske
 const NumPad: React.FC<{ onPress: (v: string) => void; onDelete: () => void }> = ({ onPress, onDelete }) => {
   const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
   return (
-    <div className="grid grid-cols-3 gap-2.5 w-full max-w-[264px]">
+    <div className="grid grid-cols-3 gap-2 w-full max-w-[240px]">
       {keys.map((k, i) => {
         if (k === '') return <div key={i} />;
         const isDelete = k === '⌫';
@@ -52,7 +52,7 @@ const NumPad: React.FC<{ onPress: (v: string) => void; onDelete: () => void }> =
             type="button"
             onPointerDown={(e) => { e.preventDefault(); isDelete ? onDelete() : onPress(k); }}
             className={`
-              h-14 rounded-2xl text-xl font-medium text-white
+              h-11 rounded-xl text-lg font-medium text-white
               flex items-center justify-center
               transition-all duration-100 active:scale-95
               ${isDelete ? 'bg-white/10 hover:bg-white/18' : 'bg-white/18 hover:bg-white/28'}
@@ -196,19 +196,19 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
       </button>
 
       {/* 标题区 */}
-      <div className="flex flex-col items-center gap-2 mb-7">
+      <div className="flex flex-col items-center gap-1 mb-5">
         <div className="rounded-2xl flex items-center justify-center"
-          style={{ width: 52, height: 52, background: 'rgba(255,255,255,0.12)' }}>
+          style={{ width: 40, height: 40, background: 'rgba(255,255,255,0.12)' }}>
           {mode === 'verify'
-            ? <Lock className="w-6 h-6 text-white/85" />
-            : <ShieldCheck className="w-6 h-6 text-white/85" />}
+            ? <Lock className="w-5 h-5 text-white/85" />
+            : <ShieldCheck className="w-5 h-5 text-white/85" />}
         </div>
-        <h2 className="text-white text-lg font-semibold tracking-wide mt-1">{title}</h2>
-        <p className="text-white/50 text-xs">{subtitle}</p>
+        <h2 className="text-white text-base font-semibold tracking-wide mt-0.5">{title}</h2>
+        <p className="text-white/50 text-[11px]">{subtitle}</p>
       </div>
 
       {/* PIN 格子 */}
-      <div className={`flex gap-2.5 mb-1 ${shake ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
+      <div className={`flex gap-2 mb-0.5 ${shake ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
         {Array.from({ length: 6 }).map((_, i) => (
           <PinCell
             key={i}
@@ -224,15 +224,15 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
       <button
         type="button"
         onClick={() => setMasked((v) => !v)}
-        className="flex items-center gap-1 text-white/35 hover:text-white/55 text-[11px] py-1 px-2 mb-1 transition-colors"
+        className="flex items-center gap-1 text-white/35 hover:text-white/55 text-[10px] py-0.5 px-2 mb-0.5 transition-colors"
       >
-        {masked ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+        {masked ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
         {masked ? '显示密码' : '隐藏密码'}
       </button>
 
       {/* 错误提示 */}
-      <div className="h-5 mb-4">
-        {error && <p className="text-red-400 text-xs animate-fade-in">{error}</p>}
+      <div className="h-4 mb-3">
+        {error && <p className="text-red-400 text-[11px] animate-fade-in">{error}</p>}
       </div>
 
       {/* 数字键盘 */}
@@ -252,7 +252,7 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
               setError('');
             }
           }}
-          className="mt-5 text-white/30 hover:text-white/50 text-[11px] transition-colors"
+          className="mt-4 text-white/30 hover:text-white/50 text-[10px] transition-colors"
         >
           忘记密码？重置
         </button>
