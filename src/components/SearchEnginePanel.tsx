@@ -19,33 +19,41 @@ interface SearchEnginePanelProps {
   onClose: () => void;
 }
 
-// ── 引擎图标：内联 SVG data URL，带彩色字母兜底 ────────────────────────────
+// ── 引擎图标：内置用内联 SVG，自定义引擎用多源候选链 ───────────────────────
 const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, size = 48 }) => {
-  const [err, setErr] = useState(false);
-  const src = getEngineIconSrc(engine);
   const letter = engine.name.slice(0, 1).toUpperCase();
+  const iconSize = Math.round(size * 0.72);
 
-  if (src && !err) {
+  // 内置引擎：使用本地内联 SVG，单一来源不需要多源轮询
+  if ('iconSrc' in engine && engine.iconSrc) {
     return (
       <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
-        <img
-          src={src}
-          alt={engine.name}
-          width={size * 0.72}
-          height={size * 0.72}
-          className="object-contain"
-          onError={() => setErr(true)}
-        />
+        <img src={engine.iconSrc} alt={engine.name} width={iconSize} height={iconSize} className="object-contain" />
       </div>
     );
   }
 
+  // 自定义引擎：iconUrl 可能是 DataURL 或外部 URL，用多源候选兜底
+  const domain = (() => {
+    try {
+      const u = engine.urlTemplate.replace('{q}', 'test').replace(/%s/g, 'test');
+      return new URL(u).hostname;
+    } catch { return ''; }
+  })();
+  const iconUrl = 'iconUrl' in engine ? engine.iconUrl : undefined;
+  const candidates = iconUrl
+    ? [iconUrl, ...getFaviconCandidates(domain)]
+    : getFaviconCandidates(domain);
+
   return (
-    <div
-      className="flex items-center justify-center rounded-2xl shrink-0"
-      style={{ width: size, height: size, background: engine.color }}
-    >
-      <span className="text-white font-bold" style={{ fontSize: size * 0.42 }}>{letter}</span>
+    <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      <MultiSourceImg
+        candidates={candidates}
+        alt={engine.name}
+        size={iconSize}
+        fallbackColor={engine.color}
+        fallbackLetter={letter}
+      />
     </div>
   );
 };
@@ -62,7 +70,7 @@ const PRESET_COLORS = [
 const SEARCH_PARAMS = ['q', 'query', 'wd', 'keyword', 'kw', 's', 'text', 'search', 'p', 'w'];
 
 function parseEngineUrl(input: string): {
-  name: string; urlTemplate: string; iconUrl: string; color: string;
+  name: string; urlTemplate: string; iconCandidates: string[]; color: string;
 } | null {
   try {
     let urlStr = input.trim();
@@ -75,81 +83,106 @@ function parseEngineUrl(input: string): {
       const domain = new URL(urlStr.replace(/%s/g, 'placeholder')).hostname;
       const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
       const name = siteName.charAt(0).toUpperCase() + siteName.slice(1);
-      const iconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
       const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
-      return { name, urlTemplate, iconUrl, color };
+      return { name, urlTemplate, iconCandidates: getFaviconCandidates(domain), color };
     }
 
     const url = new URL(urlStr);
     const domain = url.hostname;
     const siteName = domain.replace(/^(www\.|m\.|s\.)/i, '').split('.')[0];
     const name = siteName.charAt(0).toUpperCase() + siteName.slice(1);
-    const iconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
     const color = PRESET_COLORS[Math.abs(name.charCodeAt(0) % PRESET_COLORS.length)];
+    const iconCandidates = getFaviconCandidates(domain);
 
-    // 1. URL 末尾是 "param=" 形式（用户粘贴的搜索链接，如 ?q= 或 ?wd=）
+    // 1. URL 末尾是 "param=" 形式
     if (/[?&][a-z_]+=$/.test(urlStr)) {
-      return { name, urlTemplate: urlStr + '{q}', iconUrl, color };
+      return { name, urlTemplate: urlStr + '{q}', iconCandidates, color };
     }
 
-    // 2. URL 中已含已知搜索参数且有值 → 字符串级替换（避免 URL API 编码 {q}）
+    // 2. URL 中已含已知搜索参数且有值 → 字符串级替换
     for (const p of SEARCH_PARAMS) {
       const re = new RegExp(`([?&]${p}=)[^&]*`);
       if (re.test(urlStr)) {
-        return { name, urlTemplate: urlStr.replace(re, `$1{q}`), iconUrl, color };
+        return { name, urlTemplate: urlStr.replace(re, `$1{q}`), iconCandidates, color };
       }
     }
 
     // 3. 未检测到搜索参数 → 追加 ?q={q}
     const base = url.origin + url.pathname.replace(/\/$/, '');
-    return { name, urlTemplate: `${base}?q={q}`, iconUrl, color };
+    return { name, urlTemplate: `${base}?q={q}`, iconCandidates, color };
   } catch {
     return null;
   }
 }
 
-// 将远程图标 URL 转为 base64 DataURL，实现真正持久化（不依赖外部服务）
-// 使用 <img> + Canvas 方案（不设 crossOrigin），避免触发 CORS 控制台警告。
-// 跨域图片会污染 canvas → toDataURL 抛 SecurityError → 静默忽略返回 null。
-function fetchIconAsDataUrl(url: string): Promise<string | null> {
-  // 已经是 DataURL，直接返回
-  if (url.startsWith('data:')) return Promise.resolve(url);
-  // 尝试多个备用源（DDG favicon 在国内可用）
-  const candidates = [
-    url,
-    url.replace('www.google.com/s2/favicons', 'icons.duckduckgo.com/ip3').replace(/&sz=\d+/, '').replace(/\?domain=([^&]+).*/, '/$1.ico'),
+// ── 多源 favicon 候选 URL ────────────────────────────────────────────────
+function getFaviconCandidates(domain: string): string[] {
+  return [
+    `https://favicon.im/${domain}`,
+    `https://icon.horse/icon/${domain}`,
+    `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+    `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=64`,
+    `https://${domain}/favicon.ico`,
   ];
+}
 
-  // 逐一尝试候选源：img 加载后用 canvas 转 DataURL，失败则继续
-  const tryNext = (i: number): Promise<string | null> => {
-    if (i >= candidates.length) return Promise.resolve(null);
-    return new Promise<string | null>((resolve) => {
-      const src = candidates[i];
-      const img = new Image();
-      const timer = setTimeout(() => {
-        img.onload = img.onerror = null;
-        resolve(tryNext(i + 1));
-      }, 5000);
-      img.onload = () => {
-        clearTimeout(timer);
-        try {
-          const size = Math.min(Math.max(img.naturalWidth, img.naturalHeight, 1), 128);
-          const canvas = document.createElement('canvas');
-          canvas.width = size; canvas.height = size;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) { resolve(tryNext(i + 1)); return; }
-          ctx.drawImage(img, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/png'));
-        } catch {
-          // canvas 被污染（跨域）— 静默忽略，不产生控制台警告
-          resolve(tryNext(i + 1));
-        }
-      };
-      img.onerror = () => { clearTimeout(timer); resolve(tryNext(i + 1)); };
-      img.src = src;
-    });
-  };
-  return tryNext(0);
+// ── 多源图标组件：按序尝试候选 URL，全部失败则显示字母兜底 ────────────
+const MultiSourceImg: React.FC<{
+  candidates: string[];
+  alt: string;
+  size: number;
+  fallbackColor: string;
+  fallbackLetter: string;
+  className?: string;
+}> = ({ candidates, alt, size, fallbackColor, fallbackLetter, className }) => {
+  const [idx, setIdx] = useState(0);
+  const src = candidates[idx] ?? null;
+  if (src) {
+    return (
+      <img
+        key={src}
+        src={src}
+        alt={alt}
+        width={size}
+        height={size}
+        className={`object-contain ${className ?? ''}`}
+        onError={() => setIdx((i) => i + 1)}
+      />
+    );
+  }
+  // 全部失败 → 字母兜底
+  return (
+    <div
+      className="flex items-center justify-center rounded-2xl shrink-0"
+      style={{ width: size, height: size, background: fallbackColor }}
+    >
+      <span className="text-white font-bold" style={{ fontSize: size * 0.42 }}>
+        {fallbackLetter}
+      </span>
+    </div>
+  );
+};
+
+// 将远程图标 URL 转为 base64 DataURL，使用 fetch + Blob 方案（不受 Canvas CORS 限制）
+async function fetchIconAsDataUrl(candidates: string[]): Promise<string | null> {
+  for (const url of candidates) {
+    if (url.startsWith('data:')) return url;
+    try {
+      const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (!blob.type.startsWith('image/') || blob.size < 50) continue;
+      return await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
@@ -157,7 +190,6 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
 }) => {
   const [rawUrl, setRawUrl] = useState('');
   const [customName, setCustomName] = useState('');
-  const [iconErr, setIconErr] = useState(false);
   const [localIconDataUrl, setLocalIconDataUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -166,39 +198,39 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
   const displayName = customName.trim() || parsed?.name || '';
   const canSubmit = !!parsed && displayName.length > 0;
 
-  // 最终使用的图标：本地选择 > 自动识别 favicon
-  const activeIconSrc = localIconDataUrl ?? parsed?.iconUrl ?? null;
-  const showErr = iconErr && !localIconDataUrl;
+  // 预览用图标候选：本地选择 > 自动识别多源候选链
+  const previewCandidates: string[] = localIconDataUrl
+    ? [localIconDataUrl]
+    : (parsed?.iconCandidates ?? []);
 
-  // 解析结果变化时自动填充名称输入框
+  // 解析结果变化时自动填充名称
   useEffect(() => {
     if (parsed?.name && !customName) setCustomName(parsed.name);
   }, [parsed?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 选择本地图片文件，转为 DataURL
+  // 选择本地图片文件
   const handleLocalIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result;
-      if (typeof result === 'string') { setLocalIconDataUrl(result); setIconErr(false); }
+      if (typeof result === 'string') setLocalIconDataUrl(result);
     };
     reader.readAsDataURL(file);
   };
 
-  // 提交：将图标转为 DataURL 持久化存储，不依赖外部 favicon 服务
+  // 提交：fetch→Blob→DataURL 持久化图标，失败则存候选链首 URL 作兜底
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit || !parsed || submitting) return;
     setSubmitting(true);
     let persistedIconUrl: string | undefined;
     if (localIconDataUrl) {
-      // 本地上传的图片已是 DataURL，直接使用
       persistedIconUrl = localIconDataUrl;
-    } else if (parsed.iconUrl) {
-      // 远程 favicon → 抓取转为 DataURL，失败则保留原 URL 作为兜底
-      persistedIconUrl = (await fetchIconAsDataUrl(parsed.iconUrl)) ?? parsed.iconUrl;
+    } else if (parsed.iconCandidates.length > 0) {
+      persistedIconUrl =
+        (await fetchIconAsDataUrl(parsed.iconCandidates)) ?? parsed.iconCandidates[0];
     }
     onAdd({
       id: `custom-${Date.now()}`,
@@ -218,7 +250,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
       <input
         type="text"
         value={rawUrl}
-        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setIconErr(false); setLocalIconDataUrl(null); }}
+        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setLocalIconDataUrl(null); }}
         placeholder="输入搜索引擎网址，如 https://bing.com"
         className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
         style={{ fontSize: 16 }}
@@ -235,31 +267,28 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
             title="点击选择本地图标"
             onClick={() => fileInputRef.current?.click()}
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 hover:ring-white/40 transition-all"
+            style={{ background: 'rgba(255,255,255,0.12)' }}
           >
-            {activeIconSrc && !showErr ? (
-              <img
-                src={activeIconSrc}
-                alt=""
-                width={28} height={28}
-                className="object-contain rounded"
-                onError={() => setIconErr(true)}
+            {previewCandidates.length > 0 ? (
+              <MultiSourceImg
+                candidates={previewCandidates}
+                alt={displayName}
+                size={28}
+                fallbackColor={parsed.color}
+                fallbackLetter={displayName.slice(0, 1) || '?'}
               />
             ) : (
-              <span className="text-white font-bold text-sm">{displayName.slice(0, 1)}</span>
+              <span className="text-white font-bold text-sm">{displayName.slice(0, 1) || '?'}</span>
             )}
             {/* hover 提示层 */}
             <span className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="text-white text-[9px] leading-tight text-center px-0.5">本地<br/>图标</span>
             </span>
           </button>
+
           {/* 隐藏文件输入 */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleLocalIconChange}
-          />
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLocalIconChange} />
+
           {/* 可编辑名称 */}
           <input
             type="text"
@@ -269,38 +298,28 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
             className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-white/40 border-b border-white/20 pb-0.5"
             style={{ fontSize: 15 }}
           />
-          {/* 已选本地图标提示 */}
+
+          {/* 已选本地图标清除 */}
           {localIconDataUrl && (
-            <button
-              type="button"
-              title="移除本地图标"
-              onClick={() => setLocalIconDataUrl(null)}
-              className="shrink-0 text-white/40 hover:text-white/80 transition-colors"
-            >
+            <button type="button" title="移除本地图标" onClick={() => setLocalIconDataUrl(null)}
+              className="shrink-0 text-white/40 hover:text-white/80 transition-colors">
               <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
       )}
 
-      {/* URL 格式提示 */}
       {rawUrl.trim().length > 0 && !parsed && (
         <p className="text-yellow-400 text-xs">请输入有效的网址</p>
       )}
 
       <div className="flex gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 rounded-xl py-2 text-sm text-white/60 bg-white/10 hover:bg-white/15 transition-colors"
-        >
+        <button type="button" onClick={onCancel}
+          className="flex-1 rounded-xl py-2 text-sm text-white/60 bg-white/10 hover:bg-white/15 transition-colors">
           取消
         </button>
-        <button
-          type="submit"
-          disabled={!canSubmit || submitting}
-          className="flex-1 rounded-xl py-2 text-sm text-white font-medium bg-primary/70 hover:bg-primary/90 transition-colors disabled:opacity-40"
-        >
+        <button type="submit" disabled={!canSubmit || submitting}
+          className="flex-1 rounded-xl py-2 text-sm text-white font-medium bg-primary/70 hover:bg-primary/90 transition-colors disabled:opacity-40">
           {submitting ? '保存中…' : '添加'}
         </button>
       </div>
