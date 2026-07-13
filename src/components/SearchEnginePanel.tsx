@@ -15,6 +15,7 @@ import {
 import type { CustomSearchEngine } from '@/types';
 
 interface SearchEnginePanelProps {
+  anchorRect: DOMRect | null;
   onClose: () => void;
 }
 
@@ -325,13 +326,24 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
 };
 
 // ── 主面板 ───────────────────────────────────────────────────────────────────
-const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ onClose }) => {
+const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClose }) => {
   const { settings, updateSettings } = useDesktop();
   const [showAdd, setShowAdd] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const currentId = settings.searchEngine ?? 'bing';
   const customEngines = settings.customEngines ?? [];
+
+  // 计算面板位置：贴紧 anchor 下方，水平居中，边界保护
+  const panelStyle = React.useMemo<React.CSSProperties>(() => {
+    const PANEL_W = Math.min(320, window.innerWidth - 24);
+    const PANEL_MAX_H = window.innerHeight * 0.55;
+    if (!anchorRect) return { display: 'none' };
+    let left = anchorRect.left + anchorRect.width / 2 - PANEL_W / 2;
+    left = Math.max(12, Math.min(left, window.innerWidth - PANEL_W - 12));
+    const top = anchorRect.bottom + 6;
+    return { position: 'fixed', top, left, width: PANEL_W, maxHeight: PANEL_MAX_H };
+  }, [anchorRect]);
 
   // 点击面板外部关闭
   useEffect(() => {
@@ -375,25 +387,25 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ onClose }) => {
   ];
 
   return (
+    /* 透明全屏遮罩，捕获点击关闭 */
     <div
-      className="fixed inset-x-0 top-0 h-[100dvh] z-[200] flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-x-0 top-0 h-[100dvh] z-[200]"
       onClick={onClose}
     >
+      {/* 面板本体：fixed 定位由 panelStyle 控制，从搜索框下方展开 */}
       <div
         ref={panelRef}
-        className="w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)]"
+        className="rounded-2xl overflow-hidden animate-drop-down"
         style={{
-          background: 'rgba(28,28,32,0.92)',
+          ...panelStyle,
+          background: 'rgba(28,28,32,0.94)',
           backdropFilter: 'blur(24px)',
           WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.13)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 拖拽条 */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-white/20" />
-        </div>
       {showAdd ? (
         <AddEngineForm onAdd={addEngine} onCancel={() => setShowAdd(false)} />
       ) : (

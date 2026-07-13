@@ -9,6 +9,7 @@ import SearchScreen from './SearchScreen';
 const SearchBar: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [searchScreenOpen, setSearchScreenOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const engineBtnRef = useRef<HTMLButtonElement>(null);
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
@@ -20,6 +21,7 @@ const SearchBar: React.FC = () => {
   const openPanel = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setAnchorRect(engineBtnRef.current?.getBoundingClientRect() ?? null);
     setPanelOpen(true);
   }, []);
 
@@ -80,7 +82,7 @@ const SearchBar: React.FC = () => {
 
       {/* 搜索引擎切换面板 */}
       {panelOpen && (
-        <SearchEnginePanel onClose={() => setPanelOpen(false)} />
+        <SearchEnginePanel anchorRect={anchorRect} onClose={() => setPanelOpen(false)} />
       )}
 
       {/* 搜索专用屏 */}

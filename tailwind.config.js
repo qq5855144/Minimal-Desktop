@@ -142,6 +142,10 @@ export default {
                 'slide-up': {
                     from: { transform: 'translateY(100%)' },
                     to:   { transform: 'translateY(0)' }
+                },
+                'drop-down': {
+                    from: { opacity: '0', transform: 'translateY(-8px) scaleY(0.95)', transformOrigin: 'top' },
+                    to:   { opacity: '1', transform: 'translateY(0) scaleY(1)',        transformOrigin: 'top' }
                 }
             },
             animation: {
@@ -154,7 +158,8 @@ export default {
                 'page-slide-left': 'page-slide-left 0.35s ease-in-out',
                 'page-slide-right': 'page-slide-right 0.35s ease-in-out',
                 'skeleton-pulse': 'skeleton-pulse 1.5s ease-in-out infinite',
-                'slide-up': 'slide-up 0.28s cubic-bezier(0.32, 0.72, 0, 1)'
+                'slide-up': 'slide-up 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
+                'drop-down': 'drop-down 0.22s cubic-bezier(0.16, 1, 0.3, 1)'
             }
         }
     },

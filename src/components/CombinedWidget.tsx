@@ -40,6 +40,7 @@ const CombinedWidget: React.FC = () => {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const engineBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -75,6 +76,7 @@ const CombinedWidget: React.FC = () => {
   const openPanel = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setAnchorRect(engineBtnRef.current?.getBoundingClientRect() ?? null);
     setPanelOpen(true);
   }, []);
 
@@ -146,7 +148,7 @@ const CombinedWidget: React.FC = () => {
 
       {/* 搜索引擎面板（portal 到 fixed 层） */}
       {panelOpen && (
-        <SearchEnginePanel onClose={() => setPanelOpen(false)} />
+        <SearchEnginePanel anchorRect={anchorRect} onClose={() => setPanelOpen(false)} />
       )}
     </div>
   );
