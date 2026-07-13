@@ -15,7 +15,6 @@ import {
 import type { CustomSearchEngine } from '@/types';
 
 interface SearchEnginePanelProps {
-  anchorRect: DOMRect | null;
   onClose: () => void;
 }
 
@@ -326,23 +325,13 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
 };
 
 // ── 主面板 ───────────────────────────────────────────────────────────────────
-const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClose }) => {
+const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ onClose }) => {
   const { settings, updateSettings } = useDesktop();
   const [showAdd, setShowAdd] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const currentId = settings.searchEngine ?? 'bing';
   const customEngines = settings.customEngines ?? [];
-
-  // 计算面板位置：anchorRect 下方，左右居中（最宽 400px）
-  const panelStyle: React.CSSProperties = (() => {
-    if (!anchorRect) return { top: '50%', left: '50%', transform: 'translate(-50%,-50%)' };
-    const panelW = Math.min(window.innerWidth - 32, 400);
-    let left = anchorRect.left + anchorRect.width / 2 - panelW / 2;
-    left = Math.max(16, Math.min(left, window.innerWidth - panelW - 16));
-    const top = anchorRect.bottom + 8;
-    return { position: 'fixed', top, left, width: panelW };
-  })();
 
   // 点击面板外部关闭
   useEffect(() => {
@@ -387,16 +376,24 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
 
   return (
     <div
-      ref={panelRef}
-      className="z-[200] rounded-3xl overflow-hidden shadow-2xl animate-fade-in"
-      style={{
-        ...panelStyle,
-        background: 'rgba(28,28,32,0.88)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
-        border: '1px solid rgba(255,255,255,0.12)',
-      }}
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
     >
+      <div
+        ref={panelRef}
+        className="w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up"
+        style={{
+          background: 'rgba(28,28,32,0.92)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid rgba(255,255,255,0.12)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 拖拽条 */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-white/20" />
+        </div>
       {showAdd ? (
         <AddEngineForm onAdd={addEngine} onCancel={() => setShowAdd(false)} />
       ) : (
@@ -462,6 +459,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
