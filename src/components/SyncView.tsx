@@ -193,7 +193,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               <div className="space-y-1.5">
                 <label className={t.labelCls}>GitHub 个人访问令牌</label>
                 <input
-                  type="password"
+                  type="text"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
