@@ -163,26 +163,24 @@ const MultiSourceImg: React.FC<{
   );
 };
 
-// 将远程图标 URL 转为 base64 DataURL，使用 fetch + Blob 方案（不受 Canvas CORS 限制）
-async function fetchIconAsDataUrl(candidates: string[]): Promise<string | null> {
-  for (const url of candidates) {
-    if (url.startsWith('data:')) return url;
-    try {
-      const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      if (!blob.type.startsWith('image/') || blob.size < 50) continue;
-      return await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      continue;
-    }
-  }
-  return null;
+// 用 <img> 探测找到第一个可加载的候选 URL（不使用 fetch，彻底避免 CORS 问题）
+function pickFirstLoadableIcon(candidates: string[]): Promise<string | null> {
+  const tryNext = (i: number): Promise<string | null> => {
+    if (i >= candidates.length) return Promise.resolve(null);
+    const url = candidates[i];
+    if (url.startsWith('data:')) return Promise.resolve(url);
+    return new Promise<string | null>((resolve) => {
+      const img = new Image();
+      const timer = setTimeout(() => {
+        img.onload = img.onerror = null;
+        resolve(tryNext(i + 1));
+      }, 4000);
+      img.onload = () => { clearTimeout(timer); resolve(url); };
+      img.onerror = () => { clearTimeout(timer); resolve(tryNext(i + 1)); };
+      img.src = url;
+    });
+  };
+  return tryNext(0);
 }
 
 const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
@@ -230,7 +228,7 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
       persistedIconUrl = localIconDataUrl;
     } else if (parsed.iconCandidates.length > 0) {
       persistedIconUrl =
-        (await fetchIconAsDataUrl(parsed.iconCandidates)) ?? parsed.iconCandidates[0];
+        (await pickFirstLoadableIcon(parsed.iconCandidates)) ?? parsed.iconCandidates[0];
     }
     onAdd({
       id: `custom-${Date.now()}`,
