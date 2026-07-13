@@ -53,6 +53,7 @@ export interface SyncConfig {
   path: string;
   fileName: string;
   syncInterval: 'manual' | '1d' | '7d' | '30d';
+  autoSync: boolean;   // 数据变更时自动上传
   lastSyncAt?: string; // ISO string
 }
 

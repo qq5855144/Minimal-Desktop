@@ -13,6 +13,8 @@ import SettingsView from './SettingsView';
 import SyncView from './SyncView';
 import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
 import { toast } from 'sonner';
+import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
+import { uploadToGithub } from '@/lib/github';
 
 function getOverlayGradient(scheme: BgOverlayScheme): string {
   switch (scheme) {
@@ -138,6 +140,27 @@ const Desktop: React.FC = () => {
       toast.success(`已添加「${clip.title}」到桌面`);
     });
   }, [addItem]);
+
+  // 自动同步：data 变更时若开启了 autoSync，防抖 3s 后自动上传
+  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRenderRef = useRef(true);
+  useEffect(() => {
+    // 跳过首次挂载（避免页面刚加载就触发上传）
+    if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
+    const cfg = loadSyncConfig();
+    if (!cfg?.autoSync || !cfg.token || !cfg.owner || !cfg.repo) return;
+    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    autoSyncTimerRef.current = setTimeout(async () => {
+      try {
+        const syncCfg = { ...cfg, path: cfg.fileName || 'desktop_backup.json' };
+        const result = await uploadToGithub(syncCfg, data);
+        if (result.ok) {
+          saveSyncConfig({ ...cfg, lastSyncAt: new Date().toISOString() });
+        }
+      } catch { /* 静默失败，不打扰用户 */ }
+    }, 3000);
+    return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
+  }, [data]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 

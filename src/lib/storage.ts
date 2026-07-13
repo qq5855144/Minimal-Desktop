@@ -108,6 +108,7 @@ export function loadSyncConfig(): SyncConfig | null {
       // 迁移旧字段
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
+      if (parsed.autoSync === undefined) parsed.autoSync = false;
       return parsed;
     }
   } catch {
