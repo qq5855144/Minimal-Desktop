@@ -203,14 +203,14 @@ const Desktop: React.FC = () => {
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
-    moveItemToPrivacy, movePrivacyToPage, privacyPageItems,
+    moveItemToPrivacy, movePrivacyToPage, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
-      moveItemToPrivacy, movePrivacyToPage, privacyPageItems,
+      moveItemToPrivacy, movePrivacyToPage, privacyPageItems, privacyUnlocked,
     };
   });
 
@@ -434,8 +434,12 @@ const Desktop: React.FC = () => {
 
       // ── 拖入隐私页（targetPage === -1）──
       if (targetPage === -1 && g.source.type === 'desktop' && !isWidget) {
-        const { moveItemToPrivacy: toPrivacy } = latestRef.current;
-        // 找到图标来源页
+        const { moveItemToPrivacy: toPrivacy, privacyUnlocked: unlocked, setCurrentPage: nav } = latestRef.current;
+        // 防御：隐私桌面未解锁时中止移动，图标原地不动，跳转到隐私页触发密码认证
+        if (!unlocked) {
+          nav(-1);
+          return;
+        }
         const srcItem = findItem(d.pages, g.source.itemId);
         if (srcItem) toPrivacy(g.source.itemId, targetRow, targetCol);
         return;
