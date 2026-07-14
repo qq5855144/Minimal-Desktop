@@ -979,6 +979,7 @@ const Desktop: React.FC = () => {
         <ContextMenu
           pos={contextMenu}
           onEdit={(id) => {
+            // 先在普通桌面页查找
             let found = data.pages.flat().find((it) => it.id === id);
             if (!found) {
               for (const page of data.pages) {
@@ -991,6 +992,8 @@ const Desktop: React.FC = () => {
                 if (found) break;
               }
             }
+            // 普通桌面没找到，去隐私桌面找
+            if (!found) found = privacyPageItems.find((it) => it.id === id);
             if (found) setEditingItem(found);
           }}
           onDelete={(id) => handleDeleteApp(id)}

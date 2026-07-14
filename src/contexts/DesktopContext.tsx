@@ -201,6 +201,26 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ) => {
     const gridCols = settings.cols ?? 4;
     const gridRows = settings.rows ?? 7;
+
+    // 添加到隐私桌面
+    if (preferPage === -1) {
+      setPrivacyPageItems((prev) => {
+        // 找隐私桌面的空格
+        const occupied = new Set(prev.map((it) => `${it.row},${it.col}`));
+        for (let r = 0; r < gridRows; r++) {
+          for (let c = 0; c < gridCols; c++) {
+            if (!occupied.has(`${r},${c}`)) {
+              return [...prev, { ...item, id: uid(), page: -1, row: r, col: c }];
+            }
+          }
+        }
+        // 满了就追加到最后一行
+        const lastRow = prev.length > 0 ? Math.max(...prev.map((it) => it.row)) + 1 : 0;
+        return [...prev, { ...item, id: uid(), page: -1, row: lastRow, col: 0 }];
+      });
+      return;
+    }
+
     let targetPage = 0;
     setData((prev) => {
       const next = structuredClone(prev);
@@ -227,12 +247,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
+    // 先尝试更新普通桌面
+    let found = false;
     setData((prev) => {
       const next = structuredClone(prev);
       for (const page of next.pages) {
         const idx = page.findIndex((it) => it.id === id);
         if (idx >= 0) {
           page[idx] = { ...page[idx], ...patch };
+          found = true;
           return next;
         }
         // 文件夹内
@@ -241,6 +264,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const ci = item.children.findIndex((c) => c.id === id);
             if (ci >= 0) {
               item.children[ci] = { ...item.children[ci], ...patch };
+              found = true;
               return next;
             }
           }
@@ -249,19 +273,31 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const di = next.dock.findIndex((it) => it.id === id);
       if (di >= 0) {
         next.dock[di] = { ...next.dock[di], ...patch };
+        found = true;
       }
       return next;
     });
+    // 如果普通桌面没找到，尝试更新隐私桌面
+    if (!found) {
+      setPrivacyPageItems((prev) => {
+        const idx = prev.findIndex((it) => it.id === id);
+        if (idx < 0) return prev;
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+        return next;
+      });
+    }
   }, []);
 
   const removeItem = useCallback((id: string) => {
+    let found = false;
     setData((prev) => {
       const next = structuredClone(prev);
       for (let p = 0; p < next.pages.length; p++) {
         const idx = next.pages[p].findIndex((it) => it.id === id);
         if (idx >= 0) {
           next.pages[p].splice(idx, 1);
-          // 清理孤儿图标缓存（延迟到下一宏任务，不阻塞状态更新）
+          found = true;
           setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
           return next;
         }
@@ -270,6 +306,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const ci = item.children.findIndex((c) => c.id === id);
             if (ci >= 0) {
               item.children.splice(ci, 1);
+              found = true;
               // 单应用解散
               if (item.children.length <= 1) {
                 const child = item.children[0];
@@ -293,10 +330,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const di = next.dock.findIndex((it) => it.id === id);
       if (di >= 0) {
         next.dock.splice(di, 1);
+        found = true;
         setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
       }
       return next;
     });
+    // 如果普通桌面没找到，尝试从隐私桌面删除
+    if (!found) {
+      setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
+    }
   }, []);
 
   const swapDesktopItems = useCallback(
