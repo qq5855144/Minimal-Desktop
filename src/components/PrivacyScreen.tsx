@@ -1,38 +1,23 @@
 /**
- * 隐私屏遮罩组件（完善版）
- * - 密码哈希存 localStorage（SHA-256+盐，不可逆）
- * - 连续错误 5 次锁定 60 秒，显示倒计时
- * - 支持修改密码
+ * 隐私屏遮罩组件（v3 加密版）
+ * - 用 AES-256-GCM 加密隐私桌面数据，密码即密钥，重置/更改密码后旧数据不可访问
+ * - 连续错误 5 次锁定 60 秒
+ * - verify 模式副标题后提供「设置密码」入口（跳转修改）
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Lock, ShieldCheck, Eye, EyeOff, KeyRound } from 'lucide-react';
-import { hashPin, verifyPin } from '@/lib/privacyCrypto';
+import type { DesktopItem } from '@/types';
 import {
-  loadPinHash, savePinHash, clearPinHash,
+  deriveKey, encryptItems, unlockVault, randomBytes,
+  type PrivacyVault,
+} from '@/lib/privacyCrypto';
+import {
+  loadPrivacyVault, savePrivacyVault, clearPrivacyVault,
   loadLockout, saveLockout, clearLockout,
-  loadSyncConfig, loadPrivacyPageItems,
 } from '@/lib/storage';
-import { uploadToGithub } from '@/lib/github';
-import type { DesktopData } from '@/types';
-import { useDesktop } from '@/contexts/DesktopContext';
-
-/** 设置/修改密码成功后，如果已开启自动同步则立即上传 */
-async function syncPinToCloud(hash: string) {
-  const cfg = loadSyncConfig();
-  if (!cfg?.token || !cfg?.owner) return;
-  try {
-    const { loadDesktopData } = await import('@/lib/storage');
-    const data: DesktopData = {
-      ...loadDesktopData(),
-      pinHash: hash,
-      privacyItems: loadPrivacyPageItems(),
-    };
-    await uploadToGithub({ ...cfg, path: 'desktop_backup.json' }, data);
-  } catch { /* 后台静默失败，不影响主流程 */ }
-}
 
 interface PrivacyScreenProps {
-  onUnlock: () => void;
+  onUnlock: (items: DesktopItem[], key: CryptoKey) => void;
   onClose: () => void;
 }
 
@@ -41,25 +26,21 @@ type Mode = 'setup' | 'verify' | 'change-old' | 'change-new';
 const MAX_FAIL = 5;
 const LOCKOUT_SECONDS = 60;
 
+// ─── 子组件 ──────────────────────────────────────────────────────────────────
+
 const PinCell: React.FC<{ value: string; active: boolean; filled: boolean; masked: boolean }> = ({
   value, active, filled, masked,
 }) => (
   <div
-    className={`
-      flex items-center justify-center rounded-xl border-2 text-xl font-bold
-      transition-all duration-150
-      ${active
-        ? 'border-white/90 bg-white/15 scale-105 shadow-[0_0_12px_rgba(255,255,255,0.2)]'
-        : filled ? 'border-white/50 bg-white/10'
-        : 'border-white/20 bg-white/5'}
-    `}
+    className={`flex items-center justify-center rounded-xl border-2 text-xl font-bold transition-all duration-150
+      ${active ? 'border-white/90 bg-white/15 scale-105 shadow-[0_0_12px_rgba(255,255,255,0.2)]'
+        : filled ? 'border-white/50 bg-white/10' : 'border-white/20 bg-white/5'}`}
     style={{ width: 38, height: 44 }}
   >
-    {filled ? (masked ? (
-      <div className="w-2.5 h-2.5 rounded-full bg-white/90" />
-    ) : (
-      <span className="text-white">{value}</span>
-    )) : null}
+    {filled ? (masked
+      ? <div className="w-2.5 h-2.5 rounded-full bg-white/90" />
+      : <span className="text-white">{value}</span>
+    ) : null}
   </div>
 );
 
@@ -71,77 +52,56 @@ const NumPad: React.FC<{ onPress: (v: string) => void; onDelete: () => void; dis
     <div className="grid grid-cols-3 gap-2 w-full max-w-[240px]">
       {keys.map((k, i) => {
         if (k === '') return <div key={i} />;
-        const isDelete = k === '⌫';
+        const isDel = k === '⌫';
         return (
-          <button
-            key={k}
-            type="button"
-            disabled={disabled}
-            onPointerDown={(e) => { e.preventDefault(); if (!disabled) { isDelete ? onDelete() : onPress(k); } }}
-            className={`
-              h-11 rounded-xl text-lg font-medium text-white
-              flex items-center justify-center
+          <button key={k} type="button" disabled={disabled}
+            onPointerDown={(e) => { e.preventDefault(); if (!disabled) isDel ? onDelete() : onPress(k); }}
+            className={`h-11 rounded-xl text-lg font-medium text-white flex items-center justify-center
               transition-all duration-100 active:scale-95
               ${disabled ? 'opacity-30 cursor-not-allowed' : ''}
-              ${isDelete ? 'bg-white/10 hover:bg-white/18' : 'bg-white/18 hover:bg-white/28'}
-            `}
+              ${isDel ? 'bg-white/10 hover:bg-white/18' : 'bg-white/18 hover:bg-white/28'}`}
             style={{ backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
-          >
-            {k}
-          </button>
+          >{k}</button>
         );
       })}
     </div>
   );
 };
 
+// ─── 主组件 ──────────────────────────────────────────────────────────────────
+
 const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
-  const { privacyPageItems } = useDesktop();
-  const existingHash = loadPinHash();
-  const [mode, setMode] = useState<Mode>(existingHash ? 'verify' : 'setup');
+  const vault = loadPrivacyVault();
+  const [mode, setMode] = useState<Mode>(vault ? 'verify' : 'setup');
   const [pin, setPin] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
   const [firstPin, setFirstPin] = useState('');
+  // 修改密码时，旧密码解密出的数据暂存
+  const pendingItemsRef = useRef<DesktopItem[]>([]);
+  const pendingVaultRef = useRef<PrivacyVault | null>(null);
+
   const [error, setError] = useState('');
   const [masked, setMasked] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [shake, setShake] = useState(false);
-
-  // 锁定倒计时
   const [lockoutLeft, setLockoutLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 初始化时检查是否在锁定期
+  // 初始化锁定状态
   useEffect(() => {
     const ls = loadLockout();
     const now = Date.now();
-    if (ls.lockedUntil > now) {
-      setLockoutLeft(Math.ceil((ls.lockedUntil - now) / 1000));
-    }
+    if (ls.lockedUntil > now) setLockoutLeft(Math.ceil((ls.lockedUntil - now) / 1000));
   }, []);
 
-  // 倒计时 ticker
+  // 倒计时
   useEffect(() => {
-    if (lockoutLeft <= 0) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
-    timerRef.current = setInterval(() => {
-      setLockoutLeft((v) => {
-        if (v <= 1) {
-          clearInterval(timerRef.current!);
-          return 0;
-        }
-        return v - 1;
-      });
-    }, 1000);
+    if (lockoutLeft <= 0) { if (timerRef.current) clearInterval(timerRef.current); return; }
+    timerRef.current = setInterval(() => setLockoutLeft((v) => v <= 1 ? (clearInterval(timerRef.current!), 0) : v - 1), 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [lockoutLeft]);
 
-  const triggerShake = useCallback(() => {
-    setShake(true);
-    setTimeout(() => setShake(false), 500);
-  }, []);
+  const triggerShake = useCallback(() => { setShake(true); setTimeout(() => setShake(false), 500); }, []);
 
   const handlePress = useCallback((v: string) => {
     if (lockoutLeft > 0) return;
@@ -149,50 +109,43 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
     setPin((prev) => prev.length < 6 ? prev + v : prev);
   }, [lockoutLeft]);
 
-  const handleDelete = useCallback(() => {
-    setError('');
-    setPin((prev) => prev.slice(0, -1));
-  }, []);
+  const handleDelete = useCallback(() => { setError(''); setPin((prev) => prev.slice(0, -1)); }, []);
 
-  // PIN 满6位后自动提交
+  // PIN 满6位自动提交
   useEffect(() => {
     if (pin.length < 6 || submitting || lockoutLeft > 0) return;
 
     const submit = async () => {
       setSubmitting(true);
       try {
-        // ── 设置密码 ──
+
+        // ── 首次设置密码 ──────────────────────────────────────────────
         if (mode === 'setup') {
           if (!isConfirming) {
-            setFirstPin(pin);
-            setIsConfirming(true);
-            setPin('');
-            return;
+            setFirstPin(pin); setIsConfirming(true); setPin(''); return;
           }
           if (pin !== firstPin) {
             setError('两次密码不一致，请重新设置');
-            triggerShake();
-            setIsConfirming(false);
-            setFirstPin('');
-            setPin('');
-            return;
+            triggerShake(); setIsConfirming(false); setFirstPin(''); setPin(''); return;
           }
-          const hash = await hashPin(pin);
-          savePinHash(hash);
+          // 生成 salt，派生密钥，加密空数组
+          const salt = randomBytes(16);
+          const key = await deriveKey(pin, salt);
+          const newVault = await encryptItems([], key, salt);
+          savePrivacyVault(newVault);
           clearLockout();
-          syncPinToCloud(hash); // 后台异步同步，不阻塞解锁
-          onUnlock();
+          onUnlock([], key);
           return;
         }
 
-        // ── 验证密码 ──
+        // ── 验证密码解锁 ──────────────────────────────────────────────
         if (mode === 'verify') {
-          const storedHash = loadPinHash();
-          if (!storedHash) { setMode('setup'); setPin(''); return; }
-          const ok = await verifyPin(pin, storedHash);
-          if (ok) {
+          const currentVault = loadPrivacyVault();
+          if (!currentVault) { setMode('setup'); setPin(''); return; }
+          const result = await unlockVault(pin, currentVault);
+          if (result) {
             clearLockout();
-            onUnlock();
+            onUnlock(result.items, result.key);
           } else {
             const ls = loadLockout();
             const newFail = ls.failCount + 1;
@@ -205,75 +158,65 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
               saveLockout({ failCount: newFail, lockedUntil: 0 });
               setError(`密码错误，还剩 ${MAX_FAIL - newFail} 次机会`);
             }
-            triggerShake();
-            setPin('');
+            triggerShake(); setPin('');
           }
           return;
         }
 
-        // ── 修改密码：验证旧密码 ──
+        // ── 修改密码：验证旧密码 ──────────────────────────────────────
         if (mode === 'change-old') {
-          const storedHash = loadPinHash();
-          if (!storedHash) { setMode('setup'); setPin(''); return; }
-          const ok = await verifyPin(pin, storedHash);
-          if (ok) {
-            setMode('change-new');
-            setIsConfirming(false);
-            setFirstPin('');
-            setPin('');
+          const currentVault = loadPrivacyVault();
+          if (!currentVault) { setMode('setup'); setPin(''); return; }
+          const result = await unlockVault(pin, currentVault);
+          if (result) {
+            pendingItemsRef.current = result.items;
+            pendingVaultRef.current = currentVault;
+            setMode('change-new'); setIsConfirming(false); setFirstPin(''); setPin('');
           } else {
             setError('旧密码错误，请重试');
-            triggerShake();
-            setPin('');
+            triggerShake(); setPin('');
           }
           return;
         }
 
-        // ── 修改密码：设置新密码 ──
+        // ── 修改密码：设置新密码（重新加密原有数据）──────────────────
         if (mode === 'change-new') {
           if (!isConfirming) {
-            setFirstPin(pin);
-            setIsConfirming(true);
-            setPin('');
-            return;
+            setFirstPin(pin); setIsConfirming(true); setPin(''); return;
           }
           if (pin !== firstPin) {
             setError('两次密码不一致，请重新输入');
-            triggerShake();
-            setIsConfirming(false);
-            setFirstPin('');
-            setPin('');
-            return;
+            triggerShake(); setIsConfirming(false); setFirstPin(''); setPin(''); return;
           }
-          const hash = await hashPin(pin);
-          savePinHash(hash);
+          // 用新密码重新加密原有数据
+          const salt = randomBytes(16);
+          const key = await deriveKey(pin, salt);
+          const newVault = await encryptItems(pendingItemsRef.current, key, salt);
+          savePrivacyVault(newVault);
           clearLockout();
-          syncPinToCloud(hash); // 后台异步同步
-          onUnlock();
+          onUnlock(pendingItemsRef.current, key);
         }
-      } finally {
-        setSubmitting(false);
-      }
+
+      } finally { setSubmitting(false); }
     };
 
     submit();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
-  const displayPin = pin;
-
+  // ─── UI 文本 ───────────────────────────────────────────────────────────────
   const title = (() => {
     if (mode === 'setup') return isConfirming ? '请再次输入密码' : '设置隐私屏密码';
     if (mode === 'verify') return '输入密码解锁';
     if (mode === 'change-old') return '验证旧密码';
-    if (mode === 'change-new') return isConfirming ? '再次确认新密码' : '设置新密码';
+    return isConfirming ? '再次确认新密码' : '设置新密码';
   })();
 
   const subtitle = (() => {
     if (mode === 'setup') return isConfirming ? '确认你的6位数字密码' : '首次使用，请设置6位数字密码';
     if (mode === 'verify') return '输入密码查看隐私内容';
     if (mode === 'change-old') return '请输入当前密码';
-    if (mode === 'change-new') return isConfirming ? '确认新的6位数字密码' : '请设置新的6位数字密码';
+    return isConfirming ? '确认新的6位数字密码' : '请设置新的6位数字密码';
   })();
 
   const isLocked = lockoutLeft > 0;
@@ -288,12 +231,8 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
       }}
     >
       {/* 关闭按钮 */}
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center
-          bg-white/10 hover:bg-white/20 transition-colors"
-      >
+      <button type="button" onClick={onClose}
+        className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 transition-colors">
         <X className="w-4 h-4 text-white/70" />
       </button>
 
@@ -301,93 +240,76 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
       <div className="flex flex-col items-center gap-1 mb-5">
         <div className="rounded-2xl flex items-center justify-center"
           style={{ width: 40, height: 40, background: 'rgba(255,255,255,0.12)' }}>
-          {mode === 'verify'
-            ? <Lock className="w-5 h-5 text-white/85" />
-            : mode === 'change-old' || mode === 'change-new'
-            ? <KeyRound className="w-5 h-5 text-white/85" />
+          {mode === 'verify' ? <Lock className="w-5 h-5 text-white/85" />
+            : mode === 'change-old' || mode === 'change-new' ? <KeyRound className="w-5 h-5 text-white/85" />
             : <ShieldCheck className="w-5 h-5 text-white/85" />}
         </div>
         <h2 className="text-white text-base font-semibold tracking-wide mt-0.5">{title}</h2>
-        <p className="text-white/50 text-[11px]">{subtitle}</p>
+
+        {/* 副标题 + 「设置密码」入口 */}
+        <div className="flex items-center gap-1.5">
+          <p className="text-white/50 text-[11px]">{subtitle}</p>
+          {mode === 'verify' && (
+            <button type="button"
+              onClick={() => { setMode('change-old'); setPin(''); setError(''); }}
+              className="text-white/40 hover:text-white/70 text-[11px] underline underline-offset-2 transition-colors">
+              设置密码
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PIN 格子 */}
       <div className={`flex gap-2 mb-0.5 ${shake ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}>
         {Array.from({ length: 6 }).map((_, i) => (
-          <PinCell
-            key={i}
-            value={displayPin[i] ?? ''}
-            active={displayPin.length === i && !submitting && !isLocked}
-            filled={i < displayPin.length}
+          <PinCell key={i}
+            value={pin[i] ?? ''}
+            active={pin.length === i && !submitting && !isLocked}
+            filled={i < pin.length}
             masked={masked}
           />
         ))}
       </div>
 
       {/* 显示/隐藏 */}
-      <button
-        type="button"
-        onClick={() => setMasked((v) => !v)}
-        className="flex items-center gap-1 text-white/35 hover:text-white/55 text-[10px] py-0.5 px-2 mb-0.5 transition-colors"
-      >
+      <button type="button" onClick={() => setMasked((v) => !v)}
+        className="flex items-center gap-1 text-white/35 hover:text-white/55 text-[10px] py-0.5 px-2 mb-0.5 transition-colors">
         {masked ? <Eye className="w-2.5 h-2.5" /> : <EyeOff className="w-2.5 h-2.5" />}
         {masked ? '显示密码' : '隐藏密码'}
       </button>
 
-      {/* 错误提示 / 锁定倒计时 */}
+      {/* 错误/锁定提示 */}
       <div className="h-5 mb-3 flex items-center justify-center">
-        {isLocked ? (
-          <p className="text-amber-400 text-[11px] animate-fade-in">
-            🔒 锁定中，请等待 {lockoutLeft} 秒
-          </p>
-        ) : error ? (
-          <p className="text-red-400 text-[11px] animate-fade-in">{error}</p>
-        ) : null}
+        {isLocked
+          ? <p className="text-amber-400 text-[11px]">🔒 锁定中，请等待 {lockoutLeft} 秒</p>
+          : error ? <p className="text-red-400 text-[11px] animate-fade-in">{error}</p>
+          : null}
       </div>
 
-      {/* 数字键盘 */}
+      {/* 键盘 */}
       <NumPad onPress={handlePress} onDelete={handleDelete} disabled={isLocked || submitting} />
 
       {/* 底部操作区 */}
       <div className="flex flex-col items-center gap-2 mt-4">
-        {/* 修改密码（验证通过后的入口） */}
-        {mode === 'verify' && (
-          <button
-            type="button"
-            onClick={() => { setMode('change-old'); setPin(''); setError(''); }}
-            className="text-white/35 hover:text-white/55 text-[10px] transition-colors"
-          >
-            修改密码
-          </button>
-        )}
-        {/* 忘记密码（重置） */}
+        {/* 重置密码（verify / change-old 模式） */}
         {(mode === 'verify' || mode === 'change-old') && (
-          <button
-            type="button"
+          <button type="button"
             onClick={() => {
-              if (window.confirm('重置将清除已保存的密码，需重新设置。确认重置？')) {
-                clearPinHash();
-                clearLockout();
-                setMode('setup');
-                setPin('');
-                setIsConfirming(false);
-                setFirstPin('');
-                setError('');
-                setLockoutLeft(0);
+              if (window.confirm('重置密码将永久清除隐私桌面所有内容，无法恢复。确认重置？')) {
+                clearPrivacyVault(); clearLockout();
+                setMode('setup'); setPin(''); setIsConfirming(false);
+                setFirstPin(''); setError(''); setLockoutLeft(0);
               }
             }}
-            className="text-white/25 hover:text-white/45 text-[10px] transition-colors"
-          >
-            忘记密码？重置
+            className="text-white/25 hover:text-white/45 text-[10px] transition-colors">
+            忘记密码？重置（数据将清空）
           </button>
         )}
-        {/* 返回（修改密码流程中） */}
+        {/* 取消（修改密码流程中） */}
         {(mode === 'change-old' || mode === 'change-new') && (
-          <button
-            type="button"
+          <button type="button"
             onClick={() => { setMode('verify'); setPin(''); setIsConfirming(false); setFirstPin(''); setError(''); }}
-            className="text-white/25 hover:text-white/45 text-[10px] transition-colors"
-          >
+            className="text-white/25 hover:text-white/45 text-[10px] transition-colors">
             取消
           </button>
         )}

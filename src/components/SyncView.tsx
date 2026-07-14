@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { loadSyncConfig, saveSyncConfig, clearSyncConfig, loadPinHash, savePinHash, loadPrivacyPageItems, savePrivacyPageItems } from '@/lib/storage';
+import { loadSyncConfig, saveSyncConfig, clearSyncConfig, loadPrivacyVault, savePrivacyVault } from '@/lib/storage';
 import { verifyToken, ensureRepo, uploadToGithub, downloadFromGithub } from '@/lib/github';
 import type { SyncConfig } from '@/types';
 import {
@@ -99,16 +99,15 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
-      // 上传时携带 PIN 哈希和隐私桌面数据
-      const pinHash = loadPinHash() ?? undefined;
-      const privacyItems = loadPrivacyPageItems();
-      const uploadData = { ...data, pinHash, privacyItems: privacyItems.length ? privacyItems : undefined };
+      // 上传时携带加密 vault（包含密码和隐私数据）
+      const vault = loadPrivacyVault();
+      const uploadData = { ...data, privacyVault: vault ?? undefined };
       const result = await uploadToGithub(syncCfg, uploadData);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok) {
         const next = { ...config, lastSyncAt: new Date().toISOString() };
         setConfig(next); saveSyncConfig(next);
-        toast.success('已上传到云端（含密码和隐私数据）');
+        toast.success(vault ? '已上传到云端（含加密隐私数据）' : '已上传到云端');
       } else { toast.error(result.message); }
     } catch { setStatusMsg({ type: 'error', msg: '上传失败，请检查网络' }); }
     finally { setSyncing(null); }
@@ -121,20 +120,14 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       const result = await downloadFromGithub(syncCfg);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok && result.data) {
-        // 恢复桌面布局
         importData(result.data);
-        // 恢复 PIN 哈希（如果云端有）
-        if (result.data.pinHash) {
-          savePinHash(result.data.pinHash);
-        }
-        // 恢复隐私桌面数据（如果云端有）
-        if (result.data.privacyItems && result.data.privacyItems.length > 0) {
-          savePrivacyPageItems(result.data.privacyItems);
+        // 恢复加密 vault（隐私数据需重新输入密码才能解锁）
+        if (result.data.privacyVault) {
+          savePrivacyVault(result.data.privacyVault);
         }
         const next = { ...config, lastSyncAt: new Date().toISOString() };
         setConfig(next); saveSyncConfig(next);
-        const extras = [result.data.pinHash ? '密码' : '', result.data.privacyItems?.length ? '隐私数据' : ''].filter(Boolean).join('、');
-        toast.success(extras ? `已从云端恢复（含${extras}）` : '已从云端恢复');
+        toast.success(result.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');
       } else { toast.error(result.message); }
     } catch { setStatusMsg({ type: 'error', msg: '下载失败，请检查网络' }); }
     finally { setSyncing(null); }

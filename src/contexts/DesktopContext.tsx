@@ -1,7 +1,8 @@
 // @refresh reset
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
-import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyPageItems, savePinHash } from '@/lib/storage';
+import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
+import { encryptItems } from '@/lib/privacyCrypto';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 
@@ -41,6 +42,8 @@ interface DesktopContextType {
   movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => void;
   // 隐私页图标数据
   privacyPageItems: import('@/types').DesktopItem[];
+  // 设置隐私桌面解密密钥（解锁后调用，同时更新图标列表）
+  setPrivacyUnlockData: (items: import('@/types').DesktopItem[], key: CryptoKey) => void;
   // 拖拽：从 Dock 移到桌面
   moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
   // 拖拽：从桌面移到 Dock
@@ -146,6 +149,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
   const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>(() => loadPrivacyPageItems());
+  // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
+  const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{ key: CryptoKey; salt: Uint8Array } | null>(null);
   const firstRender = useRef(true);
 
   // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
@@ -174,9 +179,13 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveDesktopData(data);
   }, [data]);
 
-  // 隐私页持久化
+  // 隐私页持久化（加密保存，仅在密钥可用时执行）
+  const privacyCryptoKeyRef = useRef<{ key: CryptoKey; salt: Uint8Array } | null>(null);
+  useEffect(() => { privacyCryptoKeyRef.current = privacyCryptoKey; }, [privacyCryptoKey]);
   useEffect(() => {
-    savePrivacyPageItems(privacyPageItems);
+    const kd = privacyCryptoKeyRef.current;
+    if (!kd) return; // 未解锁时不保存（密钥不在内存）
+    encryptItems(privacyPageItems, kd.key, kd.salt).then(savePrivacyVault).catch(() => {/* 静默失败 */});
   }, [privacyPageItems]);
 
   // 模拟骨架屏加载
@@ -692,14 +701,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const importData = useCallback((newData: DesktopData) => {
     setData(newData);
     setCurrentPage(0);
-    // 恢复 PIN 哈希
-    if (newData.pinHash) {
-      savePinHash(newData.pinHash);
-    }
-    // 恢复隐私桌面数据
-    if (newData.privacyItems && newData.privacyItems.length > 0) {
-      setPrivacyPageItems(newData.privacyItems);
-    }
+    // 注意：privacyItems 现已加密存储，importData 只恢复普通桌面数据
+    // 隐私数据在解锁时由 PrivacyScreen 解密后通过 setPrivacyUnlockData 注入
+  }, []);
+
+  /** 解锁隐私桌面后注入解密数据和内存密钥 */
+  const setPrivacyUnlockData = useCallback((items: DesktopItem[], key: CryptoKey) => {
+    const vault = loadPrivacyVault();
+    const salt = vault ? Uint8Array.from(atob(vault.salt), (c) => c.charCodeAt(0)) : new Uint8Array(16);
+    setPrivacyCryptoKey({ key, salt });
+    setPrivacyPageItems(items);
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
@@ -797,6 +808,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         moveItemToPrivacy,
         movePrivacyToPage,
         privacyPageItems,
+        setPrivacyUnlockData,
       }}
     >
       {children}

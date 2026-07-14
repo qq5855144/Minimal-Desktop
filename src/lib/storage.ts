@@ -5,23 +5,34 @@ const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const PRIVACY_PAGE_KEY = 'ios_privacy_page_data';
 
-const PIN_HASH_KEY = 'ios_privacy_pin_hash';
+const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
 
-/** 读取已保存的 PIN 哈希 */
-export function loadPinHash(): string | null {
-  try { return localStorage.getItem(PIN_HASH_KEY); } catch { return null; }
+import type { PrivacyVault } from '@/lib/privacyCrypto';
+
+/** 读取加密 vault */
+export function loadPrivacyVault(): PrivacyVault | null {
+  try {
+    const raw = localStorage.getItem(PRIVACY_VAULT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PrivacyVault;
+  } catch { return null; }
 }
 
-/** 保存 PIN 哈希 */
-export function savePinHash(hash: string): void {
-  try { localStorage.setItem(PIN_HASH_KEY, hash); } catch { /* ignore */ }
+/** 保存加密 vault */
+export function savePrivacyVault(vault: PrivacyVault): void {
+  try { localStorage.setItem(PRIVACY_VAULT_KEY, JSON.stringify(vault)); } catch { /* ignore */ }
 }
 
-/** 清除 PIN 哈希（重置密码） */
-export function clearPinHash(): void {
-  try { localStorage.removeItem(PIN_HASH_KEY); } catch { /* ignore */ }
+/** 清除 vault（重置密码时调用，旧数据永久丢失） */
+export function clearPrivacyVault(): void {
+  try { localStorage.removeItem(PRIVACY_VAULT_KEY); } catch { /* ignore */ }
 }
+
+/** @deprecated 兼容旧接口，内部不再使用 */
+export function loadPinHash(): string | null { return null; }
+export function savePinHash(_hash: string): void { /* no-op */ }
+export function clearPinHash(): void { clearPrivacyVault(); }
 
 interface LockoutState { failCount: number; lockedUntil: number; }
 

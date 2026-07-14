@@ -64,15 +64,17 @@ const Desktop: React.FC = () => {
     moveItemToPrivacy,
     movePrivacyToPage,
     privacyPageItems,
+    setPrivacyUnlockData,
   } = useDesktop();
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
   // 解锁状态：纯内存，刷新后重置（需重新输入密码）
   const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
-  const handleUnlock = useCallback(() => {
+  const handleUnlock = useCallback((items: import('@/types').DesktopItem[], key: CryptoKey) => {
+    setPrivacyUnlockData(items, key);
     setPrivacyUnlocked(true);
-  }, []);
+  }, [setPrivacyUnlockData]);
   // 隐私页：currentPage=-1 表示隐私桌面
   const privacyPageRef = useRef(-1);
   const openFolder = openFolderId

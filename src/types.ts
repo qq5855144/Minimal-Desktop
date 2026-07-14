@@ -37,14 +37,18 @@ export interface DesktopItem {
   widgetType?: WidgetType;
 }
 
+import type { PrivacyVault } from '@/lib/privacyCrypto';
+
 // 桌面数据
 export interface DesktopData {
   pages: DesktopItem[][];
   dock: DesktopItem[];
   version: number;
-  /** 隐私屏 PIN 哈希（SHA-256+盐，多端同步用） */
+  /** 加密后的隐私桌面 vault（AES-256-GCM，多端同步用） */
+  privacyVault?: PrivacyVault;
+  /** @deprecated 旧版 PIN 哈希，已由 privacyVault 替代 */
   pinHash?: string;
-  /** 隐私桌面图标数据 */
+  /** @deprecated 旧版明文隐私数据，已由 privacyVault 替代 */
   privacyItems?: DesktopItem[];
 }
 
