@@ -10,7 +10,26 @@ import { hashPin, verifyPin } from '@/lib/privacyCrypto';
 import {
   loadPinHash, savePinHash, clearPinHash,
   loadLockout, saveLockout, clearLockout,
+  loadSyncConfig, loadPrivacyPageItems,
 } from '@/lib/storage';
+import { uploadToGithub } from '@/lib/github';
+import type { DesktopData } from '@/types';
+import { useDesktop } from '@/contexts/DesktopContext';
+
+/** 设置/修改密码成功后，如果已开启自动同步则立即上传 */
+async function syncPinToCloud(hash: string) {
+  const cfg = loadSyncConfig();
+  if (!cfg?.token || !cfg?.owner) return;
+  try {
+    const { loadDesktopData } = await import('@/lib/storage');
+    const data: DesktopData = {
+      ...loadDesktopData(),
+      pinHash: hash,
+      privacyItems: loadPrivacyPageItems(),
+    };
+    await uploadToGithub({ ...cfg, path: 'desktop_backup.json' }, data);
+  } catch { /* 后台静默失败，不影响主流程 */ }
+}
 
 interface PrivacyScreenProps {
   onUnlock: () => void;
@@ -77,6 +96,7 @@ const NumPad: React.FC<{ onPress: (v: string) => void; onDelete: () => void; dis
 };
 
 const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
+  const { privacyPageItems } = useDesktop();
   const existingHash = loadPinHash();
   const [mode, setMode] = useState<Mode>(existingHash ? 'verify' : 'setup');
   const [pin, setPin] = useState('');
@@ -160,6 +180,7 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           const hash = await hashPin(pin);
           savePinHash(hash);
           clearLockout();
+          syncPinToCloud(hash); // 后台异步同步，不阻塞解锁
           onUnlock();
           return;
         }
@@ -227,6 +248,7 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           const hash = await hashPin(pin);
           savePinHash(hash);
           clearLockout();
+          syncPinToCloud(hash); // 后台异步同步
           onUnlock();
         }
       } finally {

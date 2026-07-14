@@ -42,6 +42,10 @@ export interface DesktopData {
   pages: DesktopItem[][];
   dock: DesktopItem[];
   version: number;
+  /** 隐私屏 PIN 哈希（SHA-256+盐，多端同步用） */
+  pinHash?: string;
+  /** 隐私桌面图标数据 */
+  privacyItems?: DesktopItem[];
 }
 
 // GitHub 同步配置

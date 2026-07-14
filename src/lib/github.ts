@@ -77,7 +77,9 @@ export async function uploadToGithub(
 ): Promise<{ ok: boolean; message: string }> {
   const path = config.path || 'ios-desktop.json';
   const sha = await getFileSha(config, path);
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
+  // 确保 pinHash 和 privacyItems 都带入备份
+  const payload: DesktopData = { ...data };
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
   const res = await fetch(`${API}/repos/${config.owner}/${config.repo}/contents/${path}`, {
     method: 'PUT',
     headers: {

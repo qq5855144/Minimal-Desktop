@@ -1,7 +1,7 @@
 // @refresh reset
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
-import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyPageItems } from '@/lib/storage';
+import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyPageItems, savePinHash } from '@/lib/storage';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 
@@ -692,6 +692,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const importData = useCallback((newData: DesktopData) => {
     setData(newData);
     setCurrentPage(0);
+    // 恢复 PIN 哈希
+    if (newData.pinHash) {
+      savePinHash(newData.pinHash);
+    }
+    // 恢复隐私桌面数据
+    if (newData.privacyItems && newData.privacyItems.length > 0) {
+      setPrivacyPageItems(newData.privacyItems);
+    }
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
