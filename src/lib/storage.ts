@@ -88,7 +88,7 @@ export function loadDesktopData(): DesktopData {
     if (raw) {
       const parsed = JSON.parse(raw) as DesktopData;
       if (parsed.pages && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
-        const ensured = structuredClone(parsed);
+        const ensured = JSON.parse(JSON.stringify(parsed)) as DesktopData;
         const allItems = ensured.pages.flat();
 
         // ── 迁移 1：确保三个系统应用始终存在 ──
