@@ -91,6 +91,7 @@
     "tailwindcss": "^3.4.11",
     "typescript": "~5.9.3",
     "vite": "npm:rolldown-vite@latest",
-    "vite-plugin-svgr": "^4.5.0"
+    "vite-plugin-svgr": "^4.5.0",
+    "vitest": "^4.1.10"
   }
 }
