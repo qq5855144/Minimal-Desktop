@@ -5,6 +5,45 @@ const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const PRIVACY_PAGE_KEY = 'ios_privacy_page_data';
 
+const PIN_HASH_KEY = 'ios_privacy_pin_hash';
+const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
+
+/** 读取已保存的 PIN 哈希 */
+export function loadPinHash(): string | null {
+  try { return localStorage.getItem(PIN_HASH_KEY); } catch { return null; }
+}
+
+/** 保存 PIN 哈希 */
+export function savePinHash(hash: string): void {
+  try { localStorage.setItem(PIN_HASH_KEY, hash); } catch { /* ignore */ }
+}
+
+/** 清除 PIN 哈希（重置密码） */
+export function clearPinHash(): void {
+  try { localStorage.removeItem(PIN_HASH_KEY); } catch { /* ignore */ }
+}
+
+interface LockoutState { failCount: number; lockedUntil: number; }
+
+/** 读取锁定状态 */
+export function loadLockout(): LockoutState {
+  try {
+    const raw = localStorage.getItem(PIN_LOCKOUT_KEY);
+    if (raw) return JSON.parse(raw) as LockoutState;
+  } catch { /* ignore */ }
+  return { failCount: 0, lockedUntil: 0 };
+}
+
+/** 保存锁定状态 */
+export function saveLockout(state: LockoutState): void {
+  try { localStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+}
+
+/** 清除锁定状态 */
+export function clearLockout(): void {
+  try { localStorage.removeItem(PIN_LOCKOUT_KEY); } catch { /* ignore */ }
+}
+
 /** 加载隐私桌面页数据 */
 export function loadPrivacyPageItems(): import('@/types').DesktopItem[] {
   try {
