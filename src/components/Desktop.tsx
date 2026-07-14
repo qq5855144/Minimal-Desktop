@@ -245,8 +245,10 @@ const Desktop: React.FC = () => {
       // page=0 时向左滑入隐私页（page=-1），page>0 向左翻页
       const prevPage = page > 0 ? page - 1 : -1;
       if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(prevPage); clearEdgeTimer(); }, EDGE_DELAY);
-    } else if (relX > rect.width - EDGE_THRESHOLD && page < d.pages.length - 1) {
-      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(page + 1); clearEdgeTimer(); }, EDGE_DELAY);
+    } else if (relX > rect.width - EDGE_THRESHOLD && (page < d.pages.length - 1 || page === -1)) {
+      // page=-1（隐私页）右边缘 → 回到 page=0
+      const nextPage = page === -1 ? 0 : page + 1;
+      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(nextPage); clearEdgeTimer(); }, EDGE_DELAY);
     } else if (relX < EDGE_THRESHOLD && page === -1) {
       clearEdgeTimer(); // 隐私页已是最左，不再往左
     } else {
@@ -577,7 +579,7 @@ const Desktop: React.FC = () => {
     };
   }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer]);
 
-  const handleDragBegin = useCallback((item: DesktopItem, srcType: 'desktop' | 'dock', x: number, y: number) => {
+  const handleDragBegin = useCallback((item: DesktopItem, srcType: 'desktop' | 'dock' | 'privacy', x: number, y: number) => {
     // 已有拖拽进行中时禁止覆盖 ghostRef，防止：
     // 1. 文件夹拖出经过组件行时 WidgetGridCell 误触发 onDragBegin 覆盖 ghost
     // 2. ghost source 被篡改导致 onUp 无法正确关闭文件夹
@@ -776,7 +778,7 @@ const Desktop: React.FC = () => {
                   else if (item.type === 'system') handleSystemClick(item);
                 }}
                 onLongPress={(x, y) => handleLongPress(item, x, y)}
-                onDragBegin={(it, x, y) => handleDragBegin(it, 'desktop', x, y)}
+                onDragBegin={(it, x, y) => handleDragBegin(it, pageIndex === -1 ? 'privacy' : 'desktop', x, y)}
                 onDeleteInEditMode={(id) => handleDeleteApp(id)}
               />
             </div>,
