@@ -584,9 +584,14 @@ const Desktop: React.FC = () => {
     // 1. 文件夹拖出经过组件行时 WidgetGridCell 误触发 onDragBegin 覆盖 ghost
     // 2. ghost source 被篡改导致 onUp 无法正确关闭文件夹
     if (ghostRef.current) return;
-    const source: DragSource = srcType === 'dock'
-      ? { type: 'dock', itemId: item.id }
-      : { type: 'desktop', itemId: item.id, page: latestRef.current.currentPage };
+    let source: DragSource;
+    if (srcType === 'dock') {
+      source = { type: 'dock', itemId: item.id };
+    } else if (srcType === 'privacy') {
+      source = { type: 'privacy', itemId: item.id };
+    } else {
+      source = { type: 'desktop', itemId: item.id, page: latestRef.current.currentPage };
+    }
     const g: GhostState = { item, source, x, y };
     ghostRef.current = g;
     setGhost(g);
