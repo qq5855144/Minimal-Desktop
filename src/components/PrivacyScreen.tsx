@@ -72,7 +72,8 @@ const NumPad: React.FC<{ onPress: (v: string) => void; onDelete: () => void; dis
 
 const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
   const vault = loadPrivacyVault();
-  const [mode, setMode] = useState<Mode>(vault ? 'verify' : 'setup');
+  // 始终以 verify 模式启动，无论是否已设置密码
+  const [mode, setMode] = useState<Mode>('verify');
   const [pin, setPin] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
   const [firstPin, setFirstPin] = useState('');
@@ -141,7 +142,11 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
         // ── 验证密码解锁 ──────────────────────────────────────────────
         if (mode === 'verify') {
           const currentVault = loadPrivacyVault();
-          if (!currentVault) { setMode('setup'); setPin(''); return; }
+          if (!currentVault) {
+            // 未设置密码，提示用户点击「设置密码」
+            setError('尚未设置密码，请点击「设置密码」');
+            triggerShake(); setPin(''); return;
+          }
           const result = await unlockVault(pin, currentVault);
           if (result) {
             clearLockout();
@@ -251,7 +256,15 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           <p className="text-white/50 text-[11px]">{subtitle}</p>
           {mode === 'verify' && (
             <button type="button"
-              onClick={() => { setMode('change-old'); setPin(''); setError(''); }}
+              onClick={() => {
+                const currentVault = loadPrivacyVault();
+                if (currentVault) {
+                  setMode('change-old'); // 已有密码 → 先验证旧密码
+                } else {
+                  setMode('setup'); // 首次设置 → 直接进入设置流程
+                }
+                setPin(''); setError('');
+              }}
               className="text-white/40 hover:text-white/70 text-[11px] underline underline-offset-2 transition-colors">
               设置密码
             </button>
