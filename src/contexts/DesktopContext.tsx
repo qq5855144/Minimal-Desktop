@@ -42,16 +42,10 @@ interface DesktopContextType {
   reorderPrivacyItems: (id: string, row: number, col: number) => void;
   privacyPageItems: DesktopItem[];
   setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
-  // 拖拽：从 Dock 移到桌面
-  moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
-  // 拖拽：从桌面移到 Dock
-  moveDesktopToDock: (itemId: string, dockIdx: number) => void;
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   renameFolder: (folderId: string, name: string) => void;
   dissolveFolder: (folderId: string) => void;
   addPage: () => void;
-  addToDock: (item: DesktopItem) => void;
-  removeFromDock: (id: string) => void;
   importData: (data: DesktopData) => void;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
   resetPrivacyLock: () => void;
@@ -81,7 +75,6 @@ function collectIconUrls(data: DesktopData): Set<string> {
     it.children?.forEach(addItem);
   };
   data.pages.forEach((page) => page.forEach(addItem));
-  data.dock.forEach(addItem);
   return urls;
 }
 
@@ -494,56 +487,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
-  const moveDockToDesktop = useCallback((itemId: string, page: number, row: number, col: number) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      const di = next.dock.findIndex((it) => it.id === itemId);
-      if (di < 0) return prev;
-      const item = next.dock.splice(di, 1)[0];
-      const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
-      if (targetIdx !== undefined && targetIdx >= 0) {
-        const target = next.pages[page][targetIdx];
-        target.page = -1;
-        next.dock.push(target);
-      }
-      item.page = page;
-      item.row = row;
-      item.col = col;
-      next.pages[page].push(item);
-      return next;
-    });
-  }, []);
-
-  const moveDesktopToDock = useCallback((itemId: string, dockIdx: number) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      let item: DesktopItem | null = null;
-      let itemPage = -1;
-      let itemIdx = -1;
-      for (let p = 0; p < next.pages.length; p++) {
-        const ii = next.pages[p].findIndex((it) => it.id === itemId);
-        if (ii >= 0) {
-          item = next.pages[p][ii];
-          itemPage = p;
-          itemIdx = ii;
-        }
-      }
-      if (!item) return prev;
-      if (dockIdx < next.dock.length) {
-        const swapped = next.dock[dockIdx];
-        swapped.page = itemPage;
-        swapped.row = item.row;
-        swapped.col = item.col;
-        next.pages[itemPage].push(swapped);
-        next.dock[dockIdx] = { ...item, page: -1 };
-      } else {
-        next.dock.push({ ...item, page: -1 });
-      }
-      next.pages[itemPage].splice(itemIdx, 1);
-      return next;
-    });
-  }, []);
-
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
     let success = false;
     setData((prev) => {
@@ -713,24 +656,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
-  const addToDock = useCallback((item: DesktopItem) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      if (next.dock.length < 4) {
-        next.dock.push({ ...item, page: -1 });
-      }
-      return next;
-    });
-  }, []);
-
-  const removeFromDock = useCallback((id: string) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      next.dock = next.dock.filter((it) => it.id !== id);
-      return next;
-    });
-  }, []);
-
   const importData = useCallback((newData: DesktopData) => {
     setData(newData);
     setCurrentPage(0);
@@ -853,14 +778,10 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         moveFromFolderToDesktop,
         moveDesktopToFolder,
         reorderFolderChildren,
-        moveDockToDesktop,
-        moveDesktopToDock,
         mergeToFolder,
         renameFolder,
         dissolveFolder,
         addPage,
-        addToDock,
-        removeFromDock,
         importData,
         resetPrivacyLock,
         moveItemToPrivacy,

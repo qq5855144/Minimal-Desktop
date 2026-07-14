@@ -82,7 +82,6 @@ export interface DesktopSettings {
   bgVideo?: string;        // object URL（视频，非持久化）
   bgType?: 'image' | 'video' | 'default';
   style: DesktopStyle;
-  dockEnabled?: boolean;   // 是否显示底部 Dock 栏
   iconSize: number;        // 默认 46
   cols: 4 | 5;
   rows: number;            // 每页最大行数，默认 7，范围 1-14
@@ -96,7 +95,7 @@ export interface DesktopSettings {
 
 // 拖拽来源信息
 export interface DragSource {
-  type: 'desktop' | 'folder' | 'dock' | 'privacy';
+  type: 'desktop' | 'folder' | 'privacy';
   itemId: string;
   folderId?: string;
   page?: number;

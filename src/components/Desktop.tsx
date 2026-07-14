@@ -293,7 +293,7 @@ const Desktop: React.FC = () => {
         dragOverItemRef.current = effectiveHoverId;
       }
 
-      // 仅桌面图标参与悬停合并；widget/system/dock(page=-1)全部排除
+      // 仅桌面图标参与悬停合并；widget/system 全部排除
       // 提前排除 widget/system 目标，避免启动 800ms 计时器后才发现无法合并
       const isDesktopDrag = g.source.type === 'desktop' || g.source.type === 'folder';
       const isValidMergeTarget =
@@ -579,15 +579,10 @@ const Desktop: React.FC = () => {
     };
   }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer]);
 
-  const handleDragBegin = useCallback((item: DesktopItem, srcType: 'desktop' | 'dock' | 'privacy', x: number, y: number) => {
-    // 已有拖拽进行中时禁止覆盖 ghostRef，防止：
-    // 1. 文件夹拖出经过组件行时 WidgetGridCell 误触发 onDragBegin 覆盖 ghost
-    // 2. ghost source 被篡改导致 onUp 无法正确关闭文件夹
+  const handleDragBegin = useCallback((item: DesktopItem, srcType: 'desktop' | 'privacy', x: number, y: number) => {
     if (ghostRef.current) return;
     let source: DragSource;
-    if (srcType === 'dock') {
-      source = { type: 'dock', itemId: item.id };
-    } else if (srcType === 'privacy') {
+    if (srcType === 'privacy') {
       source = { type: 'privacy', itemId: item.id };
     } else {
       source = { type: 'desktop', itemId: item.id, page: latestRef.current.currentPage };
