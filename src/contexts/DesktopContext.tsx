@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
 import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
 import { encryptItems } from '@/lib/privacyCrypto';
+import { deepClone } from '@/lib/utils/deepClone';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 
@@ -212,7 +213,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let targetPage = 0;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       const slot = findEmptySlot(next.pages, preferPage, gridCols, gridRows);
       if (!slot) {
         next.pages.push([]);
@@ -239,7 +240,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 先尝试更新普通桌面
     let found = false;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (const page of next.pages) {
         const idx = page.findIndex((it) => it.id === id);
         if (idx >= 0) {
@@ -281,7 +282,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const removeItem = useCallback((id: string) => {
     let found = false;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (let p = 0; p < next.pages.length; p++) {
         const idx = next.pages[p].findIndex((it) => it.id === id);
         if (idx >= 0) {
@@ -344,7 +345,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const ca = Number.parseInt(colA, 10);
       const cb = Number.parseInt(colB, 10);
       setData((prev) => {
-        const next = structuredClone(prev);
+        const next = deepClone(prev);
         const idxA = next.pages[_pageA]?.findIndex((it) => it.id === _idA);
         const idxB = next.pages[_pageB]?.findIndex((it) => it.id === _idB);
         if (idxA < 0 || idxB < 0) return prev;
@@ -368,7 +369,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const moveItemTo = useCallback((id: string, fromPage: number, toPage: number, row: number, col: number) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       const fromIdx = next.pages[fromPage]?.findIndex((it) => it.id === id);
       if (fromIdx === undefined || fromIdx < 0) return prev;
 
@@ -397,7 +398,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       let folder: DesktopItem | null = null;
       let folderPageIdx = -1;
       for (let p = 0; p < next.pages.length; p++) {
@@ -453,7 +454,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const moveDesktopToFolder = useCallback((itemId: string, folderId: string): boolean => {
     let success = false;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       let folder: DesktopItem | null = null;
       let item: DesktopItem | null = null;
       let itemPage = -1;
@@ -480,7 +481,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const reorderFolderChildren = useCallback((folderId: string, fromIdx: number, toIdx: number) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (const page of next.pages) {
         const folder = page.find((it) => it.id === folderId);
         if (folder?.children) {
@@ -495,7 +496,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const moveDockToDesktop = useCallback((itemId: string, page: number, row: number, col: number) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       const di = next.dock.findIndex((it) => it.id === itemId);
       if (di < 0) return prev;
       const item = next.dock.splice(di, 1)[0];
@@ -515,7 +516,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const moveDesktopToDock = useCallback((itemId: string, dockIdx: number) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       let item: DesktopItem | null = null;
       let itemPage = -1;
       let itemIdx = -1;
@@ -546,7 +547,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
     let success = false;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       let source: DesktopItem | null = null;
       let target: DesktopItem | null = null;
       let sourcePage = -1;
@@ -639,7 +640,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const renameFolder = useCallback((folderId: string, name: string) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (const page of next.pages) {
         const folder = page.find((it) => it.id === folderId);
         if (folder) {
@@ -653,7 +654,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const dissolveFolder = useCallback((folderId: string) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (let p = 0; p < next.pages.length; p++) {
         const fi = next.pages[p].findIndex((it) => it.id === folderId);
         if (fi < 0) continue;
@@ -706,7 +707,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addPage = useCallback(() => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       if (next.pages.length < 20) next.pages.push([]);
       return next;
     });
@@ -714,7 +715,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const addToDock = useCallback((item: DesktopItem) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       if (next.dock.length < 4) {
         next.dock.push({ ...item, page: -1 });
       }
@@ -724,7 +725,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const removeFromDock = useCallback((id: string) => {
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       next.dock = next.dock.filter((it) => it.id !== id);
       return next;
     });
@@ -768,7 +769,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!moved) return;
     const movedItem = moved;
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       for (let p = 0; p < next.pages.length; p++) {
         const idx = next.pages[p].findIndex((it) => it.id === id);
         if (idx >= 0) { next.pages[p].splice(idx, 1); return next; }
@@ -817,7 +818,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!moved) return;
     setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
     setData((prev) => {
-      const next = structuredClone(prev);
+      const next = deepClone(prev);
       if (!next.pages[toPage]) next.pages[toPage] = [];
       next.pages[toPage] = next.pages[toPage].filter((it) => !(it.row === row && it.col === col));
       next.pages[toPage].push({ ...moved, page: toPage, row, col });

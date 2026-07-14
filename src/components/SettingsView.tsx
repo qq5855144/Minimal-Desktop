@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { deepClone } from '@/lib/utils/deepClone';
 import type { DesktopStyle } from '@/types';
 import {
   Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
@@ -313,7 +314,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   const handleResetToDefault = useCallback(() => {
     if (!window.confirm('确认恢复默认桌面？系统应用和组件将恢复，用户自定义应用会被清除。')) return;
-    importData(structuredClone(defaultDesktopData));
+    importData(deepClone(defaultDesktopData));
     toast.success('已恢复默认桌面');
     handleClose();
   }, [importData]);
@@ -324,14 +325,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const toggleWidget = useCallback((widgetId: 'widget-clock' | 'widget-search') => {
     const exists = widgetExists(widgetId);
     if (exists) {
-      const newData = structuredClone(data);
+      const newData = deepClone(data);
       newData.pages = newData.pages.map((p) => p.filter((it) => it.id !== widgetId));
       importData(newData);
       toast.success('已移除组件');
     } else {
       const def = WIDGET_ITEMS.find((w) => w.id === widgetId);
       if (!def) return;
-      const newData = structuredClone(data);
+      const newData = deepClone(data);
       const usedRows = new Set(newData.pages[0].map((it) => it.row));
       let targetRow = def.row;
       if (usedRows.has(targetRow)) {
