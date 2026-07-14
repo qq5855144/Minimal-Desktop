@@ -45,7 +45,7 @@ describe('deepClone', () => {
   });
 
   it('深拷贝 DesktopData（多页结构）', () => {
-    const data = { pages: [[{ id: 'a', row: 0, col: 0 }], []], dock: [], version: 3 };
+    const data = { pages: [[{ id: 'a', row: 0, col: 0 }], []], version: 3 };
     const clone = deepClone(data);
     clone.pages[0][0].id = 'modified';
     expect(data.pages[0][0].id).toBe('a');

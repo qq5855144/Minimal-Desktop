@@ -65,7 +65,6 @@ export const WIDGET_ITEMS: import('@/types').DesktopItem[] = DEFAULT_WIDGET_TYPE
 
 export const defaultDesktopData: DesktopData = {
   pages: [JSON.parse(JSON.stringify([...WIDGET_ITEMS, ...SYSTEM_APPS]))],
-  dock: [],
   version: 3,
 };
 

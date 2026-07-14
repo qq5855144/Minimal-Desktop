@@ -42,7 +42,6 @@ import type { PrivacyVault } from '@/lib/privacyCrypto';
 // 桌面数据
 export interface DesktopData {
   pages: DesktopItem[][];
-  dock: DesktopItem[];
   version: number;
   /** 加密后的隐私桌面 vault（AES-256-GCM，多端同步用） */
   privacyVault?: PrivacyVault;

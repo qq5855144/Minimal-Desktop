@@ -253,11 +253,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
       }
-      const di = next.dock.findIndex((it) => it.id === id);
-      if (di >= 0) {
-        next.dock[di] = { ...next.dock[di], ...patch };
-        found = true;
-      }
       return next;
     });
     // 如果普通桌面没找到，尝试更新隐私桌面
@@ -309,12 +304,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           }
         }
-      }
-      const di = next.dock.findIndex((it) => it.id === id);
-      if (di >= 0) {
-        next.dock.splice(di, 1);
-        found = true;
-        setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
       }
       return next;
     });
@@ -690,7 +679,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const found = page.find((it) => it.id === id);
       if (found) { moved = found; break; }
     }
-    if (!moved) moved = dataRef.current.dock.find((it) => it.id === id) ?? null;
     if (!moved) return;
     const movedItem = moved;
     setData((prev) => {
@@ -699,8 +687,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const idx = next.pages[p].findIndex((it) => it.id === id);
         if (idx >= 0) { next.pages[p].splice(idx, 1); return next; }
       }
-      const di = next.dock.findIndex((it) => it.id === id);
-      if (di >= 0) { next.dock.splice(di, 1); return next; }
       return prev;
     });
     setPrivacyPageItems((prev) => {
