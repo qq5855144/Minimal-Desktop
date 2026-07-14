@@ -61,7 +61,8 @@ export async function listRepos(token: string): Promise<{ name: string; full_nam
 
 // 获取文件 SHA（用于更新已存在文件）
 async function getFileSha(config: SyncConfig, path: string): Promise<string | null> {
-  const url = `${API}/repos/${config.owner}/${config.repo}/contents/${path}?ref=${config.branch}`;
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  const url = `${API}/repos/${config.owner}/${config.repo}/contents/${encodedPath}?ref=${config.branch}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${config.token}`, Accept: 'application/vnd.github+json' },
   });
@@ -75,12 +76,12 @@ export async function uploadToGithub(
   config: SyncConfig,
   data: DesktopData,
 ): Promise<{ ok: boolean; message: string }> {
-  const path = config.path || 'ios-desktop.json';
+  const path = config.path || 'desktop_backup.json';
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
   const sha = await getFileSha(config, path);
-  // 确保 pinHash 和 privacyItems 都带入备份
   const payload: DesktopData = { ...data };
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-  const res = await fetch(`${API}/repos/${config.owner}/${config.repo}/contents/${path}`, {
+  const res = await fetch(`${API}/repos/${config.owner}/${config.repo}/contents/${encodedPath}`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${config.token}`,
@@ -88,7 +89,7 @@ export async function uploadToGithub(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      message: `chore: sync ios-desktop data ${new Date().toISOString()}`,
+      message: `chore: sync desktop data ${new Date().toISOString()}`,
       content,
       branch: config.branch,
       ...(sha ? { sha } : {}),
@@ -105,8 +106,9 @@ export async function uploadToGithub(
 export async function downloadFromGithub(
   config: SyncConfig,
 ): Promise<{ ok: boolean; message: string; data?: DesktopData }> {
-  const path = config.path || 'ios-desktop.json';
-  const url = `${API}/repos/${config.owner}/${config.repo}/contents/${path}?ref=${config.branch}`;
+  const path = config.path || 'desktop_backup.json';
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  const url = `${API}/repos/${config.owner}/${config.repo}/contents/${encodedPath}?ref=${config.branch}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${config.token}`, Accept: 'application/vnd.github+json' },
   });

@@ -165,7 +165,7 @@ const Desktop: React.FC = () => {
     if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
     autoSyncTimerRef.current = setTimeout(async () => {
       try {
-        const syncCfg = { ...cfg, path: cfg.fileName || 'desktop_backup.json' };
+        const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
         const result = await uploadToGithub(syncCfg, data);
         if (result.ok) {
           saveSyncConfig({ ...cfg, lastSyncAt: new Date().toISOString() });
