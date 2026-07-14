@@ -1,7 +1,7 @@
 // @refresh reset
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
-import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
+import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
 import { encryptItems } from '@/lib/privacyCrypto';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
@@ -148,7 +148,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
-  const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>(() => loadPrivacyPageItems());
+  // 加密架构下，隐私数据在解锁时由 PrivacyScreen 解密注入，初始为空
+  const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>([]);
   // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
   const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{ key: CryptoKey; salt: Uint8Array } | null>(null);
   const firstRender = useRef(true);
