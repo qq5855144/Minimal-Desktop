@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: SyncConfig = {
 };
 
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
-  const { data, importData, settings } = useDesktop();
+  const { data, importData, resetPrivacyLock, settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
@@ -121,7 +121,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok && result.data) {
         importData(result.data);
-        // 恢复加密 vault（隐私数据需重新输入密码才能解锁）
+        // 先重置隐私锁，再写入 vault
+        // 防止旧密钥的 privacyPageItems effect 在 savePrivacyVault 之后覆盖新 vault
+        resetPrivacyLock();
         if (result.data.privacyVault) {
           savePrivacyVault(result.data.privacyVault);
         }

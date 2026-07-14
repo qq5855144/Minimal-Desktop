@@ -61,6 +61,8 @@ interface DesktopContextType {
   removeFromDock: (id: string) => void;
   // 同步
   importData: (data: DesktopData) => void;
+  /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
+  resetPrivacyLock: () => void;
 }
 
 // HMR 热重载时 createContext 会生成新对象，导致 Provider 与 useContext 不匹配。
@@ -748,6 +750,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 隐私数据在解锁时由 PrivacyScreen 解密后通过 setPrivacyUnlockData 注入
   }, []);
 
+  /**
+   * 恢复云端数据后调用：清除内存中的密钥和明文隐私数据。
+   * 防止 privacyPageItems effect 用旧密钥重新加密空数据，覆盖刚恢复的 vault。
+   */
+  const resetPrivacyLock = useCallback(() => {
+    setPrivacyCryptoKey(null);
+    setPrivacyPageItems([]);
+  }, []);
+
   /** 解锁隐私桌面后注入解密数据和内存密钥 */
   const setPrivacyUnlockData = useCallback((items: DesktopItem[], key: CryptoKey) => {
     const vault = loadPrivacyVault();
@@ -848,6 +859,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addToDock,
         removeFromDock,
         importData,
+        resetPrivacyLock,
         moveItemToPrivacy,
         movePrivacyToPage,
         privacyPageItems,
