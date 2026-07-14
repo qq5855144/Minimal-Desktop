@@ -64,7 +64,7 @@ export const WIDGET_ITEMS: import('@/types').DesktopItem[] = DEFAULT_WIDGET_TYPE
 );
 
 export const defaultDesktopData: DesktopData = {
-  pages: [structuredClone([...WIDGET_ITEMS, ...SYSTEM_APPS])],
+  pages: [JSON.parse(JSON.stringify([...WIDGET_ITEMS, ...SYSTEM_APPS]))],
   dock: [],
   version: 3,
 };
@@ -138,7 +138,7 @@ export function loadDesktopData(): DesktopData {
   } catch {
     // ignore
   }
-  return structuredClone(defaultDesktopData);
+  return JSON.parse(JSON.stringify(defaultDesktopData));
 }
 
 export function saveDesktopData(data: DesktopData): void {
