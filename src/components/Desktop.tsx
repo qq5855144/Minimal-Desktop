@@ -885,16 +885,19 @@ const Desktop: React.FC = () => {
                   <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
                 ))}
               </div>
-            ) : currentPage === -1 ? (
-              /* 隐私桌面：渲染真实图标，未解锁时被遮罩覆盖 */
-              renderPageGrid(-1, privacyPageItems)
             ) : (
-              /* 所有页同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 → 不重新加载图标 */
-              data.pages.map((pageData, i) => (
-                <div key={`page-layer-${i}`} className={i === currentPage ? undefined : 'hidden'}>
-                  {renderPageGrid(i, pageData)}
+              /* 所有页（含隐私页）同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 */
+              <>
+                {/* 隐私页：常驻 DOM，currentPage !== -1 时隐藏，保证拖拽跨页时格子始终可命中 */}
+                <div className={currentPage === -1 ? undefined : 'hidden'}>
+                  {renderPageGrid(-1, privacyPageItems)}
                 </div>
-              ))
+                {data.pages.map((pageData, i) => (
+                  <div key={`page-layer-${i}`} className={i === currentPage ? undefined : 'hidden'}>
+                    {renderPageGrid(i, pageData)}
+                  </div>
+                ))}
+              </>
             )}
           </div>
         </div>
