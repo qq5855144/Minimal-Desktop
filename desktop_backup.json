@@ -1,0 +1,57 @@
+{
+  "pages": [
+    [
+      {
+        "id": "widget-clock",
+        "type": "widget",
+        "name": "时钟",
+        "color": "blue",
+        "widgetType": "clock",
+        "page": 0,
+        "row": 0,
+        "col": 0
+      },
+      {
+        "id": "widget-search",
+        "type": "widget",
+        "name": "搜索栏",
+        "color": "blue",
+        "widgetType": "search",
+        "page": 0,
+        "row": 1,
+        "col": 0
+      },
+      {
+        "id": "sys-sync",
+        "type": "system",
+        "name": "同步",
+        "color": "indigo",
+        "page": 0,
+        "row": 2,
+        "col": 1
+      },
+      {
+        "id": "sys-add",
+        "type": "system",
+        "name": "添加应用",
+        "color": "blue",
+        "page": 0,
+        "row": 2,
+        "col": 0
+      },
+      {
+        "id": "sys-settings",
+        "type": "system",
+        "name": "设置",
+        "color": "gray",
+        "page": 0,
+        "row": 2,
+        "col": 2
+      }
+    ]
+  ],
+  "dock": [],
+  "version": 3,
+  "pinHash": "d0b274e36d2bc22e2393e84ea0feeac664742b7010e46369d4c1b77a6a6f810b",
+  "privacyItems": []
+}
