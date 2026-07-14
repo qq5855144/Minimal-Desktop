@@ -38,6 +38,7 @@ interface DesktopContextType {
   moveItemToPrivacy: (id: string, row: number, col: number) => void;
   // 拖拽：从隐私页移到普通页
   movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => void;
+  reorderPrivacyItems: (id: string, row: number, col: number) => void;
   privacyPageItems: DesktopItem[];
   setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
   // 拖拽：从 Dock 移到桌面
@@ -792,6 +793,23 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
   useEffect(() => { privacyPageItemsRef.current = privacyPageItems; }, [privacyPageItems]);
 
+  /** 隐私页内部图标重新排列（拖拽换位） */
+  const reorderPrivacyItems = useCallback((id: string, row: number, col: number) => {
+    setPrivacyPageItems((prev) => {
+      const next = prev.map((it) => ({ ...it }));
+      const srcIdx = next.findIndex((it) => it.id === id);
+      if (srcIdx < 0) return prev;
+      const src = next[srcIdx];
+      const tgtIdx = next.findIndex((it) => it.row === row && it.col === col);
+      if (tgtIdx >= 0) {
+        // 目标位置有图标：交换坐标
+        next[tgtIdx] = { ...next[tgtIdx], row: src.row, col: src.col };
+      }
+      next[srcIdx] = { ...src, row, col };
+      return next;
+    });
+  }, []);
+
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
     // 直接从 ref 同步读取，避免 React 18 批处理下闭包变量竞态问题
@@ -846,6 +864,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resetPrivacyLock,
         moveItemToPrivacy,
         movePrivacyToPage,
+        reorderPrivacyItems,
         privacyPageItems,
         setPrivacyUnlockData,
       }}

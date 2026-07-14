@@ -63,6 +63,7 @@ const Desktop: React.FC = () => {
     dissolveFolder,
     moveItemToPrivacy,
     movePrivacyToPage,
+    reorderPrivacyItems,
     privacyPageItems,
     setPrivacyUnlockData,
   } = useDesktop();
@@ -203,14 +204,14 @@ const Desktop: React.FC = () => {
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
-    moveItemToPrivacy, movePrivacyToPage, privacyPageItems, privacyUnlocked,
+    moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
-      moveItemToPrivacy, movePrivacyToPage, privacyPageItems, privacyUnlocked,
+      moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
     };
   });
 
@@ -449,6 +450,13 @@ const Desktop: React.FC = () => {
       if (targetPage >= 0 && g.source.type === 'privacy') {
         const { movePrivacyToPage: fromPrivacy } = latestRef.current;
         fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol);
+        return;
+      }
+
+      // ── 隐私页内部拖拽换位 ──
+      if (targetPage === -1 && g.source.type === 'privacy') {
+        const { reorderPrivacyItems: reorder } = latestRef.current;
+        reorder(g.source.itemId, targetRow, targetCol);
         return;
       }
 
