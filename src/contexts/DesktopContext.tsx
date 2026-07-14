@@ -728,23 +728,21 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, []);
 
+  // 用 ref 跟踪 privacyPageItems 最新值，供 callback 中同步读取
+  const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
+  useEffect(() => { privacyPageItemsRef.current = privacyPageItems; }, [privacyPageItems]);
+
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
-    let moved: DesktopItem | null = null;
-    setPrivacyPageItems((prev) => {
-      const idx = prev.findIndex((it) => it.id === id);
-      if (idx < 0) return prev;
-      const next = [...prev];
-      [moved] = next.splice(idx, 1);
-      return next;
-    });
+    // 直接从 ref 同步读取，避免 React 18 批处理下闭包变量竞态问题
+    const moved = privacyPageItemsRef.current.find((it) => it.id === id);
+    if (!moved) return;
+    setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
     setData((prev) => {
-      if (!moved) return prev;
       const next = structuredClone(prev);
       if (!next.pages[toPage]) next.pages[toPage] = [];
-      // 目标位置已有图标则交换回隐私页（此处简化：直接覆盖）
       next.pages[toPage] = next.pages[toPage].filter((it) => !(it.row === row && it.col === col));
-      next.pages[toPage].push({ ...(moved as DesktopItem), page: toPage, row, col });
+      next.pages[toPage].push({ ...moved, page: toPage, row, col });
       return next;
     });
   }, []);

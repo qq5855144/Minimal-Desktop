@@ -68,12 +68,9 @@ const Desktop: React.FC = () => {
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
-  // 解锁状态用 sessionStorage 持久化（刷新保留，关闭 Tab 清除）
-  const [privacyUnlocked, setPrivacyUnlocked] = useState(
-    () => sessionStorage.getItem('privacy_unlocked') === '1'
-  );
+  // 解锁状态：纯内存，刷新后重置（需重新输入密码）
+  const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
   const handleUnlock = useCallback(() => {
-    sessionStorage.setItem('privacy_unlocked', '1');
     setPrivacyUnlocked(true);
   }, []);
   // 隐私页：currentPage=-1 表示隐私桌面
