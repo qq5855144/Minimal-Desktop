@@ -88,7 +88,7 @@ export interface DesktopSettings {
 
 // 拖拽来源信息
 export interface DragSource {
-  type: 'desktop' | 'folder' | 'dock';
+  type: 'desktop' | 'folder' | 'dock' | 'privacy';
   itemId: string;
   folderId?: string;
   page?: number;

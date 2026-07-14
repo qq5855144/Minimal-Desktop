@@ -1,7 +1,7 @@
 // @refresh reset
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
-import { loadDesktopData, saveDesktopData, loadSettings, saveSettings } from '@/lib/storage';
+import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, loadPrivacyPageItems, savePrivacyPageItems } from '@/lib/storage';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 
@@ -35,6 +35,12 @@ interface DesktopContextType {
   moveDesktopToFolder: (itemId: string, folderId: string) => boolean;
   // 拖拽：文件夹内排序
   reorderFolderChildren: (folderId: string, fromIdx: number, toIdx: number) => void;
+  // 拖拽：移动到隐私页
+  moveItemToPrivacy: (id: string, row: number, col: number) => void;
+  // 拖拽：从隐私页移到普通页
+  movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => void;
+  // 隐私页图标数据
+  privacyPageItems: import('@/types').DesktopItem[];
   // 拖拽：从 Dock 移到桌面
   moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
   // 拖拽：从桌面移到 Dock
@@ -139,6 +145,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
+  const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>(() => loadPrivacyPageItems());
   const firstRender = useRef(true);
 
   // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
@@ -166,6 +173,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     saveDesktopData(data);
   }, [data]);
+
+  // 隐私页持久化
+  useEffect(() => {
+    savePrivacyPageItems(privacyPageItems);
+  }, [privacyPageItems]);
 
   // 模拟骨架屏加载
   useEffect(() => {
@@ -682,6 +694,61 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentPage(0);
   }, []);
 
+  /** 将普通桌面图标移入隐私页 */
+  const moveItemToPrivacy = useCallback((id: string, row: number, col: number) => {
+    // 从普通桌面或 Dock 中找到并移除
+    let moved: DesktopItem | null = null;
+    setData((prev) => {
+      const next = structuredClone(prev);
+      for (let p = 0; p < next.pages.length; p++) {
+        const idx = next.pages[p].findIndex((it) => it.id === id);
+        if (idx >= 0) {
+          [moved] = next.pages[p].splice(idx, 1);
+          return next;
+        }
+      }
+      const di = next.dock.findIndex((it) => it.id === id);
+      if (di >= 0) {
+        [moved] = next.dock.splice(di, 1);
+        return next;
+      }
+      return prev;
+    });
+    setPrivacyPageItems((prev) => {
+      // 延迟读 moved（setData 异步，此处用闭包捕获的 moved 即为刚设置的值）
+      if (!moved) return prev;
+      const next = prev.filter((it) => it.id !== (moved as DesktopItem).id);
+      // 目标位置已有图标则交换
+      const existIdx = next.findIndex((it) => it.row === row && it.col === col);
+      if (existIdx >= 0) {
+        next[existIdx] = { ...next[existIdx], row: (moved as DesktopItem).row, col: (moved as DesktopItem).col, page: -1 };
+      }
+      next.push({ ...(moved as DesktopItem), page: -1, row, col });
+      return next;
+    });
+  }, []);
+
+  /** 将隐私页图标移回普通桌面指定页 */
+  const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
+    let moved: DesktopItem | null = null;
+    setPrivacyPageItems((prev) => {
+      const idx = prev.findIndex((it) => it.id === id);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      [moved] = next.splice(idx, 1);
+      return next;
+    });
+    setData((prev) => {
+      if (!moved) return prev;
+      const next = structuredClone(prev);
+      if (!next.pages[toPage]) next.pages[toPage] = [];
+      // 目标位置已有图标则交换回隐私页（此处简化：直接覆盖）
+      next.pages[toPage] = next.pages[toPage].filter((it) => !(it.row === row && it.col === col));
+      next.pages[toPage].push({ ...(moved as DesktopItem), page: toPage, row, col });
+      return next;
+    });
+  }, []);
+
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...patch };
@@ -718,6 +785,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addToDock,
         removeFromDock,
         importData,
+        moveItemToPrivacy,
+        movePrivacyToPage,
+        privacyPageItems,
       }}
     >
       {children}

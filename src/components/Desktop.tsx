@@ -61,11 +61,21 @@ const Desktop: React.FC = () => {
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
+    moveItemToPrivacy,
+    movePrivacyToPage,
+    privacyPageItems,
   } = useDesktop();
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
-  const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
+  // 解锁状态用 sessionStorage 持久化（刷新保留，关闭 Tab 清除）
+  const [privacyUnlocked, setPrivacyUnlocked] = useState(
+    () => sessionStorage.getItem('privacy_unlocked') === '1'
+  );
+  const handleUnlock = useCallback(() => {
+    sessionStorage.setItem('privacy_unlocked', '1');
+    setPrivacyUnlocked(true);
+  }, []);
   // 隐私页：currentPage=-1 表示隐私桌面
   const privacyPageRef = useRef(-1);
   const openFolder = openFolderId
@@ -202,12 +212,14 @@ const Desktop: React.FC = () => {
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
+    moveItemToPrivacy, movePrivacyToPage, privacyPageItems,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
+      moveItemToPrivacy, movePrivacyToPage, privacyPageItems,
     };
   });
 
@@ -229,10 +241,14 @@ const Desktop: React.FC = () => {
     const { currentPage: page, data: d, setCurrentPage: nav } = latestRef.current;
     const rect = containerRef.current.getBoundingClientRect();
     const relX = clientX - rect.left;
-    if (relX < EDGE_THRESHOLD && page > 0) {
-      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(page - 1); clearEdgeTimer(); }, EDGE_DELAY);
+    if (relX < EDGE_THRESHOLD && page >= 0) {
+      // page=0 时向左滑入隐私页（page=-1），page>0 向左翻页
+      const prevPage = page > 0 ? page - 1 : -1;
+      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(prevPage); clearEdgeTimer(); }, EDGE_DELAY);
     } else if (relX > rect.width - EDGE_THRESHOLD && page < d.pages.length - 1) {
       if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(page + 1); clearEdgeTimer(); }, EDGE_DELAY);
+    } else if (relX < EDGE_THRESHOLD && page === -1) {
+      clearEdgeTimer(); // 隐私页已是最左，不再往左
     } else {
       clearEdgeTimer();
     }
@@ -425,6 +441,22 @@ const Desktop: React.FC = () => {
       const rawCol = isWidget ? 0 : Number(cell.dataset.col);
       const targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
+
+      // ── 拖入隐私页（targetPage === -1）──
+      if (targetPage === -1 && g.source.type === 'desktop' && !isWidget) {
+        const { moveItemToPrivacy: toPrivacy } = latestRef.current;
+        // 找到图标来源页
+        const srcItem = findItem(d.pages, g.source.itemId);
+        if (srcItem) toPrivacy(g.source.itemId, targetRow, targetCol);
+        return;
+      }
+
+      // ── 从隐私页拖到普通桌面 ──
+      if (targetPage >= 0 && g.source.type === 'privacy') {
+        const { movePrivacyToPage: fromPrivacy } = latestRef.current;
+        fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol);
+        return;
+      }
 
       if (!isWidget) {
         // widget 独占整行，不允许其他图标放入该行
@@ -661,8 +693,7 @@ const Desktop: React.FC = () => {
       } else if (dx > SWIPE_MIN_X && currentPageRef.current > 0) {
         setCurrentPage(currentPageRef.current - 1);
       } else if (dx > SWIPE_MIN_X && currentPageRef.current === 0) {
-        // 第一页右滑 → 进入隐私桌面（currentPage=-1），重置解锁状态
-        setPrivacyUnlocked(false);
+        // 第一页右滑 → 进入隐私桌面（currentPage=-1），不重置解锁状态
         setCurrentPage(-1);
       } else if (dx < -SWIPE_MIN_X && currentPageRef.current === -1) {
         // 隐私页左滑 → 返回第一页
@@ -856,12 +887,8 @@ const Desktop: React.FC = () => {
                 ))}
               </div>
             ) : currentPage === -1 ? (
-              /* 隐私桌面：空网格占位，遮罩由外层叠加 */
-              <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
-                {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => (
-                  <div key={`pv-${i}`} style={{ width: settings.iconSize ?? 60, height: settings.iconSize ?? 60, opacity: 0 }} />
-                ))}
-              </div>
+              /* 隐私桌面：渲染真实图标，未解锁时被遮罩覆盖 */
+              renderPageGrid(-1, privacyPageItems)
             ) : (
               /* 所有页同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 → 不重新加载图标 */
               data.pages.map((pageData, i) => (
@@ -973,7 +1000,7 @@ const Desktop: React.FC = () => {
       {/* 隐私屏遮罩：进入隐私桌面且未解锁时显示 */}
       {currentPage === -1 && !privacyUnlocked && (
         <PrivacyScreen
-          onUnlock={() => setPrivacyUnlocked(true)}
+          onUnlock={handleUnlock}
           onClose={() => setCurrentPage(0)}
         />
       )}

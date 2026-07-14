@@ -3,6 +3,22 @@ import { createWidgetItem } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
+const PRIVACY_PAGE_KEY = 'ios_privacy_page_data';
+
+/** 加载隐私桌面页数据 */
+export function loadPrivacyPageItems(): import('@/types').DesktopItem[] {
+  try {
+    const raw = localStorage.getItem(PRIVACY_PAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+/** 保存隐私桌面页数据 */
+export function savePrivacyPageItems(items: import('@/types').DesktopItem[]): void {
+  localStorage.setItem(PRIVACY_PAGE_KEY, JSON.stringify(items));
+}
 
 // 三个固定系统应用：添加应用、设置、同步（放在 row=2，为 widget 行留空间）
 export const SYSTEM_APPS: import('@/types').DesktopItem[] = [
