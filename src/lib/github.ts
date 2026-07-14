@@ -71,10 +71,28 @@ async function getFileSha(config: SyncConfig, path: string): Promise<string | nu
   return (data as { sha?: string }).sha ?? null;
 }
 
-// 上传数据到 GitHub
+// 全局上传锁，防止自动同步与手动同步并发导致 SHA 冲突
+let uploadLock = false;
+
+// 上传数据到 GitHub（含 SHA 冲突自动重试）
 export async function uploadToGithub(
   config: SyncConfig,
   data: DesktopData,
+): Promise<{ ok: boolean; message: string }> {
+  // 若已有上传在进行中，跳过本次（避免 SHA 竞态）
+  if (uploadLock) return { ok: false, message: '上传进行中，请稍后重试' };
+  uploadLock = true;
+  try {
+    return await doUpload(config, data);
+  } finally {
+    uploadLock = false;
+  }
+}
+
+async function doUpload(
+  config: SyncConfig,
+  data: DesktopData,
+  retry = 0,
 ): Promise<{ ok: boolean; message: string }> {
   const path = config.path || 'desktop_backup.json';
   const encodedPath = path.split('/').map(encodeURIComponent).join('/');
@@ -97,7 +115,12 @@ export async function uploadToGithub(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    return { ok: false, message: (err as { message?: string }).message || `上传失败 (${res.status})` };
+    const msg = (err as { message?: string }).message || `上传失败 (${res.status})`;
+    // SHA 不匹配时最多重试 2 次（重新获取最新 SHA）
+    if (retry < 2 && msg.toLowerCase().includes('does not match')) {
+      return doUpload(config, data, retry + 1);
+    }
+    return { ok: false, message: msg };
   }
   return { ok: true, message: '同步成功' };
 }
