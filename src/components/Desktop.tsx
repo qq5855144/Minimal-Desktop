@@ -239,6 +239,9 @@ const Desktop: React.FC = () => {
     const rect = containerRef.current.getBoundingClientRect();
     const relX = clientX - rect.left;
     if (relX < EDGE_THRESHOLD && page >= 0) {
+      // 拖着隐私页图标时，不允许往左切回隐私页（会导致松手时找不到普通页格子）
+      const isPrivacyDrag = ghostRef.current?.source.type === 'privacy';
+      if (isPrivacyDrag) { clearEdgeTimer(); return; }
       // page=0 时向左滑入隐私页（page=-1），page>0 向左翻页
       const prevPage = page > 0 ? page - 1 : -1;
       if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(prevPage); clearEdgeTimer(); }, EDGE_DELAY);

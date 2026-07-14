@@ -695,35 +695,38 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
+  // 用 ref 跟踪 data 最新值，供 callback 中同步读取（避免 React 18 批处理闭包竞态）
+  const dataRef = useRef<DesktopData>(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
   const moveItemToPrivacy = useCallback((id: string, row: number, col: number) => {
-    // 从普通桌面或 Dock 中找到并移除
+    // 先从 dataRef 同步读取图标，避免闭包竞态
     let moved: DesktopItem | null = null;
+    for (const page of dataRef.current.pages) {
+      const found = page.find((it) => it.id === id);
+      if (found) { moved = found; break; }
+    }
+    if (!moved) moved = dataRef.current.dock.find((it) => it.id === id) ?? null;
+    if (!moved) return;
+    const movedItem = moved;
     setData((prev) => {
       const next = structuredClone(prev);
       for (let p = 0; p < next.pages.length; p++) {
         const idx = next.pages[p].findIndex((it) => it.id === id);
-        if (idx >= 0) {
-          [moved] = next.pages[p].splice(idx, 1);
-          return next;
-        }
+        if (idx >= 0) { next.pages[p].splice(idx, 1); return next; }
       }
       const di = next.dock.findIndex((it) => it.id === id);
-      if (di >= 0) {
-        [moved] = next.dock.splice(di, 1);
-        return next;
-      }
+      if (di >= 0) { next.dock.splice(di, 1); return next; }
       return prev;
     });
     setPrivacyPageItems((prev) => {
-      // 延迟读 moved（setData 异步，此处用闭包捕获的 moved 即为刚设置的值）
-      if (!moved) return prev;
-      const next = prev.filter((it) => it.id !== (moved as DesktopItem).id);
-      // 目标位置已有图标则交换
+      const next = prev.filter((it) => it.id !== movedItem.id);
+      // 目标位置已有图标则把它移回原位
       const existIdx = next.findIndex((it) => it.row === row && it.col === col);
       if (existIdx >= 0) {
-        next[existIdx] = { ...next[existIdx], row: (moved as DesktopItem).row, col: (moved as DesktopItem).col, page: -1 };
+        next[existIdx] = { ...next[existIdx], row: movedItem.row, col: movedItem.col, page: -1 };
       }
-      next.push({ ...(moved as DesktopItem), page: -1, row, col });
+      next.push({ ...movedItem, page: -1, row, col });
       return next;
     });
   }, []);
