@@ -3,7 +3,6 @@ import { createWidgetItem } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
-const PRIVACY_PAGE_KEY = 'ios_privacy_page_data';
 
 const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
@@ -29,11 +28,6 @@ export function clearPrivacyVault(): void {
   try { localStorage.removeItem(PRIVACY_VAULT_KEY); } catch { /* ignore */ }
 }
 
-/** @deprecated 兼容旧接口，内部不再使用 */
-export function loadPinHash(): string | null { return null; }
-export function savePinHash(_hash: string): void { /* no-op */ }
-export function clearPinHash(): void { clearPrivacyVault(); }
-
 interface LockoutState { failCount: number; lockedUntil: number; }
 
 /** 读取锁定状态 */
@@ -53,21 +47,6 @@ export function saveLockout(state: LockoutState): void {
 /** 清除锁定状态 */
 export function clearLockout(): void {
   try { localStorage.removeItem(PIN_LOCKOUT_KEY); } catch { /* ignore */ }
-}
-
-/** 加载隐私桌面页数据 */
-export function loadPrivacyPageItems(): import('@/types').DesktopItem[] {
-  try {
-    const raw = localStorage.getItem(PRIVACY_PAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-
-/** 保存隐私桌面页数据 */
-export function savePrivacyPageItems(items: import('@/types').DesktopItem[]): void {
-  localStorage.setItem(PRIVACY_PAGE_KEY, JSON.stringify(items));
 }
 
 // 三个固定系统应用：添加应用、设置、同步（放在 row=2，为 widget 行留空间）

@@ -75,8 +75,6 @@ const Desktop: React.FC = () => {
     setPrivacyUnlockData(items, key);
     setPrivacyUnlocked(true);
   }, [setPrivacyUnlockData]);
-  // 隐私页：currentPage=-1 表示隐私桌面
-  const privacyPageRef = useRef(-1);
   const openFolder = openFolderId
     ? data.pages.flat().find((it) => it.id === openFolderId) ?? null
     : null;
@@ -182,15 +180,9 @@ const Desktop: React.FC = () => {
     if (!ghost) return;
     const el = ghostLayerRef.current;
     if (!el) return;
-    if (ghost.item.type === 'widget') {
-      el.style.left = `${ghost.x}px`;
-      el.style.top = `${ghost.y}px`;
-      el.style.transform = 'translate(-50%, -50%)';
-    } else {
-      el.style.left = `${ghost.x}px`;
-      el.style.top = `${ghost.y}px`;
-      el.style.transform = 'translate(-50%, -50%)';
-    }
+    el.style.left = `${ghost.x}px`;
+    el.style.top = `${ghost.y}px`;
+    el.style.transform = 'translate(-50%, -50%)';
   }, [ghost]);
 
   // ── 全局 contextmenu 捕获（capture 阶段）─────────────────────────────────
@@ -267,15 +259,9 @@ const Desktop: React.FC = () => {
       g.y = e.clientY;
       if (ghostLayerRef.current) {
         const el = ghostLayerRef.current;
-        if (g.item.type === 'widget') {
-          el.style.left = `${e.clientX}px`;
-          el.style.top = `${e.clientY}px`;
-          el.style.transform = 'translate(-50%, -50%)';
-        } else {
-          el.style.left = `${e.clientX}px`;
-          el.style.top = `${e.clientY}px`;
-          el.style.transform = 'translate(-50%, -50%)';
-        }
+        el.style.left = `${e.clientX}px`;
+        el.style.top = `${e.clientY}px`;
+        el.style.transform = 'translate(-50%, -50%)';
       }
       handleEdgeHover(e.clientX);
 

@@ -22,9 +22,7 @@ interface DesktopContextType {
   updateSettings: (patch: Partial<DesktopSettings>) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
-  // 编辑应用
   updateItem: (id: string, patch: Partial<DesktopItem>) => void;
-  // 删除应用
   removeItem: (id: string) => void;
   // 拖拽：交换桌面位置
   swapDesktopItems: (idA: string, pageA: number, rowA: number, colA: string, idB: string, pageB: number, rowB: number, colB: string) => void;
@@ -40,26 +38,18 @@ interface DesktopContextType {
   moveItemToPrivacy: (id: string, row: number, col: number) => void;
   // 拖拽：从隐私页移到普通页
   movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => void;
-  // 隐私页图标数据
-  privacyPageItems: import('@/types').DesktopItem[];
-  // 设置隐私桌面解密密钥（解锁后调用，同时更新图标列表）
-  setPrivacyUnlockData: (items: import('@/types').DesktopItem[], key: CryptoKey) => void;
+  privacyPageItems: DesktopItem[];
+  setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
   // 拖拽：从 Dock 移到桌面
   moveDockToDesktop: (itemId: string, page: number, row: number, col: number) => void;
   // 拖拽：从桌面移到 Dock
   moveDesktopToDock: (itemId: string, dockIdx: number) => void;
-  // 合并两个应用为文件夹
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
-  // 重命名文件夹
   renameFolder: (folderId: string, name: string) => void;
-  // 解散文件夹（单应用）
   dissolveFolder: (folderId: string) => void;
-  // 新增页面
   addPage: () => void;
-  // Dock 操作
   addToDock: (item: DesktopItem) => void;
   removeFromDock: (id: string) => void;
-  // 同步
   importData: (data: DesktopData) => void;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
   resetPrivacyLock: () => void;
@@ -165,7 +155,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const url = URL.createObjectURL(file);
           setSettings((prev) => ({ ...prev, bgVideo: url }));
         } else {
-          // IndexedDB 中视频已丢失，回退到默认背景
           setSettings((prev) => ({ ...prev, bgVideo: undefined, bgType: 'default' }));
           saveSettings({ ...s, bgVideo: undefined, bgType: 'default' });
         }
@@ -173,12 +162,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
-  // 持久化
+  // data 变更时持久化（跳过首次挂载）
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    if (firstRender.current) { firstRender.current = false; return; }
     saveDesktopData(data);
   }, [data]);
 
@@ -746,8 +732,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const importData = useCallback((newData: DesktopData) => {
     setData(newData);
     setCurrentPage(0);
-    // 注意：privacyItems 现已加密存储，importData 只恢复普通桌面数据
-    // 隐私数据在解锁时由 PrivacyScreen 解密后通过 setPrivacyUnlockData 注入
   }, []);
 
   /**

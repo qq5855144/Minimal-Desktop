@@ -133,7 +133,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       } else { toast.error(result.message); }
     } catch { setStatusMsg({ type: 'error', msg: '下载失败，请检查网络' }); }
     finally { setSyncing(null); }
-  }, [config, importData]);
+  }, [config, importData, resetPrivacyLock]);
 
   const handleLogout = useCallback(() => {
     clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput('');

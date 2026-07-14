@@ -79,7 +79,6 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
   const [firstPin, setFirstPin] = useState('');
   // 修改密码时，旧密码解密出的数据暂存
   const pendingItemsRef = useRef<DesktopItem[]>([]);
-  const pendingVaultRef = useRef<PrivacyVault | null>(null);
 
   const [error, setError] = useState('');
   const [masked, setMasked] = useState(true);
@@ -175,7 +174,6 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           const result = await unlockVault(pin, currentVault);
           if (result) {
             pendingItemsRef.current = result.items;
-            pendingVaultRef.current = currentVault;
             setMode('change-new'); setIsConfirming(false); setFirstPin(''); setPin('');
           } else {
             setError('旧密码错误，请重试');
