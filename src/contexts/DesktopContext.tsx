@@ -103,6 +103,77 @@ function findEmptySlot(
   return null;
 }
 
+/**
+ * 列数变更时重新布局所有桌面图标。
+ *
+ * 策略：
+ * 1. 保持每一页内的图标顺序不变（按 row*oldCols+col 排序），
+ *    同时保留 widget/system/folder 的页内相对顺序。
+ * 2. 将每页图标在新列数下逐行逐列重新填充；超出当前页容量时
+ *    自动追加新页承接溢出图标。
+ * 3. widget 独占整行（col=0，span 整行），不参与普通网格排列。
+ */
+function reflowDesktopItems(
+  data: DesktopData,
+  newCols: number,
+  rows: number,
+): DesktopData {
+  const next = deepClone(data);
+  const newPages: DesktopItem[][] = [];
+
+  for (let p = 0; p < next.pages.length; p++) {
+    const page = next.pages[p];
+    // 按原始位置排序，保证顺序稳定
+    const sorted = [...page].sort((a, b) => {
+      const oldCols = MAX_COLS; // 历史数据使用宽松排序即可
+      return (a.row * oldCols + a.col) - (b.row * oldCols + b.col);
+    });
+
+    const widgets = sorted.filter((it) => it.type === 'widget');
+    const nonWidgets = sorted.filter((it) => it.type !== 'widget');
+
+    // 当前输出页
+    let curPageIdx = newPages.length;
+    newPages.push([]);
+
+    // 先把 widget 放回（widget 固定在页首，row 从 0 起，独占整行）
+    let widgetRow = 0;
+    for (const w of widgets) {
+      newPages[curPageIdx].push({ ...w, page: curPageIdx, row: widgetRow, col: 0 });
+      widgetRow++;
+    }
+
+    // 非 widget 图标：从 widgetRow 开始填充，每行 newCols 列
+    let row = widgetRow;
+    let col = 0;
+
+    for (const item of nonWidgets) {
+      // 当前页满了（超过 rows 行）→ 新建页
+      if (row >= rows) {
+        curPageIdx = newPages.length;
+        newPages.push([]);
+        row = 0;
+        col = 0;
+      }
+      newPages[curPageIdx].push({ ...item, page: curPageIdx, row, col });
+      col++;
+      if (col >= newCols) {
+        col = 0;
+        row++;
+      }
+    }
+  }
+
+  // 移除末尾的空页（至少保留 1 页）
+  while (newPages.length > 1 && newPages[newPages.length - 1].length === 0) {
+    newPages.pop();
+  }
+  if (newPages.length === 0) newPages.push([]);
+
+  next.pages = newPages;
+  return next;
+}
+
 function collapseFolderAfterChildRemoval(
   pages: DesktopItem[][],
   folderPageIdx: number,
@@ -741,6 +812,22 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       saveSettings(next);
+
+      // cols 或 rows 变更时，重新布局桌面图标
+      const colsChanged = patch.cols !== undefined && patch.cols !== prev.cols;
+      const rowsChanged = patch.rows !== undefined && patch.rows !== prev.rows;
+      if (colsChanged || rowsChanged) {
+        const newCols = next.cols ?? 4;
+        const newRows = next.rows ?? 7;
+        setData((prevData) => {
+          const reflowed = reflowDesktopItems(prevData, newCols, newRows);
+          saveDesktopData(reflowed);
+          return reflowed;
+        });
+        // 重置到第一页，避免停留在已不存在的页
+        setCurrentPage(0);
+      }
+
       return next;
     });
   }, []);
