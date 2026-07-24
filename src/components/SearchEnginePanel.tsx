@@ -3,7 +3,7 @@
  * 搜索引擎选择面板 + 添加自定义引擎对话框
  * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
@@ -331,19 +331,47 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
   const [showAdd, setShowAdd] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // 面板弹出方向：'down'（默认向下）| 'up'（空间不足时向上）
+  const [openDir, setOpenDir] = useState<'down' | 'up'>('down');
+
   const currentId = settings.searchEngine ?? 'bing';
   const customEngines = settings.customEngines ?? [];
 
-  // 计算面板位置：贴紧 anchor 下方，水平居中，边界保护
-  const panelStyle = React.useMemo<React.CSSProperties>(() => {
-    const PANEL_W = Math.min(320, window.innerWidth - 24);
-    const PANEL_MAX_H = window.innerHeight * 0.55;
+  // 水平定位：居中对齐 anchor，边界保护
+  const PANEL_W = Math.min(340, typeof window !== 'undefined' ? window.innerWidth - 24 : 340);
+  const horizontalStyle = React.useMemo<React.CSSProperties>(() => {
     if (!anchorRect) return { display: 'none' };
     let left = anchorRect.left + anchorRect.width / 2 - PANEL_W / 2;
     left = Math.max(12, Math.min(left, window.innerWidth - PANEL_W - 12));
-    const top = anchorRect.bottom + 6;
-    return { position: 'fixed', top, left, width: PANEL_W, maxHeight: PANEL_MAX_H };
-  }, [anchorRect]);
+    return { position: 'fixed', left, width: PANEL_W };
+  }, [anchorRect, PANEL_W]);
+
+  // 首次渲染后测量真实高度，决定向上/向下展开
+  useLayoutEffect(() => {
+    if (!panelRef.current || !anchorRect) return;
+    const MARGIN = 10; // 面板与搜索框间距
+    const panelH = panelRef.current.scrollHeight;
+    const spaceBelow = window.innerHeight - anchorRect.bottom - MARGIN;
+    const spaceAbove = anchorRect.top - MARGIN;
+    // 下方放不下 且 上方空间更充裕 → 向上展开
+    setOpenDir(spaceBelow < panelH && spaceAbove > spaceBelow ? 'up' : 'down');
+  }, [anchorRect, showAdd]);
+
+  // 根据方向计算最终定位
+  const positionStyle = React.useMemo<React.CSSProperties>(() => {
+    if (!anchorRect) return {};
+    const MARGIN = 10;
+    const MAX_H = window.innerHeight * 0.65;
+    if (openDir === 'up') {
+      // 底边贴紧搜索框顶部
+      return { bottom: window.innerHeight - anchorRect.top + MARGIN, maxHeight: MAX_H };
+    }
+    // 顶边贴紧搜索框底部
+    return { top: anchorRect.bottom + MARGIN, maxHeight: MAX_H };
+  }, [anchorRect, openDir]);
+
+  // 动画类：向上/向下展开使用不同方向动画
+  const animClass = openDir === 'up' ? 'animate-drop-up' : 'animate-drop-down';
 
   // 点击面板外部关闭
   useEffect(() => {
@@ -392,12 +420,14 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
       className="fixed inset-x-0 top-0 h-[100dvh] z-[200]"
       onClick={onClose}
     >
-      {/* 面板本体：fixed 定位由 panelStyle 控制，从搜索框下方展开 */}
+      {/* 面板本体：测量高度后动态决定向上/向下展开 */}
       <div
         ref={panelRef}
-        className="rounded-2xl overflow-hidden animate-drop-down"
+        className={`rounded-2xl overflow-hidden ${animClass}`}
         style={{
-          ...panelStyle,
+          ...horizontalStyle,
+          ...positionStyle,
+          overflowY: 'auto',
           background: 'rgba(28,28,32,0.94)',
           backdropFilter: 'blur(24px)',
           WebkitBackdropFilter: 'blur(24px)',
@@ -406,71 +436,71 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
         }}
         onClick={(e) => e.stopPropagation()}
       >
-      {showAdd ? (
-        <AddEngineForm onAdd={addEngine} onCancel={() => setShowAdd(false)} />
-      ) : (
-        <div className="p-3">
-          {/* 标题行 */}
-          <div className="flex items-center justify-between px-1 pb-2">
-            <span className="text-white/60 text-xs font-medium">选择搜索引擎</span>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* 引擎网格 */}
-          <div className="grid grid-cols-4 gap-y-3 gap-x-1">
-            {allEngines.map((eng) => {
-              const active = eng.id === currentId;
-              return (
-                <button
-                  key={eng.id}
-                  type="button"
-                  onClick={() => selectEngine(eng.id)}
-                  className="relative flex flex-col items-center gap-1.5 group"
-                >
-                  {/* 当前选中高亮环 */}
-                  <div className={`rounded-2xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>
-                    <EngineIcon engine={eng} size={52} />
-                  </div>
-                  <span className="text-white/80 text-[11px] text-center leading-tight max-w-[60px] truncate">
-                    {eng.name}
-                  </span>
-                  {/* 自定义引擎删除按钮 */}
-                  {'isCustom' in eng && eng.isCustom && (
-                    <button
-                      type="button"
-                      onClick={(e) => removeEngine(eng.id, e)}
-                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-2.5 h-2.5 text-white" strokeWidth={3} />
-                    </button>
-                  )}
-                </button>
-              );
-            })}
-
-            {/* 添加按钮 */}
-            <button
-              type="button"
-              onClick={() => setShowAdd(true)}
-              className="flex flex-col items-center gap-1.5"
-            >
-              <div
-                className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center"
-                style={{ background: 'rgba(255,255,255,0.12)' }}
+        {showAdd ? (
+          <AddEngineForm onAdd={addEngine} onCancel={() => setShowAdd(false)} />
+        ) : (
+          <div className="p-2.5">
+            {/* 标题行 */}
+            <div className="flex items-center justify-between px-1 pb-1.5">
+              <span className="text-white/60 text-xs font-medium">选择搜索引擎</span>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-white/40 hover:text-white/70 transition-colors"
               >
-                <Plus className="w-6 h-6 text-white/70" />
-              </div>
-              <span className="text-white/60 text-[11px]">添加</span>
-            </button>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 引擎网格：6列紧凑排列 */}
+            <div className="grid grid-cols-6 gap-y-2 gap-x-0.5">
+              {allEngines.map((eng) => {
+                const active = eng.id === currentId;
+                return (
+                  <button
+                    key={eng.id}
+                    type="button"
+                    onClick={() => selectEngine(eng.id)}
+                    className="relative flex flex-col items-center gap-1 group py-0.5"
+                  >
+                    {/* 当前选中高亮环 */}
+                    <div className={`rounded-xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>
+                      <EngineIcon engine={eng} size={36} />
+                    </div>
+                    <span className="text-white/75 text-[10px] text-center leading-tight w-full truncate px-0.5">
+                      {eng.name}
+                    </span>
+                    {/* 自定义引擎删除按钮 */}
+                    {'isCustom' in eng && eng.isCustom && (
+                      <button
+                        type="button"
+                        onClick={(e) => removeEngine(eng.id, e)}
+                        className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-2 h-2 text-white" strokeWidth={3} />
+                      </button>
+                    )}
+                  </button>
+                );
+              })}
+
+              {/* 添加按钮 */}
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="flex flex-col items-center gap-1 py-0.5"
+              >
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ background: 'rgba(255,255,255,0.12)' }}
+                >
+                  <Plus className="w-5 h-5 text-white/70" />
+                </div>
+                <span className="text-white/60 text-[10px]">添加</span>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );
