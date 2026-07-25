@@ -113,10 +113,9 @@ function findEmptySlot(
  * 2. 将每页图标在新列数下逐行逐列重新填充；超出当前页容量时
  *    自动追加新页承接溢出图标。
  * 3. widget 独占整行（col=0，span 整行），不参与普通网格排列。
- *    每个 widget 在数据层占 1 个 row slot（row 号逐个 +1），
- *    视觉高度由渲染层 WidgetGridCell 的 rowSpan 撑起。
- *    rows 表示数据层行槽数，渲染时遇到 widget 会额外跳过 rowSpan-1 个视觉行槽，
- *    因此 rows=8 的实际视觉行 = widget视觉行总和 + 剩余图标行。
+ *    每个 widget 在数据层按 rowSpan 累计 row 号（clock rowSpan=2 → row=0，
+ *    search rowSpan=1 → row=2），与 CSS gridRow: span N 精确对应。
+ *    rows 表示总视觉行数（= 数据层 row 最大槽数）。
  */
 function reflowDesktopItems(
   data: DesktopData,
@@ -141,16 +140,17 @@ function reflowDesktopItems(
     let curPageIdx = newPages.length;
     newPages.push([]);
 
-    // 先把 widget 放回：每个 widget 在数据层各占 1 个 row slot（row 号逐个 +1）
-    // 视觉高度由渲染层按 rowSpan 撑起，数据层不累计 span
+    // 先把 widget 放回：每个 widget 在数据层按 rowSpan 累计 row 号
+    // 视觉层用 CSS gridRow: span N 真实占据对应 grid track，数据 row 与视觉行精确对应
     let widgetRow = 0;
     for (const w of widgets) {
       newPages[curPageIdx].push({ ...w, page: curPageIdx, row: widgetRow, col: 0 });
-      widgetRow += 1;
+      const span = getWidgetConfig(w.widgetType).rowSpan;
+      widgetRow += span;
     }
 
-    // 非 widget 图标：从 widgetRow 开始填充，每行 newCols 列
-    // rows 是数据层行槽总数；图标可用槽 = rows - widgetRow
+    // 非 widget 图标：从 widgetRow（widget 视觉行末尾）开始填充，每行 newCols 列
+    // rows 表示总视觉行数（=数据 row 总槽数），图标可用槽 = rows - widgetRow
     let row = widgetRow;
     let col = 0;
 

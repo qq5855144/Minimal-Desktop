@@ -740,6 +740,7 @@ const Desktop: React.FC = () => {
 
       if (widgetItem) {
         const isGhost = ghost?.source.itemId === widgetItem.id;
+        const span = getWidgetConfig(widgetItem.widgetType).rowSpan;
         cells.push(
           <div
             key={widgetItem.id}
@@ -748,7 +749,7 @@ const Desktop: React.FC = () => {
             data-col={0}
             data-page={pageIndex}
             data-itemid={widgetItem.id}
-            style={{ gridColumn: `1 / -1` }}
+            style={{ gridColumn: `1 / -1`, gridRow: `span ${span}` }}
             className={`w-full transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
           >
             <WidgetGridCell
@@ -759,9 +760,8 @@ const Desktop: React.FC = () => {
             />
           </div>,
         );
-        // widget 在数据层只占 1 个 row slot，但视觉高度为 rowSpan 行
-        // 跳过中间的视觉行槽，使后续图标行的 r 值与视觉行对齐
-        const span = getWidgetConfig(widgetItem.widgetType).rowSpan;
+        // widget 真实占据 span 个 grid track，数据层 row 也按 span 累计
+        // 跳过后续 span-1 个 r 值，使 r 与数据层 row 号保持一致
         r += span - 1;
         continue;
       }
