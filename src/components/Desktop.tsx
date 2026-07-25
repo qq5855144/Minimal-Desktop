@@ -3,6 +3,7 @@ import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/Desk
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import { getWidgetConfig } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
@@ -754,6 +755,10 @@ const Desktop: React.FC = () => {
             />
           </div>,
         );
+        // widget 在数据层只占 1 个 row slot，但视觉高度为 rowSpan 行
+        // 跳过中间的视觉行槽，使后续图标行的 r 值与视觉行对齐
+        const span = getWidgetConfig(widgetItem.widgetType).rowSpan;
+        r += span - 1;
         continue;
       }
 
