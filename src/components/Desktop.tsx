@@ -202,14 +202,14 @@ const Desktop: React.FC = () => {
 
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-    moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
+    moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-      moveFromFolderToDesktop, gridRows: settings.rows ?? 7,
+      moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
     };
@@ -727,7 +727,7 @@ const Desktop: React.FC = () => {
    */
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
-    const renderRows = settings.rows ?? 7;
+    const renderRows = settings.rows ?? 8;
     const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize);
 
     for (let r = 0; r < renderRows; r++) {
@@ -884,7 +884,7 @@ const Desktop: React.FC = () => {
             {loading ? (
               /* 加载骨架屏：只在初次加载时显示 */
               <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
-                {Array.from({ length: gridCols * (settings.rows ?? 7) }).map((_, i) => (
+                {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
                   <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
                 ))}
               </div>

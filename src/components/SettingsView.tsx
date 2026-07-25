@@ -674,16 +674,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className={`text-sm ${t.textMuted}`}>每页行数</span>
-          <span className="text-sm font-medium text-primary">{settings.rows ?? 7} 行</span>
+          <span className="text-sm font-medium text-primary">{settings.rows ?? 8} 行</span>
         </div>
         <input
-          type="range" min={1} max={14} step={1}
-          value={settings.rows ?? 7}
+          type="range" min={1} max={16} step={1}
+          value={settings.rows ?? 8}
           onChange={(e) => updateSettings({ rows: Number(e.target.value) })}
           className="w-full accent-primary"
         />
         <div className={`flex justify-between text-xs ${t.textDim}`}>
-          <span>1 行</span><span>默认 (7)</span><span>14 行</span>
+          <span>1 行</span><span>默认 (8)</span><span>16 行</span>
         </div>
       </div>
     </div>

@@ -178,7 +178,7 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
   iconSize: 46,
   cols: 4,
-  rows: 7,
+  rows: 8,
   bgType: 'image',
   bgImage: DEFAULT_BG_IMAGE,
   bgOverlayEnabled: false,

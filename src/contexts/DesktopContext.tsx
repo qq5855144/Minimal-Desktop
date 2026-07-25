@@ -6,8 +6,9 @@ import { encryptItems } from '@/lib/privacyCrypto';
 import { deepClone } from '@/lib/utils/deepClone';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
+import { getWidgetConfig } from '@/lib/widgetConfig';
 
-const MAX_ROWS = 14;  // 绝对上限，用户可配置 1-14
+const MAX_ROWS = 16;  // 绝对上限，用户可配置 1-16
 const MAX_COLS = 6;
 const MAX_FOLDER_APPS = 9;
 
@@ -112,6 +113,7 @@ function findEmptySlot(
  * 2. 将每页图标在新列数下逐行逐列重新填充；超出当前页容量时
  *    自动追加新页承接溢出图标。
  * 3. widget 独占整行（col=0，span 整行），不参与普通网格排列。
+ *    widget 的 rowSpan 被计入总视觉行消耗，确保 rows 语义与渲染一致。
  */
 function reflowDesktopItems(
   data: DesktopData,
@@ -137,18 +139,21 @@ function reflowDesktopItems(
     newPages.push([]);
 
     // 先把 widget 放回（widget 固定在页首，row 从 0 起，独占整行）
+    // 每个 widget 按其 rowSpan 累计消耗视觉行数
     let widgetRow = 0;
     for (const w of widgets) {
       newPages[curPageIdx].push({ ...w, page: curPageIdx, row: widgetRow, col: 0 });
-      widgetRow++;
+      const span = getWidgetConfig(w.widgetType).rowSpan;
+      widgetRow += span;
     }
 
-    // 非 widget 图标：从 widgetRow 开始填充，每行 newCols 列
+    // 非 widget 图标：从 widgetRow（widget 视觉行消耗后）开始填充，每行 newCols 列
+    // rows 是总视觉行，剩余可用行 = rows - widgetRow
     let row = widgetRow;
     let col = 0;
 
     for (const item of nonWidgets) {
-      // 当前页满了（超过 rows 行）→ 新建页
+      // 当前页满了（超过 rows 总视觉行）→ 新建页
       if (row >= rows) {
         curPageIdx = newPages.length;
         newPages.push([]);
@@ -254,7 +259,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     preferPage?: number,
   ) => {
     const gridCols = settings.cols ?? 4;
-    const gridRows = settings.rows ?? 7;
+    const gridRows = settings.rows ?? 8;
 
     // 添加到隐私桌面
     if (preferPage === -1) {
@@ -670,7 +675,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // 将每个子应用散落到桌面（贪心找空位，优先当前页）
         for (const child of children) {
           let placed = false;
-          const gr = settings.rows ?? 7;
+          const gr = settings.rows ?? 8;
           // 先在当前页 p 找空位
           for (let r = 0; r < gr && !placed; r++) {
             if (next.pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
@@ -818,7 +823,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const rowsChanged = patch.rows !== undefined && patch.rows !== prev.rows;
       if (colsChanged || rowsChanged) {
         const newCols = next.cols ?? 4;
-        const newRows = next.rows ?? 7;
+        const newRows = next.rows ?? 8;
         setData((prevData) => {
           const reflowed = reflowDesktopItems(prevData, newCols, newRows);
           saveDesktopData(reflowed);
