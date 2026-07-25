@@ -6,7 +6,7 @@ import { encryptItems } from '@/lib/privacyCrypto';
 import { deepClone } from '@/lib/utils/deepClone';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
-import { getWidgetConfig } from '@/lib/widgetConfig';
+import { getWidgetConfig, isRowCoveredByWidget } from '@/lib/widgetConfig';
 
 const MAX_ROWS = 16;  // 绝对上限，用户可配置 1-16
 const MAX_COLS = 6;
@@ -93,8 +93,8 @@ function findEmptySlot(
 
   for (const p of order) {
     for (let r = 0; r < maxRows; r++) {
-      // widget 独占整行，跳过该行所有列
-      if (pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
+      // 跳过被 widget 视觉区域（rowSpan）覆盖的所有行
+      if (isRowCoveredByWidget(pages[p], r)) continue;
       for (let c = 0; c < maxCols; c++) {
         const occupied = pages[p].some((it) => it.row === r && it.col === c);
         if (!occupied) return { page: p, row: r, col: c };
@@ -680,7 +680,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const gr = settings.rows ?? 8;
           // 先在当前页 p 找空位
           for (let r = 0; r < gr && !placed; r++) {
-            if (next.pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
+            if (isRowCoveredByWidget(next.pages[p], r)) continue;
             for (let c = 0; c < MAX_COLS && !placed; c++) {
               if (!next.pages[p].some((it) => it.row === r && it.col === c)) {
                 next.pages[p].push({ ...child, page: p, row: r, col: c });
@@ -692,7 +692,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             // 其他页面找空位
             outer: for (let pp = 0; pp < next.pages.length; pp++) {
               for (let r = 0; r < gr; r++) {
-                if (next.pages[pp].some((it) => it.row === r && it.type === 'widget')) continue;
+                if (isRowCoveredByWidget(next.pages[pp], r)) continue;
                 for (let c = 0; c < MAX_COLS; c++) {
                   if (!next.pages[pp].some((it) => it.row === r && it.col === c)) {
                     next.pages[pp].push({ ...child, page: pp, row: r, col: c });

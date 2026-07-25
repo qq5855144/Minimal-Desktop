@@ -41,6 +41,28 @@ export const WIDGET_CONFIG: Record<WidgetType, WidgetConfig> = {
   },
 };
 
+/**
+ * 判断数据层行号 r 是否被某个 widget 的视觉区域覆盖。
+ *
+ * 数据层每个 widget 占 1 个 row slot（row = widgetRow），
+ * 但渲染时视觉高度为 rowSpan 行。
+ * 因此行 r 被覆盖的条件：widgetRow <= r < widgetRow + rowSpan。
+ *
+ * 用于所有需要跳过"视觉被 widget 占据的行"的场景：
+ *   findEmptySlot、dissolveFolder、addItem 隐私桌面、拖拽落点校验。
+ */
+export function isRowCoveredByWidget(
+  pageItems: import('@/types').DesktopItem[],
+  r: number,
+): boolean {
+  for (const it of pageItems) {
+    if (it.type !== 'widget') continue;
+    const span = getWidgetConfig(it.widgetType).rowSpan;
+    if (r >= it.row && r < it.row + span) return true;
+  }
+  return false;
+}
+
 export function resolveWidgetType(widgetType?: WidgetType): WidgetType {
   if (widgetType && widgetType in WIDGET_CONFIG) return widgetType;
   return DEFAULT_WIDGET_TYPE;

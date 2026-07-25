@@ -3,7 +3,7 @@ import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/Desk
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
-import { getWidgetConfig } from '@/lib/widgetConfig';
+import { getWidgetConfig, isRowCoveredByWidget } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
@@ -462,9 +462,8 @@ const Desktop: React.FC = () => {
       }
 
       if (!isWidget) {
-        // widget 独占整行，不允许其他图标放入该行
-        const widgetOnRow = d.pages[targetPage]?.find(it => it.row === targetRow && it.type === 'widget');
-        if (widgetOnRow) return;
+        // 普通图标不允许放入被 widget 视觉区域（rowSpan）覆盖的行
+        if (isRowCoveredByWidget(d.pages[targetPage] ?? [], targetRow)) return;
         if (targetItemId) {
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
           if (tgt?.type === 'widget') return; // widget 格子不可放置
@@ -534,9 +533,14 @@ const Desktop: React.FC = () => {
               otherWidget.id, targetPage, otherWidget.row, '0',
             );
           } else {
-            // 检查目标行是否有普通应用（排除自身）
+            // 检查目标 widget 将占据的整个 rowSpan 范围内是否有普通应用（排除自身）
+            const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
+            const draggedSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
             const hasApps = targetPageItems.some(
-              it => it.row === widgetTargetRow && it.id !== g.source.itemId && it.type !== 'widget',
+              it => it.id !== g.source.itemId
+                && it.type !== 'widget'
+                && it.row >= widgetTargetRow
+                && it.row < widgetTargetRow + draggedSpan,
             );
             if (hasApps) {
               toast.error('空间不足');
