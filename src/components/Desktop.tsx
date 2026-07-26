@@ -3,7 +3,7 @@ import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/Desk
 import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
-import { getWidgetConfig, isRowCoveredByWidget } from '@/lib/widgetConfig';
+import { getWidgetConfig, isRowCoveredByWidget, wouldWidgetOverlap } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
@@ -528,12 +528,38 @@ const Desktop: React.FC = () => {
 
           if (otherWidget) {
             // 两个组件互换行位置
+            // 校验交换后是否会导致 widget span 视觉重叠：
+            //   source → otherWidget.row（span = srcSpan）
+            //   otherWidget → src.row（span = otherSpan）
+            // 若重叠，渲染循环（r += span - 1）会跳过被覆盖行，使被覆盖的 widget 消失
+            const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
+            const srcSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
+            const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
+            const srcPageItems = d.pages[src.page] ?? [];
+            const samePage = src.page === targetPage;
+
+            // source 的新位置 [otherWidget.row, +srcSpan) 不能与 targetPage 上其他 widget 重叠
+            const srcOverlaps = wouldWidgetOverlap(
+              targetPageItems, otherWidget.row, srcSpan, [g.source.itemId, otherWidget.id],
+            );
+            // otherWidget 的新位置 [src.row, +otherSpan) 不能与 src.page 上其他 widget 重叠
+            const otherOverlaps = wouldWidgetOverlap(
+              srcPageItems, src.row, otherSpan, [g.source.itemId, otherWidget.id],
+            );
+            // 同页时 source 与 otherWidget 互相不能落入对方的 span 区域
+            const selfOverlap = samePage &&
+              otherWidget.row < src.row + otherSpan && src.row < otherWidget.row + srcSpan;
+
+            if (srcOverlaps || otherOverlaps || selfOverlap) {
+              toast.error('空间不足');
+              return; // 不交换，组件自动复位
+            }
             swap(
               g.source.itemId, src.page, src.row, '0',
               otherWidget.id, targetPage, otherWidget.row, '0',
             );
           } else {
-            // 检查目标 widget 将占据的整个 rowSpan 范围内是否有普通应用（排除自身）
+            // 检查目标 widget 将占据的整个 rowSpan 范围内是否有其他项（含普通应用和其他 widget）
             const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
             const draggedSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
             const hasApps = targetPageItems.some(
@@ -542,7 +568,12 @@ const Desktop: React.FC = () => {
                 && it.row >= widgetTargetRow
                 && it.row < widgetTargetRow + draggedSpan,
             );
-            if (hasApps) {
+            // 校验目标范围内是否与其他 widget 的 span 重叠（之前缺失该校验，
+            // 导致 widget 可被拖入另一个 widget 的视觉区域内，造成"覆盖"bug）
+            const widgetOverlap = wouldWidgetOverlap(
+              targetPageItems, widgetTargetRow, draggedSpan, [g.source.itemId],
+            );
+            if (hasApps || widgetOverlap) {
               toast.error('空间不足');
               return; // 不移动，组件自动复位
             }

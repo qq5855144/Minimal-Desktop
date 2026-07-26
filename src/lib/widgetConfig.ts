@@ -63,6 +63,32 @@ export function isRowCoveredByWidget(
   return false;
 }
 
+/**
+ * 检查将 widget 放到 newRow（视觉 span = newSpan）后，是否会与页面上的其他 widget 视觉重叠。
+ * 排除 excludeIds 中指定的 widget（通常是参与拖拽/交换的 widget 自身）。
+ *
+ * 区间重叠判定：[newRow, newRow+newSpan) 与 [it.row, it.row+span) 有交集
+ *   ⇔ newRow < it.row + span && it.row < newRow + newSpan
+ *
+ * 用于拖拽落点校验：避免 widget 落入其他 widget 的 rowSpan 视觉区域内，
+ * 否则渲染循环（r += span - 1）会跳过被覆盖行的所有 cell，导致被覆盖的 widget
+ * 不被渲染（视觉上表现为"被覆盖/消失"）。
+ */
+export function wouldWidgetOverlap(
+  pageItems: import('@/types').DesktopItem[],
+  newRow: number,
+  newSpan: number,
+  excludeIds: string[] = [],
+): boolean {
+  for (const it of pageItems) {
+    if (it.type !== 'widget') continue;
+    if (excludeIds.includes(it.id)) continue;
+    const span = getWidgetConfig(it.widgetType).rowSpan;
+    if (newRow < it.row + span && it.row < newRow + newSpan) return true;
+  }
+  return false;
+}
+
 export function resolveWidgetType(widgetType?: WidgetType): WidgetType {
   if (widgetType && widgetType in WIDGET_CONFIG) return widgetType;
   return DEFAULT_WIDGET_TYPE;
