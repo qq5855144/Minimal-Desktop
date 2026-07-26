@@ -528,29 +528,45 @@ const Desktop: React.FC = () => {
 
           if (otherWidget) {
             // 两个组件互换行位置
-            // 校验交换后是否会导致 widget span 视觉重叠：
+            // 校验交换后是否会导致 widget span 视觉重叠（widget↔widget 或 widget↔普通应用）：
             //   source → otherWidget.row（span = srcSpan）
             //   otherWidget → src.row（span = otherSpan）
-            // 若重叠，渲染循环（r += span - 1）会跳过被覆盖行，使被覆盖的 widget 消失
+            // 若有重叠，渲染循环（r += span - 1）会跳过被覆盖行，使被覆盖的 widget/应用消失
             const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
             const srcSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
             const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
             const srcPageItems = d.pages[src.page] ?? [];
             const samePage = src.page === targetPage;
+            // 排除参与交换的两个 widget 自身（同页时二者都在同一数组里）
+            const excludeIds = [g.source.itemId, otherWidget.id];
 
-            // source 的新位置 [otherWidget.row, +srcSpan) 不能与 targetPage 上其他 widget 重叠
+            // widget↔widget span 重叠校验
             const srcOverlaps = wouldWidgetOverlap(
-              targetPageItems, otherWidget.row, srcSpan, [g.source.itemId, otherWidget.id],
+              targetPageItems, otherWidget.row, srcSpan, excludeIds,
             );
-            // otherWidget 的新位置 [src.row, +otherSpan) 不能与 src.page 上其他 widget 重叠
             const otherOverlaps = wouldWidgetOverlap(
-              srcPageItems, src.row, otherSpan, [g.source.itemId, otherWidget.id],
+              srcPageItems, src.row, otherSpan, excludeIds,
             );
-            // 同页时 source 与 otherWidget 互相不能落入对方的 span 区域
             const selfOverlap = samePage &&
               otherWidget.row < src.row + otherSpan && src.row < otherWidget.row + srcSpan;
 
-            if (srcOverlaps || otherOverlaps || selfOverlap) {
+            // widget↔普通应用重叠校验：
+            // source 放到 otherWidget.row 后，[otherWidget.row, +srcSpan) 范围内的普通应用会被覆盖
+            const srcHasApps = targetPageItems.some(
+              it => !excludeIds.includes(it.id)
+                && it.type !== 'widget'
+                && it.row >= otherWidget.row
+                && it.row < otherWidget.row + srcSpan,
+            );
+            // otherWidget 放到 src.row 后，[src.row, +otherSpan) 范围内的普通应用会被覆盖
+            const otherHasApps = srcPageItems.some(
+              it => !excludeIds.includes(it.id)
+                && it.type !== 'widget'
+                && it.row >= src.row
+                && it.row < src.row + otherSpan,
+            );
+
+            if (srcOverlaps || otherOverlaps || selfOverlap || srcHasApps || otherHasApps) {
               toast.error('空间不足');
               return; // 不交换，组件自动复位
             }
