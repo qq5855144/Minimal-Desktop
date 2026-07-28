@@ -625,84 +625,61 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   };
 
   // ── 应用视图设置面板 ──
-  const renderView = () => (
-    <div className="px-5 py-4 space-y-5">
-      <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
-        <ChevronLeft className="w-4 h-4" /> 返回
-      </button>
-      <h3 className={`text-base font-semibold ${t.textPrimary}`}>应用视图设置</h3>
-      <div className="space-y-3">
+  const renderView = () => {
+    const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
+      { label: '图标大小', value: settings.iconSize, min: 36, max: 64, step: 2, unit: 'px', key: 'iconSize' },
+      { label: '图标圆角', value: settings.iconRadiusPct ?? 25, min: 0, max: 50, step: 1, unit: '%', key: 'iconRadiusPct' },
+      { label: '每页行数', value: settings.rows ?? 8, min: 1, max: 16, step: 1, unit: '行', key: 'rows' },
+    ];
+    return (
+      <div className="px-4 py-3 space-y-3">
         <div className="flex items-center justify-between">
-          <span className={`text-sm ${t.textMuted}`}>图标大小</span>
-          <span className="text-sm font-medium text-primary">{settings.iconSize} px</span>
+          <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1 text-sm ${t.backText}`}>
+            <ChevronLeft className="w-4 h-4" /> 返回
+          </button>
+          <h3 className={`text-sm font-semibold ${t.textPrimary}`}>应用视图设置</h3>
+          <div className="w-12" />
         </div>
-        <input
-          type="range" min={36} max={64} step={2}
-          value={settings.iconSize}
-          onChange={(e) => updateSettings({ iconSize: Number(e.target.value) })}
-          className="w-full accent-primary"
-        />
-        <div className={`flex justify-between text-xs ${t.textDim}`}>
-          <span>小 (36)</span><span>默认 (46)</span><span>大 (64)</span>
+
+        {/* 每行列数 */}
+        <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder}`}>
+          <span className={`text-xs ${t.textMuted} shrink-0`}>每行列数</span>
+          <div className="flex gap-1.5">
+            {([4, 5] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => updateSettings({ cols: c })}
+                className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                  settings.cols === c
+                    ? 'bg-primary/20 border-primary text-primary'
+                    : `${t.itemBg} ${t.itemBorder} ${t.textDim}`
+                }`}
+              >
+                {c} 列
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* 三个滑块 */}
+        {sliders.map(({ label, value, min, max, step, unit, key }) => (
+          <div key={key} className={`rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder} space-y-1.5`}>
+            <div className="flex items-center justify-between">
+              <span className={`text-xs ${t.textMuted}`}>{label}</span>
+              <span className="text-xs font-medium text-primary">{value}{unit}</span>
+            </div>
+            <input
+              type="range" min={min} max={max} step={step}
+              value={value}
+              onChange={(e) => updateSettings({ [key]: Number(e.target.value) } as never)}
+              className="w-full accent-primary h-1"
+            />
+          </div>
+        ))}
       </div>
-      <div className="space-y-3">
-        <span className={`text-sm ${t.textMuted}`}>每行列数</span>
-        <div className="grid grid-cols-2 gap-3 mt-2">
-          {([4, 5] as const).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => updateSettings({ cols: c })}
-              className={`flex flex-col items-center gap-2 rounded-2xl py-3 border transition-colors ${
-                settings.cols === c
-                  ? 'bg-primary/20 border-primary text-primary'
-                  : `${t.itemBg} ${t.itemBorder} ${t.textMuted}`
-              }`}
-            >
-              <div className={`grid gap-1 ${c === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
-                {Array.from({ length: c }).map((_, i) => (
-                  <div key={i} className={`w-4 h-4 rounded-md ${settings.cols === c ? 'bg-primary/60' : isNeu ? 'bg-gray-300' : 'bg-white/20'}`} />
-                ))}
-              </div>
-              <span className="text-sm font-medium">{c} 列</span>
-              {c === 4 && <span className="text-xs opacity-50">默认</span>}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${t.textMuted}`}>图标圆角</span>
-          <span className="text-sm font-medium text-primary">{settings.iconRadiusPct ?? 25}%</span>
-        </div>
-        <input
-          type="range" min={0} max={50} step={1}
-          value={settings.iconRadiusPct ?? 25}
-          onChange={(e) => updateSettings({ iconRadiusPct: Number(e.target.value) })}
-          className="w-full accent-primary"
-        />
-        <div className={`flex justify-between text-xs ${t.textDim}`}>
-          <span>直角 (0)</span><span>默认 (25)</span><span>圆形 (50)</span>
-        </div>
-      </div>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${t.textMuted}`}>每页行数</span>
-          <span className="text-sm font-medium text-primary">{settings.rows ?? 8} 行</span>
-        </div>
-        <input
-          type="range" min={1} max={16} step={1}
-          value={settings.rows ?? 8}
-          onChange={(e) => updateSettings({ rows: Number(e.target.value) })}
-          className="w-full accent-primary"
-        />
-        <div className={`flex justify-between text-xs ${t.textDim}`}>
-          <span>1 行</span><span>默认 (8)</span><span>16 行</span>
-        </div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   // ── 风格设置面板 ──
   const renderStyle = () => {
