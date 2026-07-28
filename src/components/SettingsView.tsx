@@ -673,6 +673,21 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       </div>
       <div className="space-y-3">
         <div className="flex items-center justify-between">
+          <span className={`text-sm ${t.textMuted}`}>图标圆角</span>
+          <span className="text-sm font-medium text-primary">{settings.iconRadiusPct ?? 25}%</span>
+        </div>
+        <input
+          type="range" min={0} max={50} step={1}
+          value={settings.iconRadiusPct ?? 25}
+          onChange={(e) => updateSettings({ iconRadiusPct: Number(e.target.value) })}
+          className="w-full accent-primary"
+        />
+        <div className={`flex justify-between text-xs ${t.textDim}`}>
+          <span>直角 (0)</span><span>默认 (25)</span><span>圆形 (50)</span>
+        </div>
+      </div>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
           <span className={`text-sm ${t.textMuted}`}>每页行数</span>
           <span className="text-sm font-medium text-primary">{settings.rows ?? 8} 行</span>
         </div>

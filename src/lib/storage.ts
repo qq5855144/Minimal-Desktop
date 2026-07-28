@@ -177,6 +177,7 @@ export const DEFAULT_BG_IMAGE = 'https://miaoda-conversation-file.cdn.bcebos.com
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
   iconSize: 46,
+  iconRadiusPct: 25,
   cols: 4,
   rows: 8,
   bgType: 'image',

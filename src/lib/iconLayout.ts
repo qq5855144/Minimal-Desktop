@@ -2,7 +2,7 @@ export type IconSizeVariant = 'normal' | 'small';
 
 const SMALL_ICON_PX = 44;
 const DEFAULT_ICON_PX = 46;
-const ICON_RADIUS = '25%';
+const DEFAULT_ICON_RADIUS_PCT = 25;
 const ICON_LABEL_GAP_PX = 4;
 const ICON_LABEL_PADDING_X_PX = 8;
 const FOLDER_PREVIEW_SCALE = 0.78;
@@ -39,8 +39,9 @@ export function resolveIconPx(size: IconSizeVariant = 'normal', iconPx?: number)
   return iconPx ?? DEFAULT_ICON_PX;
 }
 
-export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: number): IconLayoutMetrics {
+export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: number, iconRadiusPct?: number): IconLayoutMetrics {
   const resolvedIconPx = resolveIconPx(size, iconPx);
+  const resolvedRadiusPct = size === 'small' ? DEFAULT_ICON_RADIUS_PCT : (iconRadiusPct ?? DEFAULT_ICON_RADIUS_PCT);
   const labelHeightPx = LABEL_HEIGHT_MAP[size];
   const labelMaxWidthPx = resolvedIconPx + ICON_LABEL_PADDING_X_PX;
   const labelPlaceholderWidthPx = Math.min(
@@ -52,7 +53,7 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
 
   return {
     iconPx: resolvedIconPx,
-    iconRadius: ICON_RADIUS,
+    iconRadius: `${resolvedRadiusPct}%`,
     textClass: TEXT_CLASS_MAP[size],
     labelGapPx: ICON_LABEL_GAP_PX,
     labelHeightPx,

@@ -74,7 +74,7 @@ const AppIcon: React.FC<AppIconProps> = ({
   // 防止释放指针捕获后路过的其他图标误触发 onDragBegin
   const pointerDownActiveRef = useRef(false);
 
-  const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize);
+  const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize, settings.iconRadiusPct);
   const px = metrics.iconPx;
 
   // 新拟态风格阴影

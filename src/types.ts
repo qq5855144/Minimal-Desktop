@@ -82,6 +82,7 @@ export interface DesktopSettings {
   bgType?: 'image' | 'video' | 'default';
   style: DesktopStyle;
   iconSize: number;        // 默认 46
+  iconRadiusPct: number;   // 图标圆角百分比，默认 25，范围 0-50
   cols: 4 | 5;
   rows: number;            // 每页总视觉行数（含 widget 行），默认 8，范围 1-16
   bgOverlayEnabled?: boolean;

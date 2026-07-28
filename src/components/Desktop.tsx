@@ -780,7 +780,7 @@ const Desktop: React.FC = () => {
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
     const renderRows = settings.rows ?? 8;
-    const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize);
+    const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize, settings.iconRadiusPct);
 
     for (let r = 0; r < renderRows; r++) {
       const widgetItem = items.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
