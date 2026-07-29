@@ -68,7 +68,7 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
           draggable={false}
           decoding="async"
           onLoad={handleImgLoad}
-          style={{ width: '80%', height: '80%', objectFit: 'contain', display: 'block' }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -282,7 +282,7 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (iconSrc && !imgError) {
       return (
         <div
-          className="overflow-hidden ios-icon-shadow relative flex items-center justify-center"
+          className="overflow-hidden ios-icon-shadow relative"
           style={{ ...iconStyle, background: appBg }}
         >
           <img
@@ -290,7 +290,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             alt={item.name}
             draggable={false}
             decoding="async"
-            style={{ width: '80%', height: '80%', objectFit: 'contain', display: 'block' }}
+            className="absolute inset-0 w-full h-full object-cover"
             onLoad={(e) => {
               // 图片加载完成后直接从 img 元素取色，绕过 CORS 限制
               if (!item.iconUrl) return;
