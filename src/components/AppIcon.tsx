@@ -7,7 +7,6 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
-import { fetchIconBgColor, getBgColorCache, extractBgColorFromImg, setBgColorCache } from '@/lib/iconBgColor';
 
 /**
  * 图标背景层：将图标图片放大+模糊作为背景，视觉上与图标边缘颜色完全一致。
@@ -108,12 +107,6 @@ const AppIcon: React.FC<AppIconProps> = ({
   const [iconSrc, setIconSrc] = useState<string | undefined>(() =>
     item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined
   );
-  // 从图标外围取色后的背景色（hex 字符串），null 表示取色失败降级白色
-  const [iconBg, setIconBg] = useState<string | null>(() => {
-    if (!item.iconUrl) return null;
-    const cached = getBgColorCache(item.iconUrl);
-    return cached !== undefined ? cached : null;
-  });
 
   // 用 ref 记录上次 iconUrl，useEffect 只在 iconUrl 真正变化时才更新 iconSrc（跳过初次挂载）
   const prevIconUrlRef = useRef(item.iconUrl);
@@ -124,8 +117,6 @@ const AppIcon: React.FC<AppIconProps> = ({
     prevIconUrlRef.current = item.iconUrl;
     setImgError(false);
     setIconSrc(item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined);
-    // iconUrl 变化时同时重置背景色
-    setIconBg(item.iconUrl ? (getBgColorCache(item.iconUrl) ?? null) : null);
   }, [item.iconUrl]);
 
   useEffect(() => {
@@ -135,32 +126,11 @@ const AppIcon: React.FC<AppIconProps> = ({
     const cached = getIconCache(item.iconUrl);
     if (cached) {
       setIconSrc(cached);
-      // 已有 DataURL，尝试取色
-      const bgCached = getBgColorCache(item.iconUrl);
-      if (bgCached === undefined) {
-        fetchIconBgColor(cached, item.iconUrl).then((color) => {
-          if (!cancelled) setIconBg(color);
-        });
-      } else {
-        setIconBg(bgCached);
-      }
       return;
     }
 
     fetchAndCacheIcon(item.iconUrl).then((dataUrl) => {
-      if (!cancelled) {
-        if (dataUrl) setIconSrc(dataUrl);
-        // 取色：DataURL 可用就用 DataURL，否则用原始 URL
-        const src = dataUrl ?? item.iconUrl!;
-        const bgCached = getBgColorCache(item.iconUrl!);
-        if (bgCached !== undefined) {
-          setIconBg(bgCached);
-        } else {
-          fetchIconBgColor(src, item.iconUrl).then((color) => {
-            if (!cancelled) setIconBg(color);
-          });
-        }
-      }
+      if (!cancelled && dataUrl) setIconSrc(dataUrl);
     });
 
     return () => { cancelled = true; };
@@ -318,19 +288,7 @@ const AppIcon: React.FC<AppIconProps> = ({
               objectFit: 'contain',   // 等比显示，透明区域透出下方背景层
               zIndex: 1,
             }}
-            onLoad={(e) => {
-              if (!item.iconUrl) return;
-              if (getBgColorCache(item.iconUrl) !== undefined) return;
-              const color = extractBgColorFromImg(e.currentTarget);
-              if (color) {
-                setBgColorCache(item.iconUrl, color);
-                setIconBg(color);
-              } else {
-                fetchIconBgColor(item.iconUrl, item.iconUrl).then((c) => {
-                  if (c) setIconBg(c);
-                });
-              }
-            }}
+            onLoad={undefined}
             onError={(e) => {
               const img = e.currentTarget;
               if (item.url && !img.dataset.fallbackTried) {
