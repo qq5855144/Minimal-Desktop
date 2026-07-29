@@ -9,6 +9,41 @@ import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchIconBgColor, getBgColorCache, extractBgColorFromImg, setBgColorCache } from '@/lib/iconBgColor';
 
+/**
+ * 图标背景层：将图标图片放大+模糊作为背景，视觉上与图标边缘颜色完全一致。
+ * 完全不依赖 canvas 读像素，零 CORS 问题。
+ * 当取色失败（iconBg 为 null）时作为兜底背景层。
+ */
+const IconBlurBg: React.FC<{ src: string; radius: string | number }> = ({ src, radius }) => (
+  <span
+    aria-hidden
+    style={{
+      position: 'absolute', inset: 0,
+      borderRadius: radius,
+      overflow: 'hidden',
+      display: 'block',
+      zIndex: 0,
+    }}
+  >
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      style={{
+        position: 'absolute',
+        inset: '-20%',
+        width: '140%',
+        height: '140%',
+        objectFit: 'cover',
+        filter: 'blur(12px) saturate(1.4)',
+        transform: 'scale(1.1)',
+        pointerEvents: 'none',
+        userSelect: 'none',
+      }}
+    />
+  </span>
+);
+
 interface AppIconProps {
   item: DesktopItem;
   onClick?: () => void;
@@ -25,58 +60,30 @@ const LONG_PRESS_MS = 500;
 // 手机端手指轻微抖动约 5-10px，阈值设为 14px 以避免误触取消长按
 const DRAG_THRESHOLD = 14;
 
-/** 文件夹缩略图内的子图标 —— 独立组件以便维护各自的取色状态 */
+/** 文件夹缩略图内的子图标 —— 独立组件，使用 blur 背景层填充透明区域 */
 const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
   child, cellPx, iconFontPx,
 }) => {
-  const [bg, setBg] = useState<string>(() => {
-    if (!child.iconUrl) return '#ffffff';
-    const cached = getBgColorCache(child.iconUrl);
-    return cached !== undefined ? (cached ?? '#ffffff') : '#ffffff';
-  });
-
-  useEffect(() => {
-    if (!child.iconUrl) return;
-    const cached = getBgColorCache(child.iconUrl);
-    if (cached !== undefined) { setBg(cached ?? '#ffffff'); return; }
-    // 尝试用已缓存的 DataURL 取色
-    const src = getIconCache(child.iconUrl) ?? child.iconUrl;
-    let cancelled = false;
-    fetchIconBgColor(src, child.iconUrl).then((color) => {
-      if (!cancelled) setBg(color ?? '#ffffff');
-    });
-    return () => { cancelled = true; };
-  }, [child.iconUrl]);
-
-  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    if (!child.iconUrl) return;
-    if (getBgColorCache(child.iconUrl) !== undefined) return;
-    const color = extractBgColorFromImg(e.currentTarget);
-    if (color) {
-      setBgColorCache(child.iconUrl, color);
-      setBg(color);
-    } else {
-      // canvas CORS 污染时 fallback
-      fetchIconBgColor(child.iconUrl, child.iconUrl).then((c) => {
-        if (c) setBg(c);
-      });
-    }
-  }, [child.iconUrl]);
+  const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
+  const RADIUS = '25%';
 
   return (
     <div
-      className="rounded-[25%] overflow-hidden flex items-center justify-center"
-      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0 }}
+      className="rounded-[25%] overflow-hidden relative flex items-center justify-center"
+      style={{ width: cellPx, height: cellPx, flexShrink: 0, background: '#e8e8e8' }}
     >
-      {child.iconUrl ? (
-        <img
-          src={getIconCache(child.iconUrl) ?? child.iconUrl}
-          alt=""
-          draggable={false}
-          decoding="async"
-          onLoad={handleImgLoad}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        />
+      {src ? (
+        <>
+          {/* blur 背景层：零 CORS，颜色与图标边缘完全一致 */}
+          <IconBlurBg src={src} radius={RADIUS} />
+          <img
+            src={src}
+            alt=""
+            draggable={false}
+            decoding="async"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1, display: 'block' }}
+          />
+        </>
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
           {child.name.slice(0, 1)}
@@ -284,30 +291,29 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标：背景色填充透明区域，图片完全覆盖容器
-    const appBg = iconBg ?? '#ffffff';
+    // 普通 app 图标：blur 背景层填充透明区域，视觉上与图标边缘颜色完全一致
     if (iconSrc && !imgError) {
       return (
         <div
-          className="overflow-hidden ios-icon-shadow relative"
-          style={{ ...iconStyle, background: appBg }}
+          className="ios-icon-shadow relative"
+          style={{ ...iconStyle, overflow: 'hidden', background: iconBg ?? '#e8e8e8' }}
         >
+          {/* blur 背景层：图标放大模糊，零 CORS 问题，颜色与图标边缘完全一致 */}
+          <IconBlurBg src={iconSrc} radius={metrics.iconRadius} />
           <img
             src={iconSrc}
             alt={item.name}
             draggable={false}
             decoding="async"
-            className="absolute inset-0 w-full h-full object-cover"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }}
             onLoad={(e) => {
               if (!item.iconUrl) return;
               if (getBgColorCache(item.iconUrl) !== undefined) return;
-              // 先尝试直接从 img 元素取色（同步，适用于同域 / DataURL）
               const color = extractBgColorFromImg(e.currentTarget);
               if (color) {
                 setBgColorCache(item.iconUrl, color);
                 setIconBg(color);
               } else {
-                // canvas 被 CORS 污染时 fallback：fetch + createImageBitmap
                 fetchIconBgColor(item.iconUrl, item.iconUrl).then((c) => {
                   if (c) setIconBg(c);
                 });
@@ -326,10 +332,11 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
+    // 无图标 fallback：纯色首字母
     return (
       <div
         className="flex items-center justify-center ios-icon-shadow"
-        style={{ ...iconStyle, background: appBg }}
+        style={{ ...iconStyle, background: '#888888' }}
       >
         {item.url ? (
           <Globe style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />
