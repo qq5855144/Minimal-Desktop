@@ -8,40 +8,7 @@ import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 
-/**
- * 图标背景扩图层：将图标图片放大+模糊铺满容器底部。
- * 透明区域透出此层，视觉上与图标边缘颜色自然衔接。
- * 完全不依赖 canvas / 取色，零 CORS 问题。
- */
-const IconBlurBg: React.FC<{ src: string; radius: string | number }> = ({ src, radius }) => (
-  <span
-    aria-hidden
-    style={{
-      position: 'absolute', inset: 0,
-      borderRadius: radius,
-      overflow: 'hidden',
-      display: 'block',
-      zIndex: 0,
-    }}
-  >
-    <img
-      src={src}
-      alt=""
-      draggable={false}
-      style={{
-        position: 'absolute',
-        inset: '-20%',
-        width: '140%',
-        height: '140%',
-        objectFit: 'cover',
-        filter: 'blur(12px) saturate(1.4)',
-        transform: 'scale(1.1)',
-        pointerEvents: 'none',
-        userSelect: 'none',
-      }}
-    />
-  </span>
-);
+
 
 interface AppIconProps {
   item: DesktopItem;
@@ -83,7 +50,7 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
             style={{
               position: 'absolute', inset: 0,
               width: '100%', height: '100%',
-              objectFit: 'cover',   // 铺满，消除白色边距
+              objectFit: 'contain',
               zIndex: 1, display: 'block',
             }}
           />
@@ -266,17 +233,13 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标：
-    // - 背景层：同一张图放大+模糊，填充边缘颜色（blur 扩图）
-    // - 前景层：object-cover 铺满容器，消除白色留白边距
+    // 普通 app 图标：object-contain 等比居中，背景白色兜底
     if (iconSrc && !imgError) {
       return (
         <div
-          className="ios-icon-shadow relative"
-          style={{ ...iconStyle, overflow: 'hidden' }}
+          className="ios-icon-shadow relative flex items-center justify-center"
+          style={{ ...iconStyle, overflow: 'hidden', background: '#fff' }}
         >
-          {/* 背景扩图层：放大+模糊，边缘颜色自然过渡 */}
-          <IconBlurBg src={iconSrc} radius={metrics.iconRadius} />
           <img
             src={iconSrc}
             alt={item.name}
@@ -285,8 +248,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             style={{
               position: 'absolute', inset: 0,
               width: '100%', height: '100%',
-              objectFit: 'cover',   // 铺满容器，消除白色/透明边距
-              zIndex: 1,
+              objectFit: 'contain',
             }}
             onLoad={undefined}
             onError={(e) => {

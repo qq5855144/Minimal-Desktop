@@ -6,7 +6,8 @@ import { probeFavicon, guessNameFromUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon } from '@/lib/iconCache';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { getPanelTheme } from '@/lib/panelTheme';
-import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, ChevronLeft } from 'lucide-react';
+import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, ChevronLeft, Crop } from 'lucide-react';
+import IconCropDialog from '@/components/IconCropDialog';
 
 interface AddEditDialogProps {
   open: boolean;
@@ -43,6 +44,8 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 记录上次探测的 URL，避免重复触发
   const lastProbedUrl = useRef('');
+  // 裁剪弹窗
+  const [cropSrc, setCropSrc] = useState<string | undefined>();
 
   const effectiveIcon =
     iconSource === 'auto' ? autoFavicon :
@@ -120,16 +123,28 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     runProbe(url, false);
   }, [url, runProbe]);
 
-  // 本地文件上传
+  // 本地文件上传 → 弹出裁剪弹窗
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { alert('图片不超过 3MB'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('图片不超过 10MB'); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => setLocalIconData(ev.target?.result as string);
+    reader.onload = (ev) => {
+      // 打开裁剪弹窗
+      setCropSrc(ev.target?.result as string);
+    };
     reader.readAsDataURL(file);
     e.target.value = '';
   }, []);
+
+  // 裁剪确认：将裁剪结果作为本地图标
+  const handleCropConfirm = useCallback((dataUrl: string) => {
+    setLocalIconData(dataUrl);
+    setIconSource('local');
+    setCropSrc(undefined);
+  }, []);
+
+  const handleCropCancel = useCallback(() => setCropSrc(undefined), []);
 
   const handleSubmit = useCallback(() => {
     if (!name.trim()) { alert('请输入应用名称'); return; }
@@ -158,6 +173,15 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   if (!open) return null;
 
   return (
+    <>
+    {/* 裁剪弹窗（覆盖在最顶层） */}
+    {cropSrc && (
+      <IconCropDialog
+        src={cropSrc}
+        onConfirm={handleCropConfirm}
+        onCancel={handleCropCancel}
+      />
+    )}
     <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
       <div
         className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
@@ -188,7 +212,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                 {fetching ? (
                   <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
                 ) : effectiveIcon ? (
-                  <img src={effectiveIcon} alt="" className="w-full h-full object-cover"
+                  <img src={effectiveIcon} alt="" className="w-full h-full object-contain"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 ) : (
                   <Globe className={`w-7 h-7 ${t.textDim}`} />
@@ -204,6 +228,17 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                   title="重新获取图标"
                 >
                   <RefreshCw className={`w-2.5 h-2.5 ${t.textMuted}`} />
+                </button>
+              )}
+              {/* 裁剪按钮（有图标时显示） */}
+              {effectiveIcon && !fetching && (
+                <button
+                  type="button"
+                  onClick={() => setCropSrc(effectiveIcon)}
+                  className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm transition-colors`}
+                  title="裁剪图标"
+                >
+                  <Crop className={`w-2.5 h-2.5 ${t.textMuted}`} />
                 </button>
               )}
             </div>
@@ -270,14 +305,27 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
               />
             )}
             {iconSource === 'local' && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`w-full flex items-center gap-2 px-3 h-9 rounded-xl border border-dashed ${isNeu ? 'border-gray-300 text-gray-400 hover:bg-gray-100' : 'border-white/20 text-white/40 hover:bg-white/8'} text-sm transition-colors`}
-              >
-                <Upload className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{localIconData ? '已上传（点击更换）' : '点击选择本地图片'}</span>
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex-1 flex items-center gap-2 px-3 h-9 rounded-xl border border-dashed ${isNeu ? 'border-gray-300 text-gray-400 hover:bg-gray-100' : 'border-white/20 text-white/40 hover:bg-white/8'} text-sm transition-colors`}
+                >
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{localIconData ? '已上传（点击更换）' : '点击选择本地图片'}</span>
+                </button>
+                {localIconData && (
+                  <button
+                    type="button"
+                    onClick={() => setCropSrc(localIconData)}
+                    className={`flex items-center gap-1 px-3 h-9 rounded-xl border ${isNeu ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-white/20 text-white/50 hover:bg-white/8'} text-sm transition-colors shrink-0`}
+                    title="重新裁剪"
+                  >
+                    <Crop className="w-3.5 h-3.5" />
+                    <span>裁剪</span>
+                  </button>
+                )}
+              </div>
             )}
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
           </div>
@@ -310,6 +358,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         <div className="pb-6" />
       </div>
     </div>
+    </>
   );
 
 };
