@@ -31,6 +31,22 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
   child, cellPx, iconFontPx,
 }) => {
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
+  const crop = child.iconCrop;
+
+  // 有裁剪参数时用 CSS transform 渲染，与 AppIcon 保持一致
+  const imgStyle: React.CSSProperties = crop ? {
+    position: 'absolute' as const,
+    width: '100%', height: '100%',
+    objectFit: 'contain' as const,
+    transform: `scale(${100 / crop.size})`,
+    transformOrigin: `${crop.x + crop.size / 2}% ${crop.y + crop.size / 2}%`,
+    zIndex: 1, display: 'block',
+  } : {
+    position: 'absolute' as const, inset: 0,
+    width: '100%', height: '100%',
+    objectFit: 'contain' as const,
+    zIndex: 1, display: 'block',
+  };
 
   return (
     <div
@@ -38,20 +54,13 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
       style={{ width: cellPx, height: cellPx, flexShrink: 0, background: '#fff' }}
     >
       {src ? (
-        <>
-          <img
-            src={src}
-            alt=""
-            draggable={false}
-            decoding="async"
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              objectFit: 'contain',
-              zIndex: 1, display: 'block',
-            }}
-          />
-        </>
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          decoding="async"
+          style={imgStyle}
+        />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
           {child.name.slice(0, 1)}
