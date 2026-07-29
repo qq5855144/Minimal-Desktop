@@ -120,13 +120,14 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       const result = await downloadFromGithub(syncCfg);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok && result.data) {
-        importData(result.data);
-        // 先重置隐私锁，再写入 vault
-        // 防止旧密钥的 privacyPageItems effect 在 savePrivacyVault 之后覆盖新 vault
-        resetPrivacyLock();
+        // 1. 先写入 vault 到 localStorage（在 React 状态更新之前）
         if (result.data.privacyVault) {
           savePrivacyVault(result.data.privacyVault);
         }
+        // 2. 重置内存密钥（清空后 privacyPageItems effect 因 !kd 不会再写 vault）
+        resetPrivacyLock();
+        // 3. 最后写入桌面数据（触发 React 重渲染）
+        importData(result.data);
         const next = { ...config, lastSyncAt: new Date().toISOString() };
         setConfig(next); saveSyncConfig(next);
         toast.success(result.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');

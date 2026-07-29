@@ -242,13 +242,12 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [data]);
 
   // 隐私页持久化（加密保存，仅在密钥可用时执行）
-  const privacyCryptoKeyRef = useRef<{ key: CryptoKey; salt: Uint8Array } | null>(null);
-  useEffect(() => { privacyCryptoKeyRef.current = privacyCryptoKey; }, [privacyCryptoKey]);
+  // 同时依赖 privacyCryptoKey state，确保密钥清空后立即停止写入，不存在竞态
   useEffect(() => {
-    const kd = privacyCryptoKeyRef.current;
-    if (!kd) return; // 未解锁时不保存（密钥不在内存）
-    encryptItems(privacyPageItems, kd.key, kd.salt).then(savePrivacyVault).catch(() => {/* 静默失败 */});
-  }, [privacyPageItems]);
+    if (!privacyCryptoKey) return; // 未解锁 / 已重置 → 不写 vault
+    const { key, salt } = privacyCryptoKey;
+    encryptItems(privacyPageItems, key, salt).then(savePrivacyVault).catch(() => {/* 静默失败 */});
+  }, [privacyPageItems, privacyCryptoKey]);
 
   // 模拟骨架屏加载
   useEffect(() => {
