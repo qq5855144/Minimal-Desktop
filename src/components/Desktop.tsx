@@ -673,9 +673,9 @@ const Desktop: React.FC = () => {
   }, []);
 
   const handleAddApp = useCallback(
-    (app: { name: string; url: string; iconUrl?: string }) => {
+    (app: { name: string; url: string; iconUrl?: string; iconCrop?: import('@/types').IconCrop }) => {
       addItem(
-        { type: 'app', name: app.name, url: app.url, iconUrl: app.iconUrl, color: 'blue' },
+        { type: 'app', name: app.name, url: app.url, iconUrl: app.iconUrl, iconCrop: app.iconCrop, color: 'blue' },
         currentPage,
       );
       toast.success(`已添加「${app.name}」`);

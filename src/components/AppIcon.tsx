@@ -230,8 +230,24 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标：object-contain 等比居中，背景白色兜底
+    // 普通 app 图标：支持 iconCrop CSS 裁剪渲染（无 canvas，无跨域限制）
     if (iconSrc && !imgError) {
+      const crop = item.iconCrop;
+      // 有裁剪参数：用 CSS transform 实现裁剪，不需要 canvas
+      const imgStyle: React.CSSProperties = crop ? (() => {
+        const scale = 100 / crop.size;
+        return {
+          position: 'absolute' as const,
+          width: '100%', height: '100%',
+          objectFit: 'contain' as const,
+          transform: `scale(${scale})`,
+          transformOrigin: `${crop.x + crop.size / 2}% ${crop.y + crop.size / 2}%`,
+        };
+      })() : {
+        position: 'absolute' as const, inset: 0,
+        width: '100%', height: '100%',
+        objectFit: 'contain' as const,
+      };
       return (
         <div
           className="ios-icon-shadow relative flex items-center justify-center"
@@ -242,11 +258,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             alt={item.name}
             draggable={false}
             decoding="async"
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              objectFit: 'contain',
-            }}
+            style={imgStyle}
             onLoad={undefined}
             onError={(e) => {
               const img = e.currentTarget;

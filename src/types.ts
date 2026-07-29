@@ -15,6 +15,18 @@ export type IconColor =
 export type ItemType = 'app' | 'folder' | 'system' | 'widget';
 export type WidgetType = 'clock' | 'search' | 'combined';
 
+/**
+ * 图标裁剪参数（相对值，单位 %，范围 0~100）
+ * x/y：裁剪框左上角在原图中的位置
+ * size：裁剪框边长占原图短边的百分比
+ * 渲染时用 CSS transform 实现，无需 canvas，无跨域限制。
+ */
+export interface IconCrop {
+  x: number;   // 0~100
+  y: number;   // 0~100
+  size: number; // 1~100
+}
+
 // 桌面项（应用 / 文件夹 / 系统应用 / 组件）
 export interface DesktopItem {
   id: string;
@@ -24,6 +36,8 @@ export interface DesktopItem {
   url?: string;
   // 图标来源：favicon URL 或自定义 dataURL
   iconUrl?: string;
+  // 图标裁剪参数（CSS 模式，无跨域限制）
+  iconCrop?: IconCrop;
   // 图标颜色主题（无自定义图标时使用）
   color: IconColor;
   // 所在页面索引（0 起）

@@ -1,161 +1,74 @@
 /**
- * 图标裁剪弹窗
- * - 展示原图，用户可拖动/缩放一个正方形裁剪框
- * - 点击"确定"后用 canvas 输出裁剪区域的 dataURL
- * - 纯前端，无 CORS 限制（仅支持 data: / blob: / 同源 URL）
+ * 图标裁剪弹窗（纯 CSS 模式，无 canvas，无跨域限制）
+ * - 用户拖动/缩放裁剪框选择区域
+ * - 确认后输出 IconCrop（x%/y%/size%），由 AppIcon 用 CSS transform 渲染
+ * - 支持任意来源图片（URL / dataURL / blob URL），不受 CORS 限制
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import type { IconCrop } from '@/types';
 import { Move, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
-interface Rect { x: number; y: number; size: number; }
-
 interface IconCropDialogProps {
-  /** 待裁剪图片的 src（data URL 或 blob URL） */
+  /** 待裁剪图片的 src（任意 URL，无 CORS 要求） */
   src: string;
-  onConfirm: (dataUrl: string) => void;
+  /** 初始裁剪参数（编辑时回显） */
+  initialCrop?: IconCrop;
+  onConfirm: (crop: IconCrop) => void;
   onCancel: () => void;
 }
 
-const MIN_SIZE = 40;
-const OUTPUT_SIZE = 256; // 输出 256×256 dataURL
+const MIN_SIZE_PCT = 10; // 最小裁剪框 10%
 
-const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, onConfirm, onCancel }) => {
+const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, initialCrop, onConfirm, onCancel }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // 裁剪参数（百分比，相对图片实际渲染尺寸）
+  const [crop, setCrop] = useState<IconCrop>(
+    initialCrop ?? { x: 10, y: 10, size: 80 }
+  );
+
+  // 拖动/缩放 ref
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; origSize: number } | null>(null);
+
+  // 图片实际渲染尺寸（容器内 object-contain 后的尺寸）
+  const [renderedSize, setRenderedSize] = useState<{ w: number; h: number; offX: number; offY: number } | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // 图片在容器内的渲染尺寸
-  const [imgSize, setImgSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
-  // 裁剪框（相对容器坐标，单位 px）
-  const [crop, setCrop] = useState<Rect>({ x: 0, y: 0, size: 0 });
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  // 拖拽裁剪框
-  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-  // 调整裁剪框大小（右下角 handle）
-  const resizeRef = useRef<{ startX: number; startY: number; origSize: number; origX: number; origY: number } | null>(null);
-
-  /** 图片加载完成后初始化裁剪框（居中，取短边 80%） */
-  const initCrop = useCallback((w: number, h: number) => {
-    const size = Math.round(Math.min(w, h) * 0.8);
-    setCrop({ x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size });
+  const computeRenderedSize = useCallback(() => {
+    const img = imgRef.current;
+    const container = containerRef.current;
+    if (!img || !container || !img.naturalWidth) return;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const ratio = img.naturalWidth / img.naturalHeight;
+    let w = cw, h = cw / ratio;
+    if (h > ch) { h = ch; w = ch * ratio; }
+    setRenderedSize({ w: Math.round(w), h: Math.round(h), offX: Math.round((cw - w) / 2), offY: Math.round((ch - h) / 2) });
   }, []);
 
-  /** 图片 onLoad：计算在容器内的渲染尺寸 */
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    imgRef.current = img;
-    const container = containerRef.current;
-    if (!container) return;
-    const maxW = container.clientWidth;
-    const maxH = container.clientHeight;
-    const ratio = img.naturalWidth / img.naturalHeight;
-    let w = maxW, h = maxW / ratio;
-    if (h > maxH) { h = maxH; w = maxH * ratio; }
-    setImgSize({ w: Math.round(w), h: Math.round(h) });
-    setImgLoaded(true);
-    initCrop(Math.round(w), Math.round(h));
-  }, [initCrop]);
+    imgRef.current = e.currentTarget;
+    computeRenderedSize();
+    if (!initialCrop) {
+      const imgEl = e.currentTarget;
+      const container = containerRef.current;
+      if (!container) return;
+      const cw = container.clientWidth, ch = container.clientHeight;
+      const ratio = imgEl.naturalWidth / imgEl.naturalHeight;
+      let w = cw, h = cw / ratio;
+      if (h > ch) { h = ch; w = ch * ratio; }
+      // 初始裁剪框：居中，取短边 80%
+      const shortPct = Math.round(Math.min(w, h) / Math.max(w, h) * 80);
+      const sizePct = Math.min(80, shortPct);
+      setCrop({ x: Math.round((100 - sizePct) / 2), y: Math.round((100 - sizePct) / 2), size: sizePct });
+    }
+  }, [initialCrop]);
 
-  /** 重置裁剪框 */
-  const handleReset = useCallback(() => {
-    if (imgSize.w && imgSize.h) initCrop(imgSize.w, imgSize.h);
-  }, [imgSize, initCrop]);
-
-  /** 缩放裁剪框 */
-  const handleZoom = useCallback((delta: number) => {
-    setCrop((prev) => {
-      const newSize = Math.max(MIN_SIZE, Math.min(Math.min(imgSize.w, imgSize.h), prev.size + delta));
-      const cx = prev.x + prev.size / 2;
-      const cy = prev.y + prev.size / 2;
-      const nx = Math.max(0, Math.min(imgSize.w - newSize, cx - newSize / 2));
-      const ny = Math.max(0, Math.min(imgSize.h - newSize, cy - newSize / 2));
-      return { x: Math.round(nx), y: Math.round(ny), size: Math.round(newSize) };
-    });
-  }, [imgSize]);
-
-  // ── 拖拽裁剪框移动 ──────────────────────────────────────────────────────────
-
-  const onCropPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: crop.x, origY: crop.y };
-  }, [crop]);
-
-  const onCropPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    setCrop((prev) => ({
-      ...prev,
-      x: Math.max(0, Math.min(imgSize.w - prev.size, dragRef.current!.origX + dx)),
-      y: Math.max(0, Math.min(imgSize.h - prev.size, dragRef.current!.origY + dy)),
-    }));
-  }, [imgSize]);
-
-  const onCropPointerUp = useCallback(() => { dragRef.current = null; }, []);
-
-  // ── 拖拽右下角调整大小 ──────────────────────────────────────────────────────
-
-  const onResizePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    resizeRef.current = { startX: e.clientX, startY: e.clientY, origSize: crop.size, origX: crop.x, origY: crop.y };
-  }, [crop]);
-
-  const onResizePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current) return;
-    const delta = Math.max(e.clientX - resizeRef.current.startX, e.clientY - resizeRef.current.startY);
-    const newSize = Math.max(MIN_SIZE, Math.min(
-      Math.min(imgSize.w - resizeRef.current.origX, imgSize.h - resizeRef.current.origY),
-      resizeRef.current.origSize + delta,
-    ));
-    setCrop((prev) => ({ ...prev, size: Math.round(newSize) }));
-  }, [imgSize]);
-
-  const onResizePointerUp = useCallback(() => { resizeRef.current = null; }, []);
-
-  // ── 确认裁剪：用 canvas 绘制 ────────────────────────────────────────────────
-
-  const handleConfirm = useCallback(() => {
-    if (!imgSize.w || crop.size === 0) return;
-    const canvas = canvasRef.current!;
-    canvas.width = OUTPUT_SIZE;
-    canvas.height = OUTPUT_SIZE;
-    const ctx = canvas.getContext('2d')!;
-
-    // 重新创建带 crossOrigin 的 Image，避免远程图片污染 canvas（Tainted canvas）
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const scaleX = img.naturalWidth / imgSize.w;
-      const scaleY = img.naturalHeight / imgSize.h;
-      const sx = crop.x * scaleX;
-      const sy = crop.y * scaleY;
-      const sw = crop.size * scaleX;
-      const sh = crop.size * scaleY;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
-      onConfirm(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => {
-      // crossOrigin 请求被服务器拒绝时，降级：不加 crossOrigin 再试一次（可能仍报错，但给出友好提示）
-      const img2 = new Image();
-      img2.onload = () => {
-        try {
-          const scaleX = img2.naturalWidth / imgSize.w;
-          const scaleY = img2.naturalHeight / imgSize.h;
-          ctx.drawImage(img2, crop.x * scaleX, crop.y * scaleY, crop.size * scaleX, crop.size * scaleY, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
-          onConfirm(canvas.toDataURL('image/png'));
-        } catch {
-          alert('该图片来源不支持裁剪，请改用本地上传的图片');
-        }
-      };
-      img2.src = src;
-    };
-    img.src = src;
-  }, [crop, imgSize, src, onConfirm]);
+  useEffect(() => {
+    window.addEventListener('resize', computeRenderedSize);
+    return () => window.removeEventListener('resize', computeRenderedSize);
+  }, [computeRenderedSize]);
 
   // 阻止容器内滚动穿透
   useEffect(() => {
@@ -165,6 +78,130 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, onConfirm, onCance
     el.addEventListener('touchmove', prevent, { passive: false });
     return () => el.removeEventListener('touchmove', prevent);
   }, []);
+
+  /** 将容器坐标转换为百分比（相对渲染图片） */
+  const toPct = useCallback((clientX: number, clientY: number) => {
+    if (!renderedSize) return { px: 0, py: 0 };
+    const container = containerRef.current!;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left - renderedSize.offX;
+    const y = clientY - rect.top - renderedSize.offY;
+    return {
+      px: (x / renderedSize.w) * 100,
+      py: (y / renderedSize.h) * 100,
+    };
+  }, [renderedSize]);
+
+  // ── 拖动裁剪框 ──────────────────────────────────────────────────────────────
+  const onCropPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: crop.x, origY: crop.y };
+  }, [crop]);
+
+  const onCropPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current || !renderedSize) return;
+    const dx = ((e.clientX - dragRef.current.startX) / renderedSize.w) * 100;
+    const dy = ((e.clientY - dragRef.current.startY) / renderedSize.h) * 100;
+    setCrop((prev) => ({
+      ...prev,
+      x: Math.max(0, Math.min(100 - prev.size, dragRef.current!.origX + dx)),
+      y: Math.max(0, Math.min(100 - prev.size, dragRef.current!.origY + dy)),
+    }));
+  }, [renderedSize]);
+
+  const onCropPointerUp = useCallback(() => { dragRef.current = null; }, []);
+
+  // ── 调整裁剪框大小（右下角 handle） ────────────────────────────────────────
+  const onResizePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, origSize: crop.size };
+  }, [crop]);
+
+  const onResizePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!resizeRef.current || !renderedSize) return;
+    const delta = Math.max(
+      ((e.clientX - resizeRef.current.startX) / renderedSize.w) * 100,
+      ((e.clientY - resizeRef.current.startY) / renderedSize.h) * 100,
+    );
+    setCrop((prev) => ({
+      ...prev,
+      size: Math.max(MIN_SIZE_PCT, Math.min(100 - prev.x, 100 - prev.y, resizeRef.current!.origSize + delta)),
+    }));
+  }, [renderedSize]);
+
+  const onResizePointerUp = useCallback(() => { resizeRef.current = null; }, []);
+
+  // ── 缩放 / 重置 ─────────────────────────────────────────────────────────────
+  const handleZoom = useCallback((delta: number) => {
+    setCrop((prev) => {
+      const newSize = Math.max(MIN_SIZE_PCT, Math.min(100, prev.size + delta));
+      const cx = prev.x + prev.size / 2;
+      const cy = prev.y + prev.size / 2;
+      return {
+        x: Math.max(0, Math.min(100 - newSize, cx - newSize / 2)),
+        y: Math.max(0, Math.min(100 - newSize, cy - newSize / 2)),
+        size: newSize,
+      };
+    });
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setCrop({ x: 10, y: 10, size: 80 });
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    onConfirm({
+      x: Math.round(crop.x * 10) / 10,
+      y: Math.round(crop.y * 10) / 10,
+      size: Math.round(crop.size * 10) / 10,
+    });
+  }, [crop, onConfirm]);
+
+  // ── 裁剪框在容器内的像素位置（用于渲染） ───────────────────────────────────
+  const cropPx = renderedSize ? {
+    left: renderedSize.offX + (crop.x / 100) * renderedSize.w,
+    top:  renderedSize.offY + (crop.y / 100) * renderedSize.h,
+    size: (crop.size / 100) * Math.min(renderedSize.w, renderedSize.h),
+  } : null;
+
+  // 预览：用 CSS transform 模拟最终渲染效果
+  const previewScale = renderedSize ? (60 / ((crop.size / 100) * Math.min(renderedSize.w, renderedSize.h))) : 1;
+  const previewImgStyle: React.CSSProperties = renderedSize ? {
+    width: renderedSize.w,
+    height: renderedSize.h,
+    transform: `scale(${previewScale})`,
+    transformOrigin: `${crop.x + crop.size / 2}% ${crop.y + crop.size / 2}%`,
+    objectFit: 'contain' as const,
+    pointerEvents: 'none' as const,
+    flexShrink: 0,
+    position: 'absolute' as const,
+    left: renderedSize.offX - (renderedSize.w - 60 / previewScale) / 2,
+    top: renderedSize.offY - (renderedSize.h - 60 / previewScale) / 2,
+  } : {};
+
+  // 不能用 left/top 计算，改用 translate 方案
+  const previewStyle: React.CSSProperties = renderedSize ? (() => {
+    const scale = 60 / ((crop.size / 100) * Math.min(renderedSize.w, renderedSize.h));
+    const cropPxX = renderedSize.offX + (crop.x / 100) * renderedSize.w;
+    const cropPxY = renderedSize.offY + (crop.y / 100) * renderedSize.h;
+    const cropSizePx = (crop.size / 100) * Math.min(renderedSize.w, renderedSize.h);
+    return {
+      width: renderedSize.w,
+      height: renderedSize.h,
+      transform: `scale(${scale})`,
+      transformOrigin: `${cropPxX + cropSizePx / 2}px ${cropPxY + cropSizePx / 2}px`,
+      position: 'absolute' as const,
+      left: -(cropPxX + cropSizePx / 2) * scale + 30,
+      top: -(cropPxY + cropSizePx / 2) * scale + 30,
+      objectFit: 'contain' as const,
+      pointerEvents: 'none' as const,
+      flexShrink: 0,
+    };
+  })() : {};
+
+  void previewImgStyle;
 
   return (
     <div
@@ -178,146 +215,110 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, onConfirm, onCance
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <span className="text-white text-sm font-semibold">裁剪图标</span>
-          <span className="text-white/40 text-xs">拖动方框选择区域</span>
+          {/* 实时预览 */}
+          <div className="flex items-center gap-2">
+            <span className="text-white/40 text-xs">预览</span>
+            <div className="w-[60px] h-[60px] rounded-[22%] overflow-hidden relative bg-white shrink-0">
+              {renderedSize && (
+                <img src={src} alt="" draggable={false} style={previewStyle} />
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 图片容器 */}
         <div
           ref={containerRef}
-          className="relative w-full bg-black flex items-center justify-center select-none"
+          className="relative w-full bg-black select-none"
           style={{ height: '56vw', maxHeight: 320 }}
         >
-          {src && (
+          {/* 底图 */}
+          <img
+            ref={(el) => { if (el) imgRef.current = el; }}
+            src={src}
+            alt="待裁剪图片"
+            draggable={false}
+            onLoad={handleImgLoad}
+            style={{
+              position: 'absolute',
+              left: renderedSize?.offX ?? 0,
+              top: renderedSize?.offY ?? 0,
+              width: renderedSize?.w ?? 'auto',
+              height: renderedSize?.h ?? 'auto',
+              objectFit: 'contain',
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+          />
+
+          {/* 遮罩 + 裁剪框 */}
+          {cropPx && (
             <>
-              {/* 底图 */}
-              <img
-                src={src}
-                alt="待裁剪图片"
-                draggable={false}
-                onLoad={handleImgLoad}
-                style={{
-                  display: imgLoaded ? 'block' : 'none',
-                  width: imgSize.w || undefined,
-                  height: imgSize.h || undefined,
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                }}
-              />
+              {/* 四块遮罩 */}
+              <div className="absolute bg-black/55" style={{ left: 0, top: 0, right: 0, height: cropPx.top }} />
+              <div className="absolute bg-black/55" style={{ left: 0, top: cropPx.top + cropPx.size, right: 0, bottom: 0 }} />
+              <div className="absolute bg-black/55" style={{ left: 0, top: cropPx.top, width: cropPx.left, height: cropPx.size }} />
+              <div className="absolute bg-black/55" style={{ left: cropPx.left + cropPx.size, top: cropPx.top, right: 0, height: cropPx.size }} />
 
-              {/* 遮罩 + 裁剪框 */}
-              {imgLoaded && crop.size > 0 && (
-                <div
-                  className="absolute"
-                  style={{
-                    left: (containerRef.current!.clientWidth - imgSize.w) / 2,
-                    top: (containerRef.current!.clientHeight - imgSize.h) / 2,
-                    width: imgSize.w,
-                    height: imgSize.h,
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {/* 四块遮罩 */}
-                  {/* 上 */}
-                  <div className="absolute bg-black/50" style={{ left: 0, top: 0, right: 0, height: crop.y }} />
-                  {/* 下 */}
-                  <div className="absolute bg-black/50" style={{ left: 0, top: crop.y + crop.size, right: 0, bottom: 0 }} />
-                  {/* 左 */}
-                  <div className="absolute bg-black/50" style={{ left: 0, top: crop.y, width: crop.x, height: crop.size }} />
-                  {/* 右 */}
-                  <div className="absolute bg-black/50" style={{ left: crop.x + crop.size, top: crop.y, right: 0, height: crop.size }} />
-
-                  {/* 裁剪框本体（可拖动） */}
-                  <div
-                    className="absolute border-2 border-white/80 cursor-move"
-                    style={{
-                      left: crop.x, top: crop.y,
-                      width: crop.size, height: crop.size,
-                      boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
-                      pointerEvents: 'auto',
-                    }}
-                    onPointerDown={onCropPointerDown}
-                    onPointerMove={onCropPointerMove}
-                    onPointerUp={onCropPointerUp}
-                    onPointerCancel={onCropPointerUp}
-                  >
-                    {/* 三等分辅助线 */}
-                    <div className="absolute inset-0 pointer-events-none" style={{
-                      backgroundImage: 'linear-gradient(to right, rgba(255,255,255,0.15) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.15) 1px, transparent 1px)',
-                      backgroundSize: `${crop.size / 3}px ${crop.size / 3}px`,
-                    }} />
-                    {/* 四角标记 */}
-                    {[['top-0 left-0','border-t-2 border-l-2'],['top-0 right-0','border-t-2 border-r-2'],['bottom-0 left-0','border-b-2 border-l-2'],['bottom-0 right-0','border-b-2 border-r-2']].map(([pos, border]) => (
-                      <div key={pos} className={`absolute ${pos} w-3 h-3 ${border} border-white pointer-events-none`} />
-                    ))}
-                    {/* 中心图标 */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <Move className="w-4 h-4 text-white/50" />
-                    </div>
-                    {/* 右下角 resize handle */}
-                    <div
-                      className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize flex items-end justify-end"
-                      style={{ pointerEvents: 'auto' }}
-                      onPointerDown={onResizePointerDown}
-                      onPointerMove={onResizePointerMove}
-                      onPointerUp={onResizePointerUp}
-                      onPointerCancel={onResizePointerUp}
-                    >
-                      <div className="w-3 h-3 bg-white/80 rounded-tl-sm" />
-                    </div>
-                  </div>
+              {/* 裁剪框 */}
+              <div
+                className="absolute border-2 border-white/80 cursor-move"
+                style={{ left: cropPx.left, top: cropPx.top, width: cropPx.size, height: cropPx.size, boxShadow: '0 0 0 1px rgba(0,0,0,0.4)' }}
+                onPointerDown={onCropPointerDown}
+                onPointerMove={onCropPointerMove}
+                onPointerUp={onCropPointerUp}
+                onPointerCancel={onCropPointerUp}
+              >
+                {/* 三等分辅助线 */}
+                <div className="absolute inset-0 pointer-events-none" style={{
+                  backgroundImage: 'linear-gradient(to right,rgba(255,255,255,.15) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.15) 1px,transparent 1px)',
+                  backgroundSize: `${cropPx.size / 3}px ${cropPx.size / 3}px`,
+                }} />
+                {/* 四角标记 */}
+                {(['top-0 left-0 border-t-2 border-l-2','top-0 right-0 border-t-2 border-r-2','bottom-0 left-0 border-b-2 border-l-2','bottom-0 right-0 border-b-2 border-r-2'] as const).map((cls) => (
+                  <div key={cls} className={`absolute w-3 h-3 ${cls} border-white pointer-events-none`} />
+                ))}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <Move className="w-4 h-4 text-white/40" />
                 </div>
-              )}
+                {/* 右下角 resize handle */}
+                <div
+                  className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-end justify-end p-0.5"
+                  style={{ pointerEvents: 'auto' }}
+                  onPointerDown={onResizePointerDown}
+                  onPointerMove={onResizePointerMove}
+                  onPointerUp={onResizePointerUp}
+                  onPointerCancel={onResizePointerUp}
+                >
+                  <div className="w-3 h-3 bg-white/80 rounded-tl-sm" />
+                </div>
+              </div>
             </>
           )}
         </div>
 
         {/* 工具栏 */}
         <div className="flex items-center gap-2 px-4 py-2 border-t border-white/10">
-          <button
-            type="button"
-            onClick={() => handleZoom(-20)}
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            title="缩小裁剪框"
-          >
+          <button type="button" onClick={() => handleZoom(-5)} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors" title="缩小">
             <ZoomOut className="w-4 h-4 text-white/70" />
           </button>
-          <button
-            type="button"
-            onClick={() => handleZoom(20)}
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            title="放大裁剪框"
-          >
+          <button type="button" onClick={() => handleZoom(5)} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors" title="放大">
             <ZoomIn className="w-4 h-4 text-white/70" />
           </button>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            title="重置"
-          >
+          <button type="button" onClick={handleReset} className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors" title="重置">
             <RotateCcw className="w-4 h-4 text-white/70" />
           </button>
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-1.5 rounded-xl text-sm text-white/50 hover:text-white/80 transition-colors"
-          >
-            取消
-          </button>
+          <button type="button" onClick={onCancel} className="px-4 py-1.5 rounded-xl text-sm text-white/50 hover:text-white/80 transition-colors">取消</button>
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!imgLoaded || crop.size === 0}
-            className="px-4 py-1.5 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+            className="px-4 py-1.5 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             应用
           </button>
         </div>
       </div>
-
-      {/* 离屏 canvas，仅用于输出 */}
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 };

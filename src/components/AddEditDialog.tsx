@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import type { DesktopItem } from '@/types';
+import type { DesktopItem, IconCrop } from '@/types';
 import { probeFavicon, guessNameFromUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon } from '@/lib/iconCache';
 import { useDesktop } from '@/contexts/DesktopContext';
@@ -13,7 +13,7 @@ interface AddEditDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   item?: DesktopItem | null;
-  onAdd?: (app: { name: string; url: string; iconUrl?: string }) => void;
+  onAdd?: (app: { name: string; url: string; iconUrl?: string; iconCrop?: IconCrop }) => void;
   onEdit?: (id: string, patch: Partial<DesktopItem>) => void;
   onDelete?: (id: string) => void;
   /** 剪藏预填：打开时自动填入 name/url/iconUrl */
@@ -46,6 +46,8 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   const lastProbedUrl = useRef('');
   // 裁剪弹窗
   const [cropSrc, setCropSrc] = useState<string | undefined>();
+  // 裁剪参数（CSS 模式，支持任意 URL，无跨域限制）
+  const [iconCrop, setIconCrop] = useState<IconCrop | undefined>();
 
   const effectiveIcon =
     iconSource === 'auto' ? autoFavicon :
@@ -59,6 +61,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     if (item) {
       setName(item.name);
       setUrl(item.url || '');
+      setIconCrop(item.iconCrop);
       if (item.iconUrl?.startsWith('data:')) {
         setIconSource('local'); setLocalIconData(item.iconUrl);
         setAutoFavicon(undefined); setCustomIconUrl(''); setProbeFailed(false);
@@ -70,9 +73,9 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         setCustomIconUrl(''); setLocalIconData(undefined); setProbeFailed(false);
       }
     } else if (prefill) {
-      // 剪藏预填：直接用工具栏传来的标题/URL/favicon
       setName(prefill.name);
       setUrl(prefill.url);
+      setIconCrop(undefined);
       if (prefill.iconUrl) {
         setIconSource('url'); setCustomIconUrl(prefill.iconUrl);
         setAutoFavicon(undefined); setLocalIconData(undefined); setProbeFailed(false);
@@ -82,6 +85,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
       }
     } else {
       setName(''); setUrl('');
+      setIconCrop(undefined);
       setIconSource('auto'); setAutoFavicon(undefined);
       setCustomIconUrl(''); setLocalIconData(undefined); setProbeFailed(false);
     }
@@ -129,86 +133,43 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { alert('图片不超过 10MB'); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      // 打开裁剪弹窗
-      setCropSrc(ev.target?.result as string);
-    };
+    reader.onload = (ev) => { setCropSrc(ev.target?.result as string); };
     reader.readAsDataURL(file);
     e.target.value = '';
   }, []);
 
-  // 裁剪确认：将裁剪结果作为本地图标
-  const handleCropConfirm = useCallback((dataUrl: string) => {
-    setLocalIconData(dataUrl);
-    setIconSource('local');
+  // 裁剪确认（新版）：接收 IconCrop 参数而非 dataURL，直接保存裁剪区域信息
+  const handleCropConfirm = useCallback((crop: IconCrop) => {
+    setIconCrop(crop);
+    // 如果当前是本地上传，裁剪结果保留 localIconData 不变（URL 类图标也直接记参数）
     setCropSrc(undefined);
   }, []);
 
   const handleCropCancel = useCallback(() => setCropSrc(undefined), []);
 
-  /**
-   * 将任意图标 src（URL / dataURL）本地化为 dataURL 后打开裁剪弹窗。
-   * 策略：
-   *   1. 已是 data: → 直接裁剪
-   *   2. 尝试 crossOrigin=anonymous 加载 → canvas toDataURL
-   *   3. 失败则尝试 fetch + createObjectURL（部分 favicon 服务支持 CORS fetch）
-   *   4. 仍失败 → 提示用户改用本地上传
-   */
-  const [localizing, setLocalizing] = useState(false);
-
-  const openCropWithLocalize = useCallback(async (src: string) => {
+  // 打开裁剪弹窗：新方案直接用图片 src，无需本地化，无跨域限制
+  const openCrop = useCallback((src: string) => {
     if (!src) return;
-    // 已是本地 dataURL / blob → 直接打开
-    if (src.startsWith('data:') || src.startsWith('blob:')) {
-      setCropSrc(src);
-      return;
-    }
-    setLocalizing(true);
-    try {
-      // 尝试 1：crossOrigin=anonymous + canvas
-      const dataUrl = await new Promise<string | null>((resolve) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          try {
-            const size = Math.max(img.naturalWidth, img.naturalHeight, 64);
-            const canvas = document.createElement('canvas');
-            canvas.width = size; canvas.height = size;
-            canvas.getContext('2d')!.drawImage(img, 0, 0, size, size);
-            resolve(canvas.toDataURL('image/png'));
-          } catch { resolve(null); }
-        };
-        img.onerror = () => resolve(null);
-        img.src = src;
-        setTimeout(() => resolve(null), 8000);
-      });
-      if (dataUrl) { setCropSrc(dataUrl); return; }
-
-      // 尝试 2：fetch blob（服务器支持 CORS 时有效）
-      const blobUrl = await fetch(src)
-        .then((r) => r.ok ? r.blob() : null)
-        .then((b) => b ? URL.createObjectURL(b) : null)
-        .catch(() => null);
-      if (blobUrl) { setCropSrc(blobUrl); return; }
-
-      // 兜底：提示改用本地
-      alert('该图标来源不支持跨域裁剪，请改用本地上传图片后再裁剪');
-    } finally {
-      setLocalizing(false);
-    }
+    setCropSrc(src);
   }, []);
 
   const handleSubmit = useCallback(() => {
     if (!name.trim()) { alert('请输入应用名称'); return; }
     const finalUrl = url.trim() ? normalizeUrl(url) : '';
     const finalIcon = effectiveIcon;
+    const patch: Partial<DesktopItem> = {
+      name: name.trim(),
+      url: finalUrl || undefined,
+      iconUrl: finalIcon,
+      iconCrop,
+    };
     if (isEdit && item && onEdit) {
-      onEdit(item.id, { name: name.trim(), url: finalUrl || undefined, iconUrl: finalIcon });
+      onEdit(item.id, patch);
     } else if (onAdd) {
-      onAdd({ name: name.trim(), url: finalUrl, iconUrl: finalIcon });
+      onAdd({ name: name.trim(), url: finalUrl, iconUrl: finalIcon, iconCrop });
     }
     onOpenChange(false);
-  }, [name, url, effectiveIcon, isEdit, item, onAdd, onEdit, onOpenChange]);
+  }, [name, url, effectiveIcon, iconCrop, isEdit, item, onAdd, onEdit, onOpenChange]);
 
   const handleDelete = useCallback(() => {
     if (item && onDelete) { onDelete(item.id); onOpenChange(false); }
@@ -286,14 +247,11 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
               {effectiveIcon && !fetching && (
                 <button
                   type="button"
-                  onClick={() => openCropWithLocalize(effectiveIcon)}
-                  disabled={localizing}
-                  className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm transition-colors disabled:opacity-40`}
+                  onClick={() => openCrop(effectiveIcon)}
+                  className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm transition-colors`}
                   title="裁剪图标"
                 >
-                  {localizing
-                    ? <Loader2 className={`w-2.5 h-2.5 ${t.textMuted} animate-spin`} />
-                    : <Crop className={`w-2.5 h-2.5 ${t.textMuted}`} />}
+                  <Crop className={`w-2.5 h-2.5 ${t.textMuted}`} />
                 </button>
               )}
             </div>
@@ -372,14 +330,11 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                 {localIconData && (
                   <button
                     type="button"
-                    onClick={() => openCropWithLocalize(localIconData)}
-                    disabled={localizing}
-                    className={`flex items-center gap-1 px-3 h-9 rounded-xl border ${isNeu ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-white/20 text-white/50 hover:bg-white/8'} text-sm transition-colors shrink-0 disabled:opacity-40`}
+                    onClick={() => openCrop(localIconData)}
+                    className={`flex items-center gap-1 px-3 h-9 rounded-xl border ${isNeu ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-white/20 text-white/50 hover:bg-white/8'} text-sm transition-colors shrink-0`}
                     title="重新裁剪"
                   >
-                    {localizing
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Crop className="w-3.5 h-3.5" />}
+                    <Crop className="w-3.5 h-3.5" />
                     <span>裁剪</span>
                   </button>
                 )}
