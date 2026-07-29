@@ -215,15 +215,6 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, initialCrop, onCon
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <span className="text-white text-sm font-semibold">裁剪图标</span>
-          {/* 实时预览 */}
-          <div className="flex items-center gap-2">
-            <span className="text-white/40 text-xs">预览</span>
-            <div className="w-[60px] h-[60px] rounded-[22%] overflow-hidden relative bg-white shrink-0">
-              {renderedSize && (
-                <img src={src} alt="" draggable={false} style={previewStyle} />
-              )}
-            </div>
-          </div>
         </div>
 
         {/* 图片容器：浅色棋盘格背景，方便识别透明区域 */}
