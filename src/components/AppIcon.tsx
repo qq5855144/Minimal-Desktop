@@ -52,8 +52,15 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
     if (!child.iconUrl) return;
     if (getBgColorCache(child.iconUrl) !== undefined) return;
     const color = extractBgColorFromImg(e.currentTarget);
-    setBgColorCache(child.iconUrl, color);
-    setBg(color ?? '#ffffff');
+    if (color) {
+      setBgColorCache(child.iconUrl, color);
+      setBg(color);
+    } else {
+      // canvas CORS 污染时 fallback
+      fetchIconBgColor(child.iconUrl, child.iconUrl).then((c) => {
+        if (c) setBg(c);
+      });
+    }
   }, [child.iconUrl]);
 
   return (
@@ -294,9 +301,17 @@ const AppIcon: React.FC<AppIconProps> = ({
             onLoad={(e) => {
               if (!item.iconUrl) return;
               if (getBgColorCache(item.iconUrl) !== undefined) return;
+              // 先尝试直接从 img 元素取色（同步，适用于同域 / DataURL）
               const color = extractBgColorFromImg(e.currentTarget);
-              setBgColorCache(item.iconUrl, color);
-              setIconBg(color);
+              if (color) {
+                setBgColorCache(item.iconUrl, color);
+                setIconBg(color);
+              } else {
+                // canvas 被 CORS 污染时 fallback：fetch + createImageBitmap
+                fetchIconBgColor(item.iconUrl, item.iconUrl).then((c) => {
+                  if (c) setIconBg(c);
+                });
+              }
             }}
             onError={(e) => {
               const img = e.currentTarget;
