@@ -136,7 +136,7 @@ export function fetchAndCacheIcon(url: string): Promise<string | null> {
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) { resolve(null); return; }
         ctx.drawImage(img, 0, 0, size, size);
         const dataUrl = canvas.toDataURL('image/png');
