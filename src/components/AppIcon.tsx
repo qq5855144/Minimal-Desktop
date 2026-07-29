@@ -9,9 +9,9 @@ import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 
 /**
- * 图标背景层：将图标图片放大+模糊作为背景，视觉上与图标边缘颜色完全一致。
- * 完全不依赖 canvas 读像素，零 CORS 问题。
- * 当取色失败（iconBg 为 null）时作为兜底背景层。
+ * 图标背景扩图层：将图标图片放大+模糊铺满容器底部。
+ * 透明区域透出此层，视觉上与图标边缘颜色自然衔接。
+ * 完全不依赖 canvas / 取色，零 CORS 问题。
  */
 const IconBlurBg: React.FC<{ src: string; radius: string | number }> = ({ src, radius }) => (
   <span
