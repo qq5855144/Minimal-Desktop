@@ -291,7 +291,7 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, onConfirm, onCance
             disabled={!imgLoaded || crop.size === 0}
             className="px-4 py-1.5 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
           >
-            使用此区域
+            应用
           </button>
         </div>
       </div>
