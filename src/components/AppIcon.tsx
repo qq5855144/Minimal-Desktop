@@ -58,8 +58,8 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
 
   return (
     <div
-      className="rounded-[25%] overflow-hidden flex items-center justify-center"
-      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0 }}
+      className="rounded-[25%] flex items-center justify-center"
+      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0, padding: Math.round(cellPx * 0.08) }}
     >
       {child.iconUrl ? (
         <img
@@ -68,7 +68,7 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
           draggable={false}
           decoding="async"
           onLoad={handleImgLoad}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '25%', display: 'block' }}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -282,17 +282,21 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (iconSrc && !imgError) {
       return (
         <div
-          className="overflow-hidden ios-icon-shadow relative"
-          style={{ ...iconStyle, background: appBg }}
+          className="ios-icon-shadow flex items-center justify-center"
+          style={{ ...iconStyle, background: appBg, padding: Math.round(px * 0.08) }}
         >
           <img
             src={iconSrc}
             alt={item.name}
             draggable={false}
             decoding="async"
-            className="absolute inset-0 w-full h-full object-cover"
+            style={{
+              width: '100%', height: '100%',
+              objectFit: 'cover',
+              borderRadius: metrics.iconRadius,
+              display: 'block',
+            }}
             onLoad={(e) => {
-              // 图片加载完成后直接从 img 元素取色，绕过 CORS 限制
               if (!item.iconUrl) return;
               if (getBgColorCache(item.iconUrl) !== undefined) return;
               const color = extractBgColorFromImg(e.currentTarget);
