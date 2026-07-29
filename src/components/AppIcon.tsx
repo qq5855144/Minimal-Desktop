@@ -26,22 +26,19 @@ const LONG_PRESS_MS = 500;
 // 手机端手指轻微抖动约 5-10px，阈值设为 14px 以避免误触取消长按
 const DRAG_THRESHOLD = 14;
 
-/** 文件夹缩略图内的子图标 —— 独立组件，使用 blur 背景层填充透明区域 */
+/** 文件夹缩略图内的子图标 */
 const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
   child, cellPx, iconFontPx,
 }) => {
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
-  const RADIUS = '25%';
 
   return (
     <div
       className="rounded-[25%] overflow-hidden relative flex items-center justify-center"
-      style={{ width: cellPx, height: cellPx, flexShrink: 0, background: '#e8e8e8' }}
+      style={{ width: cellPx, height: cellPx, flexShrink: 0, background: '#fff' }}
     >
       {src ? (
         <>
-          {/* 背景扩图层：放大+模糊填充透明区域 */}
-          <IconBlurBg src={src} radius={RADIUS} />
           <img
             src={src}
             alt=""
