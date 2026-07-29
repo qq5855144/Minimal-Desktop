@@ -146,6 +146,58 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
 
   const handleCropCancel = useCallback(() => setCropSrc(undefined), []);
 
+  /**
+   * 将任意图标 src（URL / dataURL）本地化为 dataURL 后打开裁剪弹窗。
+   * 策略：
+   *   1. 已是 data: → 直接裁剪
+   *   2. 尝试 crossOrigin=anonymous 加载 → canvas toDataURL
+   *   3. 失败则尝试 fetch + createObjectURL（部分 favicon 服务支持 CORS fetch）
+   *   4. 仍失败 → 提示用户改用本地上传
+   */
+  const [localizing, setLocalizing] = useState(false);
+
+  const openCropWithLocalize = useCallback(async (src: string) => {
+    if (!src) return;
+    // 已是本地 dataURL / blob → 直接打开
+    if (src.startsWith('data:') || src.startsWith('blob:')) {
+      setCropSrc(src);
+      return;
+    }
+    setLocalizing(true);
+    try {
+      // 尝试 1：crossOrigin=anonymous + canvas
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const size = Math.max(img.naturalWidth, img.naturalHeight, 64);
+            const canvas = document.createElement('canvas');
+            canvas.width = size; canvas.height = size;
+            canvas.getContext('2d')!.drawImage(img, 0, 0, size, size);
+            resolve(canvas.toDataURL('image/png'));
+          } catch { resolve(null); }
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+        setTimeout(() => resolve(null), 8000);
+      });
+      if (dataUrl) { setCropSrc(dataUrl); return; }
+
+      // 尝试 2：fetch blob（服务器支持 CORS 时有效）
+      const blobUrl = await fetch(src)
+        .then((r) => r.ok ? r.blob() : null)
+        .then((b) => b ? URL.createObjectURL(b) : null)
+        .catch(() => null);
+      if (blobUrl) { setCropSrc(blobUrl); return; }
+
+      // 兜底：提示改用本地
+      alert('该图标来源不支持跨域裁剪，请改用本地上传图片后再裁剪');
+    } finally {
+      setLocalizing(false);
+    }
+  }, []);
+
   const handleSubmit = useCallback(() => {
     if (!name.trim()) { alert('请输入应用名称'); return; }
     const finalUrl = url.trim() ? normalizeUrl(url) : '';
@@ -234,11 +286,14 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
               {effectiveIcon && !fetching && (
                 <button
                   type="button"
-                  onClick={() => setCropSrc(effectiveIcon)}
-                  className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm transition-colors`}
+                  onClick={() => openCropWithLocalize(effectiveIcon)}
+                  disabled={localizing}
+                  className={`absolute -bottom-1 -left-1 w-5 h-5 rounded-full ${t.closeBtn} border ${t.itemBorder} flex items-center justify-center shadow-sm transition-colors disabled:opacity-40`}
                   title="裁剪图标"
                 >
-                  <Crop className={`w-2.5 h-2.5 ${t.textMuted}`} />
+                  {localizing
+                    ? <Loader2 className={`w-2.5 h-2.5 ${t.textMuted} animate-spin`} />
+                    : <Crop className={`w-2.5 h-2.5 ${t.textMuted}`} />}
                 </button>
               )}
             </div>
@@ -317,11 +372,14 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
                 {localIconData && (
                   <button
                     type="button"
-                    onClick={() => setCropSrc(localIconData)}
-                    className={`flex items-center gap-1 px-3 h-9 rounded-xl border ${isNeu ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-white/20 text-white/50 hover:bg-white/8'} text-sm transition-colors shrink-0`}
+                    onClick={() => openCropWithLocalize(localIconData)}
+                    disabled={localizing}
+                    className={`flex items-center gap-1 px-3 h-9 rounded-xl border ${isNeu ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-white/20 text-white/50 hover:bg-white/8'} text-sm transition-colors shrink-0 disabled:opacity-40`}
                     title="重新裁剪"
                   >
-                    <Crop className="w-3.5 h-3.5" />
+                    {localizing
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Crop className="w-3.5 h-3.5" />}
                     <span>裁剪</span>
                   </button>
                 )}
