@@ -58,8 +58,8 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
 
   return (
     <div
-      className="rounded-[25%] flex items-center justify-center"
-      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0, padding: Math.round(cellPx * 0.08) }}
+      className="rounded-[25%] overflow-hidden flex items-center justify-center"
+      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0 }}
     >
       {child.iconUrl ? (
         <img
@@ -68,7 +68,7 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
           draggable={false}
           decoding="async"
           onLoad={handleImgLoad}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '25%', display: 'block' }}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -277,25 +277,20 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标背景色：取色成功用取色结果，否则降级白色
+    // 普通 app 图标：背景色填充透明区域，图片完全覆盖容器
     const appBg = iconBg ?? '#ffffff';
     if (iconSrc && !imgError) {
       return (
         <div
-          className="ios-icon-shadow flex items-center justify-center"
-          style={{ ...iconStyle, background: appBg, padding: Math.round(px * 0.08) }}
+          className="overflow-hidden ios-icon-shadow relative"
+          style={{ ...iconStyle, background: appBg }}
         >
           <img
             src={iconSrc}
             alt={item.name}
             draggable={false}
             decoding="async"
-            style={{
-              width: '100%', height: '100%',
-              objectFit: 'cover',
-              borderRadius: metrics.iconRadius,
-              display: 'block',
-            }}
+            className="absolute inset-0 w-full h-full object-cover"
             onLoad={(e) => {
               if (!item.iconUrl) return;
               if (getBgColorCache(item.iconUrl) !== undefined) return;
