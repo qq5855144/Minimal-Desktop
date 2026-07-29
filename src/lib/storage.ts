@@ -141,7 +141,10 @@ export function loadDesktopData(): DesktopData {
 }
 
 export function saveDesktopData(data: DesktopData): void {
-  localStorage.setItem(DESKTOP_KEY, JSON.stringify(data));
+  // privacyVault 单独存 ios_privacy_vault，不混入桌面数据
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { privacyVault: _v, ...rest } = data;
+  localStorage.setItem(DESKTOP_KEY, JSON.stringify(rest));
 }
 
 export function loadSyncConfig(): SyncConfig | null {
