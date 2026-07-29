@@ -226,11 +226,17 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, initialCrop, onCon
           </div>
         </div>
 
-        {/* 图片容器 */}
+        {/* 图片容器：浅色棋盘格背景，方便识别透明区域 */}
         <div
           ref={containerRef}
-          className="relative w-full bg-black select-none"
-          style={{ height: '56vw', maxHeight: 320 }}
+          className="relative w-full select-none"
+          style={{
+            height: '56vw', maxHeight: 320,
+            backgroundImage: 'linear-gradient(45deg,#e0e0e0 25%,transparent 25%),linear-gradient(-45deg,#e0e0e0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e0e0e0 75%),linear-gradient(-45deg,transparent 75%,#e0e0e0 75%)',
+            backgroundSize: '12px 12px',
+            backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',
+            backgroundColor: '#f5f5f5',
+          }}
         >
           {/* 底图 */}
           <img
