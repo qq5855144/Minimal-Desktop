@@ -7,6 +7,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
+import { fetchIconBgColor, getBgColorCache } from '@/lib/iconBgColor';
 
 interface AppIconProps {
   item: DesktopItem;
@@ -24,6 +25,53 @@ const LONG_PRESS_MS = 500;
 // 手机端手指轻微抖动约 5-10px，阈值设为 14px 以避免误触取消长按
 const DRAG_THRESHOLD = 14;
 
+/** 文件夹缩略图内的子图标 —— 独立组件以便维护各自的取色状态 */
+const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
+  child, cellPx, iconFontPx,
+}) => {
+  const [bg, setBg] = useState<string>(() => {
+    if (!child.iconUrl) return '#ffffff';
+    const cached = getBgColorCache(child.iconUrl);
+    return cached !== undefined ? (cached ?? '#ffffff') : '#ffffff';
+  });
+
+  useEffect(() => {
+    if (!child.iconUrl) return;
+    const src = getIconCache(child.iconUrl) ?? child.iconUrl;
+    const cached = getBgColorCache(child.iconUrl);
+    if (cached !== undefined) {
+      setBg(cached ?? '#ffffff');
+      return;
+    }
+    let cancelled = false;
+    fetchIconBgColor(src, child.iconUrl).then((color) => {
+      if (!cancelled) setBg(color ?? '#ffffff');
+    });
+    return () => { cancelled = true; };
+  }, [child.iconUrl]);
+
+  return (
+    <div
+      className="rounded-[25%] overflow-hidden flex items-center justify-center"
+      style={{ width: cellPx, height: cellPx, background: bg, flexShrink: 0 }}
+    >
+      {child.iconUrl ? (
+        <img
+          src={getIconCache(child.iconUrl) ?? child.iconUrl}
+          alt=""
+          draggable={false}
+          decoding="async"
+          style={{ width: cellPx, height: cellPx, objectFit: 'cover', display: 'block' }}
+        />
+      ) : (
+        <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
+          {child.name.slice(0, 1)}
+        </span>
+      )}
+    </div>
+  );
+};
+
 const AppIcon: React.FC<AppIconProps> = ({
   item, onClick, onLongPress, onDragBegin,
   onDeleteInEditMode, size = 'normal', ghost = false, iconPx,
@@ -34,6 +82,12 @@ const AppIcon: React.FC<AppIconProps> = ({
   const [iconSrc, setIconSrc] = useState<string | undefined>(() =>
     item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined
   );
+  // 从图标外围取色后的背景色（hex 字符串），null 表示取色失败降级白色
+  const [iconBg, setIconBg] = useState<string | null>(() => {
+    if (!item.iconUrl) return null;
+    const cached = getBgColorCache(item.iconUrl);
+    return cached !== undefined ? cached : null;
+  });
 
   // 用 ref 记录上次 iconUrl，useEffect 只在 iconUrl 真正变化时才更新 iconSrc（跳过初次挂载）
   const prevIconUrlRef = useRef(item.iconUrl);
@@ -44,6 +98,8 @@ const AppIcon: React.FC<AppIconProps> = ({
     prevIconUrlRef.current = item.iconUrl;
     setImgError(false);
     setIconSrc(item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined);
+    // iconUrl 变化时同时重置背景色
+    setIconBg(item.iconUrl ? (getBgColorCache(item.iconUrl) ?? null) : null);
   }, [item.iconUrl]);
 
   useEffect(() => {
@@ -53,11 +109,29 @@ const AppIcon: React.FC<AppIconProps> = ({
     const cached = getIconCache(item.iconUrl);
     if (cached) {
       setIconSrc(cached);
+      // 图标已缓存为 DataURL，用它取背景色
+      const bgCached = getBgColorCache(item.iconUrl);
+      if (bgCached === undefined) {
+        fetchIconBgColor(cached, item.iconUrl).then((color) => {
+          if (!cancelled) setIconBg(color);
+        });
+      }
       return;
     }
 
     fetchAndCacheIcon(item.iconUrl).then((dataUrl) => {
-      if (!cancelled && dataUrl) setIconSrc(dataUrl);
+      if (!cancelled && dataUrl) {
+        setIconSrc(dataUrl);
+        // 取色
+        const bgCached = getBgColorCache(item.iconUrl!);
+        if (bgCached !== undefined) {
+          setIconBg(bgCached);
+        } else {
+          fetchIconBgColor(dataUrl, item.iconUrl).then((color) => {
+            if (!cancelled) setIconBg(color);
+          });
+        }
+      }
     });
 
     return () => {
@@ -174,7 +248,6 @@ const AppIcon: React.FC<AppIconProps> = ({
             background: isNeu ? 'rgba(232,237,245,0.55)' : 'rgba(255,255,255,0.18)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
-
           }}
         >
           {preview.length > 0 ? (
@@ -187,32 +260,7 @@ const AppIcon: React.FC<AppIconProps> = ({
               }}
             >
               {preview.map((child) => (
-                <div
-                  key={child.id}
-                  className="rounded-[25%] overflow-hidden flex items-center justify-center"
-                  style={{
-                    width: cellPx,
-                    height: cellPx,
-                    background: 'rgba(255,255,255,0.92)',
-                    backdropFilter: 'blur(12px)',
-                    WebkitBackdropFilter: 'blur(12px)',
-                    flexShrink: 0,
-                  }}
-                >
-                  {child.iconUrl ? (
-                    <img
-                      src={getIconCache(child.iconUrl) ?? child.iconUrl}
-                      alt=""
-                      draggable={false}
-                      decoding="async"
-                      style={{ width: cellPx, height: cellPx, objectFit: 'cover', display: 'block' }}
-                    />
-                  ) : (
-                    <span className="text-white font-bold drop-shadow" style={{ fontSize: px * 0.16 }}>
-                      {child.name.slice(0, 1)}
-                    </span>
-                  )}
-                </div>
+                <FolderChildIcon key={child.id} child={child} cellPx={cellPx} iconFontPx={px * 0.16} />
               ))}
             </div>
           ) : (
@@ -221,20 +269,14 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
+    // 普通 app 图标背景色：取色成功用取色结果，否则降级白色
+    const appBg = iconBg ?? '#ffffff';
     if (iconSrc && !imgError) {
       return (
         <div
           className="overflow-hidden ios-icon-shadow relative"
-          style={{
-            ...iconStyle,
-            background: '#ffffff',
-          }}
+          style={{ ...iconStyle, background: appBg }}
         >
-          {/* shimmer 始终在最底层，img 加载后叠盖在上面 → 无需等待 React 状态更新 */}
-          <div
-            className="absolute inset-0 animate-skeleton-pulse"
-            style={{ borderRadius: metrics.iconRadius, background: 'linear-gradient(90deg,rgba(200,200,200,0.3) 25%,rgba(220,220,220,0.5) 50%,rgba(200,200,200,0.3) 75%)', backgroundSize: '200% 100%' }}
-          />
           <img
             src={iconSrc}
             alt={item.name}
@@ -258,10 +300,7 @@ const AppIcon: React.FC<AppIconProps> = ({
     return (
       <div
         className="flex items-center justify-center ios-icon-shadow"
-        style={{
-          ...iconStyle,
-          background: '#ffffff',
-        }}
+        style={{ ...iconStyle, background: appBg }}
       >
         {item.url ? (
           <Globe style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />
