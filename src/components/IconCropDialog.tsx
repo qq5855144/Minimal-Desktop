@@ -120,22 +120,42 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, onConfirm, onCance
   // ── 确认裁剪：用 canvas 绘制 ────────────────────────────────────────────────
 
   const handleConfirm = useCallback(() => {
-    const img = imgRef.current;
-    if (!img || !imgSize.w) return;
+    if (!imgSize.w || crop.size === 0) return;
     const canvas = canvasRef.current!;
     canvas.width = OUTPUT_SIZE;
     canvas.height = OUTPUT_SIZE;
     const ctx = canvas.getContext('2d')!;
-    // 将裁剪框坐标映射回原始图片坐标
-    const scaleX = img.naturalWidth / imgSize.w;
-    const scaleY = img.naturalHeight / imgSize.h;
-    const sx = crop.x * scaleX;
-    const sy = crop.y * scaleY;
-    const sw = crop.size * scaleX;
-    const sh = crop.size * scaleY;
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
-    onConfirm(canvas.toDataURL('image/png'));
-  }, [crop, imgSize, onConfirm]);
+
+    // 重新创建带 crossOrigin 的 Image，避免远程图片污染 canvas（Tainted canvas）
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const scaleX = img.naturalWidth / imgSize.w;
+      const scaleY = img.naturalHeight / imgSize.h;
+      const sx = crop.x * scaleX;
+      const sy = crop.y * scaleY;
+      const sw = crop.size * scaleX;
+      const sh = crop.size * scaleY;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+      onConfirm(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => {
+      // crossOrigin 请求被服务器拒绝时，降级：不加 crossOrigin 再试一次（可能仍报错，但给出友好提示）
+      const img2 = new Image();
+      img2.onload = () => {
+        try {
+          const scaleX = img2.naturalWidth / imgSize.w;
+          const scaleY = img2.naturalHeight / imgSize.h;
+          ctx.drawImage(img2, crop.x * scaleX, crop.y * scaleY, crop.size * scaleX, crop.size * scaleY, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+          onConfirm(canvas.toDataURL('image/png'));
+        } catch {
+          alert('该图片来源不支持裁剪，请改用本地上传的图片');
+        }
+      };
+      img2.src = src;
+    };
+    img.src = src;
+  }, [crop, imgSize, src, onConfirm]);
 
   // 阻止容器内滚动穿透
   useEffect(() => {
