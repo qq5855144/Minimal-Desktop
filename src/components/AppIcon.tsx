@@ -7,7 +7,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
 import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
-import { fetchIconBgColor, getBgColorCache } from '@/lib/iconBgColor';
+import { fetchIconBgColor, getBgColorCache, extractBgColorFromImg, setBgColorCache } from '@/lib/iconBgColor';
 
 interface AppIconProps {
   item: DesktopItem;
@@ -37,17 +37,23 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
 
   useEffect(() => {
     if (!child.iconUrl) return;
-    const src = getIconCache(child.iconUrl) ?? child.iconUrl;
     const cached = getBgColorCache(child.iconUrl);
-    if (cached !== undefined) {
-      setBg(cached ?? '#ffffff');
-      return;
-    }
+    if (cached !== undefined) { setBg(cached ?? '#ffffff'); return; }
+    // 尝试用已缓存的 DataURL 取色
+    const src = getIconCache(child.iconUrl) ?? child.iconUrl;
     let cancelled = false;
     fetchIconBgColor(src, child.iconUrl).then((color) => {
       if (!cancelled) setBg(color ?? '#ffffff');
     });
     return () => { cancelled = true; };
+  }, [child.iconUrl]);
+
+  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (!child.iconUrl) return;
+    if (getBgColorCache(child.iconUrl) !== undefined) return;
+    const color = extractBgColorFromImg(e.currentTarget);
+    setBgColorCache(child.iconUrl, color);
+    setBg(color ?? '#ffffff');
   }, [child.iconUrl]);
 
   return (
@@ -61,7 +67,8 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
           alt=""
           draggable={false}
           decoding="async"
-          style={{ width: cellPx, height: cellPx, objectFit: 'cover', display: 'block' }}
+          onLoad={handleImgLoad}
+          style={{ width: '80%', height: '80%', objectFit: 'contain', display: 'block' }}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -109,34 +116,35 @@ const AppIcon: React.FC<AppIconProps> = ({
     const cached = getIconCache(item.iconUrl);
     if (cached) {
       setIconSrc(cached);
-      // 图标已缓存为 DataURL，用它取背景色
+      // 已有 DataURL，尝试取色
       const bgCached = getBgColorCache(item.iconUrl);
       if (bgCached === undefined) {
         fetchIconBgColor(cached, item.iconUrl).then((color) => {
           if (!cancelled) setIconBg(color);
         });
+      } else {
+        setIconBg(bgCached);
       }
       return;
     }
 
     fetchAndCacheIcon(item.iconUrl).then((dataUrl) => {
-      if (!cancelled && dataUrl) {
-        setIconSrc(dataUrl);
-        // 取色
+      if (!cancelled) {
+        if (dataUrl) setIconSrc(dataUrl);
+        // 取色：DataURL 可用就用 DataURL，否则用原始 URL
+        const src = dataUrl ?? item.iconUrl!;
         const bgCached = getBgColorCache(item.iconUrl!);
         if (bgCached !== undefined) {
           setIconBg(bgCached);
         } else {
-          fetchIconBgColor(dataUrl, item.iconUrl).then((color) => {
+          fetchIconBgColor(src, item.iconUrl).then((color) => {
             if (!cancelled) setIconBg(color);
           });
         }
       }
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [item.iconUrl]);
 
   const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -274,7 +282,7 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (iconSrc && !imgError) {
       return (
         <div
-          className="overflow-hidden ios-icon-shadow relative"
+          className="overflow-hidden ios-icon-shadow relative flex items-center justify-center"
           style={{ ...iconStyle, background: appBg }}
         >
           <img
@@ -282,10 +290,17 @@ const AppIcon: React.FC<AppIconProps> = ({
             alt={item.name}
             draggable={false}
             decoding="async"
-            className="absolute inset-0 w-full h-full object-cover"
+            style={{ width: '80%', height: '80%', objectFit: 'contain', display: 'block' }}
+            onLoad={(e) => {
+              // 图片加载完成后直接从 img 元素取色，绕过 CORS 限制
+              if (!item.iconUrl) return;
+              if (getBgColorCache(item.iconUrl) !== undefined) return;
+              const color = extractBgColorFromImg(e.currentTarget);
+              setBgColorCache(item.iconUrl, color);
+              setIconBg(color);
+            }}
             onError={(e) => {
               const img = e.currentTarget;
-              // 尝试直连 favicon.ico 作为回退
               if (item.url && !img.dataset.fallbackTried) {
                 img.dataset.fallbackTried = '1';
                 const fallback = getDirectFaviconUrl(normalizeUrl(item.url));
