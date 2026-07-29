@@ -74,7 +74,8 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
     >
       {src ? (
         <>
-          {/* 放大让图案撑满格子，overflow:hidden 裁掉透明边 */}
+          {/* 背景扩图层：放大+模糊填充透明区域 */}
+          <IconBlurBg src={src} radius={RADIUS} />
           <img
             src={src}
             alt=""
@@ -84,7 +85,6 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
               position: 'absolute', inset: 0,
               width: '100%', height: '100%',
               objectFit: 'contain',
-              transform: 'scale(1.13)',
               zIndex: 1, display: 'block',
             }}
           />
@@ -296,13 +296,17 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标：放大 scale(1.13) 让圆角矩形图案撑满容器，overflow:hidden 裁掉多余透明边
+    // 普通 app 图标：
+    // - 背景层：同一张图放大+模糊，填充透明区域（扩图效果），不影响无透明区域的普通图标
+    // - 前景层：object-contain 等比显示原图，透明区域透出背景层颜色
     if (iconSrc && !imgError) {
       return (
         <div
           className="ios-icon-shadow relative"
           style={{ ...iconStyle, overflow: 'hidden' }}
         >
+          {/* 背景扩图层：放大+模糊，填满透明区域；普通图标前景完全遮住此层不可见 */}
+          <IconBlurBg src={iconSrc} radius={metrics.iconRadius} />
           <img
             src={iconSrc}
             alt={item.name}
@@ -311,9 +315,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             style={{
               position: 'absolute', inset: 0,
               width: '100%', height: '100%',
-              objectFit: 'contain',
-              // 放大把透明边距撑出容器边界，overflow:hidden 自动裁掉，图案刚好铺满
-              transform: 'scale(1.13)',
+              objectFit: 'contain',   // 等比显示，透明区域透出下方背景层
               zIndex: 1,
             }}
             onLoad={(e) => {
