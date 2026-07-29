@@ -142,9 +142,12 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
         if (mode === 'verify') {
           const currentVault = loadPrivacyVault();
           if (!currentVault) {
-            // 未设置密码，提示用户点击「设置密码」
-            setError('尚未设置密码，请点击「设置密码」');
-            triggerShake(); setPin(''); return;
+            // 尚未设置密码 → 自动切换到设置流程，不报错
+            setMode('setup');
+            setIsConfirming(false);
+            setFirstPin('');
+            setPin('');
+            return;
           }
           const result = await unlockVault(pin, currentVault);
           if (result) {
