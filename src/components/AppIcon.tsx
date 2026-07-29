@@ -74,14 +74,19 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
     >
       {src ? (
         <>
-          {/* blur 背景层：零 CORS，颜色与图标边缘完全一致 */}
-          <IconBlurBg src={src} radius={RADIUS} />
+          {/* 放大让图案撑满格子，overflow:hidden 裁掉透明边 */}
           <img
             src={src}
             alt=""
             draggable={false}
             decoding="async"
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1, display: 'block' }}
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              objectFit: 'contain',
+              transform: 'scale(1.13)',
+              zIndex: 1, display: 'block',
+            }}
           />
         </>
       ) : (
@@ -291,21 +296,26 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 普通 app 图标：blur 背景层填充透明区域，视觉上与图标边缘颜色完全一致
+    // 普通 app 图标：放大 scale(1.13) 让圆角矩形图案撑满容器，overflow:hidden 裁掉多余透明边
     if (iconSrc && !imgError) {
       return (
         <div
           className="ios-icon-shadow relative"
-          style={{ ...iconStyle, overflow: 'hidden', background: iconBg ?? '#e8e8e8' }}
+          style={{ ...iconStyle, overflow: 'hidden' }}
         >
-          {/* blur 背景层：图标放大模糊，零 CORS 问题，颜色与图标边缘完全一致 */}
-          <IconBlurBg src={iconSrc} radius={metrics.iconRadius} />
           <img
             src={iconSrc}
             alt={item.name}
             draggable={false}
             decoding="async"
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }}
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              objectFit: 'contain',
+              // 放大把透明边距撑出容器边界，overflow:hidden 自动裁掉，图案刚好铺满
+              transform: 'scale(1.13)',
+              zIndex: 1,
+            }}
             onLoad={(e) => {
               if (!item.iconUrl) return;
               if (getBgColorCache(item.iconUrl) !== undefined) return;
