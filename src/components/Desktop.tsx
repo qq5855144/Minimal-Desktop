@@ -521,10 +521,19 @@ const Desktop: React.FC = () => {
           }
 
           // 检查落点是否是另一个组件（widget ↔ widget 交换）
+          // 用 rowSpan 范围匹配：只要拖拽目标范围 [widgetTargetRow, +draggedSpan) 内
+          // 覆盖了另一个 widget 的任意行，都视为"命中该 widget"，进入互换逻辑。
+          // 这修复了大组件（span>1）拖到小组件上方时，精确 row 匹配找不到目标 widget
+          // 导致直接报"空间不足"而非触发合法互换的问题。
           const targetPageItems = d.pages[targetPage] ?? [];
-          const otherWidget = targetPageItems.find(
-            it => it.row === widgetTargetRow && it.type === 'widget' && it.id !== g.source.itemId,
-          );
+          const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
+          const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
+          const otherWidget = targetPageItems.find(it => {
+            if (it.type !== 'widget' || it.id === g.source.itemId) return false;
+            const span = getWidgetConfig(it.widgetType).rowSpan;
+            // 目标范围 与 该 widget 的 span 范围 有交集
+            return widgetTargetRow < it.row + span && it.row < widgetTargetRow + draggedSpan0;
+          });
 
           if (otherWidget) {
             // 两个组件互换行位置
@@ -532,8 +541,7 @@ const Desktop: React.FC = () => {
             //   source → otherWidget.row（span = srcSpan）
             //   otherWidget → src.row（span = otherSpan）
             // 若有重叠，渲染循环（r += span - 1）会跳过被覆盖行，使被覆盖的 widget/应用消失
-            const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
-            const srcSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
+            const srcSpan = draggedSpan0;
             const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
             const srcPageItems = d.pages[src.page] ?? [];
             const samePage = src.page === targetPage;
@@ -576,8 +584,7 @@ const Desktop: React.FC = () => {
             );
           } else {
             // 检查目标 widget 将占据的整个 rowSpan 范围内是否有其他项（含普通应用和其他 widget）
-            const srcFull = d.pages[src.page]?.find(it => it.id === g.source.itemId);
-            const draggedSpan = getWidgetConfig(srcFull?.widgetType).rowSpan;
+            const draggedSpan = draggedSpan0;
             const hasApps = targetPageItems.some(
               it => it.id !== g.source.itemId
                 && it.type !== 'widget'
