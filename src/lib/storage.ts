@@ -1,5 +1,5 @@
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
-import { createWidgetItem } from './widgetConfig';
+import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
@@ -49,19 +49,30 @@ export function clearLockout(): void {
   try { localStorage.removeItem(PIN_LOCKOUT_KEY); } catch { /* ignore */ }
 }
 
-// 三个固定系统应用：添加应用、设置、同步（放在 row=2，为 widget 行留空间）
-export const SYSTEM_APPS: import('@/types').DesktopItem[] = [
-  { id: 'sys-add',      type: 'system', name: '添加应用', color: 'blue',   page: 0, row: 2, col: 0 },
-  { id: 'sys-settings', type: 'system', name: '设置',     color: 'gray',   page: 0, row: 2, col: 1 },
-  { id: 'sys-sync',     type: 'system', name: '同步',     color: 'indigo', page: 0, row: 2, col: 2 },
-];
-
 // 默认组件通过配置声明占位与基础信息，新增桌面组件时只需补配置并声明默认顺序
 const DEFAULT_WIDGET_TYPES: WidgetType[] = ['clock', 'search'];
 
-export const WIDGET_ITEMS: import('@/types').DesktopItem[] = DEFAULT_WIDGET_TYPES.map((widgetType, index) =>
-  createWidgetItem(widgetType, 0, index),
-);
+// 按 rowSpan 累加：clock(row=0, span=2) → search(row=2, span=1) → 系统应用(row=3)
+export const WIDGET_ITEMS: import('@/types').DesktopItem[] = (() => {
+  let nextRow = 0;
+  return DEFAULT_WIDGET_TYPES.map((widgetType) => {
+    const item = createWidgetItem(widgetType, 0, nextRow);
+    nextRow += getWidgetConfig(widgetType).rowSpan;
+    return item;
+  });
+})();
+
+export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
+  // 系统应用起始行 = 所有默认 widget 累计占用的行数
+  const widgetRows = DEFAULT_WIDGET_TYPES.reduce(
+    (sum, t) => sum + getWidgetConfig(t).rowSpan, 0,
+  );
+  return [
+    { id: 'sys-add',      type: 'system', name: '添加应用', color: 'blue',   page: 0, row: widgetRows,     col: 0 },
+    { id: 'sys-settings', type: 'system', name: '设置',     color: 'gray',   page: 0, row: widgetRows,     col: 1 },
+    { id: 'sys-sync',     type: 'system', name: '同步',     color: 'indigo', page: 0, row: widgetRows,     col: 2 },
+  ] as import('@/types').DesktopItem[];
+})();
 
 export const defaultDesktopData: DesktopData = {
   pages: [JSON.parse(JSON.stringify([...WIDGET_ITEMS, ...SYSTEM_APPS]))],

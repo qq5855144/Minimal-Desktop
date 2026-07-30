@@ -486,10 +486,15 @@ const Desktop: React.FC = () => {
         if (!src) return;
 
         if (isWidget) {
-          // ── 组件拖拽 ──
-          // 用行的 Y 范围确定目标行：优先命中，其次最近边缘距离（gap区精准）
+          // ── 组件拖拽落点 ──
+          // 问题：widget 是跨行节点（rowSpan > 1），DOM 中 allCells 只渲染起始行的 cell，
+          // 中间逻辑行（如 clock row=0 span=2，row=1 没有 DOM cell）无法被直接命中。
+          // 解决：在 rowBounds 中为每个 widget 的 rowSpan 补全虚拟逻辑行，
+          // 把 widget 的视觉高度均分为 rowSpan 份，每份对应一个逻辑行的 Y 范围。
           type RowBound = { top: number; bottom: number };
           const rowBounds = new Map<number, RowBound>();
+
+          // 1. 从真实 DOM cell 收集各行的 Y 范围
           for (const cellEl of allCells) {
             const rPage = Number(cellEl.dataset.page);
             if (rPage !== targetPage) continue;
@@ -505,6 +510,29 @@ const Desktop: React.FC = () => {
               });
             }
           }
+
+          // 2. 为 widget 的 rowSpan 覆盖范围补全虚拟逻辑行
+          // widget DOM 节点只有起始行有 cell，其余行被视觉覆盖但无 DOM 节点
+          // → 取 widget 起始行的 Y 范围，按 rowSpan 均分，为每个子行写入 rowBounds
+          const pageWidgets = (d.pages[targetPage] ?? []).filter(it => it.type === 'widget');
+          for (const w of pageWidgets) {
+            const span = getWidgetConfig(w.widgetType).rowSpan;
+            if (span <= 1) continue;
+            const startBound = rowBounds.get(w.row);
+            if (!startBound) continue;
+            const totalH = startBound.bottom - startBound.top;
+            const rowH = totalH / span;
+            for (let s = 0; s < span; s++) {
+              const logicalRow = w.row + s;
+              if (!rowBounds.has(logicalRow)) {
+                rowBounds.set(logicalRow, {
+                  top: startBound.top + s * rowH,
+                  bottom: startBound.top + (s + 1) * rowH,
+                });
+              }
+            }
+          }
+
           let widgetTargetRow = targetRow;
           let hit = false;
           // 第一步：直接命中
@@ -524,19 +552,17 @@ const Desktop: React.FC = () => {
 
           // ── widget 拖拽落点判定 ──
           // 规则：
-          //   1. 落点与自身重叠（未移动）→ 忽略
+          //   1. 落点与自身起始行重叠（未移动）→ 忽略
           //   2. 落点恰好是另一个 widget 的 row（精确匹配）→ 互换，但需要：
           //        a. 各自新位置的 rowSpan 范围内无第三方 widget 重叠
           //        b. 各自新位置的 rowSpan 范围内无普通应用（不强制推移普通应用）
-          //   3. 落点是纯空行 → 直接移动（整个 rowSpan 范围内不能有任何 item）
+          //   3. 落点是空行 → 移动（新 span 内的普通应用 reflow 到腾出的旧行）
           const targetPageItems = d.pages[targetPage] ?? [];
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
           const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
 
-          // 未移动：落回自身占据的行范围
-          const stayInPlace = widgetTargetRow >= src.row && widgetTargetRow < src.row + draggedSpan0
-            && src.page === targetPage;
-          if (stayInPlace) return;
+          // 未移动：只有落回自身起始行才视为未移动（允许拖到 span 覆盖的其他逻辑行）
+          if (widgetTargetRow === src.row && src.page === targetPage) return;
 
           // 路径 A：精确命中另一个 widget 的起始行 → 尝试互换
           const otherWidget = targetPageItems.find(
@@ -1130,7 +1156,8 @@ function findFirstEmpty(
   const order = [preferPage, ...Array.from({ length: pages.length }, (_, i) => i).filter(i => i !== preferPage)];
   for (const p of order) {
     for (let r = 0; r < maxRows; r++) {
-      if (pages[p].some((it) => it.row === r && it.type === 'widget')) continue;
+      // 跳过被任意 widget rowSpan 视觉覆盖的行（不只是起始行）
+      if (isRowCoveredByWidget(pages[p], r)) continue;
       for (let c = 0; c < maxCols; c++) {
         const occupied = pages[p].some((it) => it.row === r && it.col === c && it.id !== excludeId);
         if (!occupied) return { page: p, row: r, col: c };
