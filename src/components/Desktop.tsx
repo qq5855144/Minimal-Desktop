@@ -387,8 +387,6 @@ const Desktop: React.FC = () => {
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
               swapDesktopItems: swap,
-              moveWidgetWithReflow: moveWidget,
-              swapWidgetsWithReflow: swapWidgets,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
@@ -607,89 +605,21 @@ const Desktop: React.FC = () => {
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
           const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
 
-          // 未移动：只有落回自身起始行才视为未移动（允许拖到 span 覆盖的其他逻辑行）
+          // 未移动：落回自身起始行 → 忽略
           if (widgetTargetRow === src.row && src.page === targetPage) return;
 
-          // 路径 A：目标 span 范围内命中另一个 widget → 尝试互换
-          // 用范围交集匹配：[widgetTargetRow, +draggedSpan) 与另一个 widget 的 [row, +span) 有交集
-          // 这样 clock(span=2) 落到 row=1 时，能命中 search(row=2,span=1)，进入互换路径
-          const otherWidget = targetPageItems.find(it => {
-            if (it.type !== 'widget' || it.id === g.source.itemId) return false;
-            const span = getWidgetConfig(it.widgetType).rowSpan;
-            return widgetTargetRow < it.row + span && it.row < widgetTargetRow + draggedSpan0;
-          });
-
-          if (otherWidget) {
-            // 路径 A：目标 span 范围内有另一个 widget → 两者互换行位置
-            // 互换后：A 起始行 = otherWidget.row，B 起始行 = src.row
-            // 校验：各自新位置无第三方 widget 重叠，且被覆盖的普通应用能 reflow 到对方腾出的行
-            const srcSpan = draggedSpan0;
-            const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
-            const srcPageItems = d.pages[src.page] ?? [];
-            const excludeIds = [g.source.itemId, otherWidget.id];
-
-            // 第三方 widget 重叠校验
-            const srcOverlaps = wouldWidgetOverlap(targetPageItems, otherWidget.row, srcSpan, excludeIds);
-            const otherOverlaps = wouldWidgetOverlap(srcPageItems, src.row, otherSpan, excludeIds);
-            if (srcOverlaps || otherOverlaps) {
-              toast.error('空间不足');
-              return;
-            }
-
-            // 普通应用 reflow 校验
-            // A 新位置 [otherWidget.row, +srcSpan) 内的应用 → 平移到 A 腾出的 [src.row, +srcSpan)
-            const swapOffset = otherWidget.row - src.row;
-            const displacedBySrc = targetPageItems.filter(
-              it => !excludeIds.includes(it.id) && it.type !== 'widget'
-                && it.row >= otherWidget.row && it.row < otherWidget.row + srcSpan,
-            );
-            const canReflowSrc = displacedBySrc.every(it => {
-              const destRow = it.row - swapOffset;
-              if (destRow < src.row || destRow >= src.row + srcSpan) return false;
-              return !srcPageItems.some(o => !excludeIds.includes(o.id) && o.id !== it.id && o.row === destRow);
-            });
-            // B 新位置 [src.row, +otherSpan) 内的应用 → 平移到 B 腾出的 [otherWidget.row, +otherSpan)
-            const displacedByOther = srcPageItems.filter(
-              it => !excludeIds.includes(it.id) && it.type !== 'widget'
-                && it.row >= src.row && it.row < src.row + otherSpan,
-            );
-            const canReflowOther = displacedByOther.every(it => {
-              const destRow = it.row + swapOffset;
-              if (destRow < otherWidget.row || destRow >= otherWidget.row + otherSpan) return false;
-              return !targetPageItems.some(o => !excludeIds.includes(o.id) && o.id !== it.id && o.row === destRow);
-            });
-
-            if (!canReflowSrc || !canReflowOther) {
-              toast.error('空间不足');
-              return;
-            }
-            swapWidgets(
-              g.source.itemId, src.page, src.row, srcSpan,
-              otherWidget.id, targetPage, otherWidget.row, otherSpan,
-            );
-
-          } else {
-            // 路径 B：目标 span 范围内无其他 widget → 直接移动
-            // 新 span 内的普通应用 reflow 到 widget 腾出的旧行
-            const draggedSpan = draggedSpan0;
-            const offset = widgetTargetRow - src.row; // 正=下移，负=上移
-            const displaced = targetPageItems.filter(
-              it => it.id !== g.source.itemId && it.type !== 'widget'
-                && it.row >= widgetTargetRow && it.row < widgetTargetRow + draggedSpan,
-            );
-            const canReflow = displaced.every(it => {
-              const destRow = it.row - offset;
-              if (destRow < src.row || destRow >= src.row + draggedSpan) return false;
-              return !targetPageItems.some(
-                other => other.id !== g.source.itemId && other.id !== it.id && other.row === destRow,
-              );
-            });
-            if (!canReflow) {
-              toast.error('空间不足');
-              return;
-            }
-            moveWidget(g.source.itemId, src.page, targetPage, src.row, widgetTargetRow, draggedSpan);
+          // 唯一规则：目标 rowSpan 范围 [widgetTargetRow, +span) 内不能有任何其他 item
+          // （包括其他 widget 和普通应用），完全空闲才可放置
+          const blocked = targetPageItems.some(
+            it => it.id !== g.source.itemId
+              && it.row >= widgetTargetRow
+              && it.row < widgetTargetRow + draggedSpan0,
+          );
+          if (blocked) {
+            toast.error('空间不足');
+            return;
           }
+          moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
           moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
