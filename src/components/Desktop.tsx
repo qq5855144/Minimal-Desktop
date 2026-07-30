@@ -606,51 +606,65 @@ const Desktop: React.FC = () => {
           // 未移动：只有落回自身起始行才视为未移动（允许拖到 span 覆盖的其他逻辑行）
           if (widgetTargetRow === src.row && src.page === targetPage) return;
 
-          // 路径 A：精确命中另一个 widget 的起始行 → 尝试互换
-          const otherWidget = targetPageItems.find(
-            it => it.type === 'widget' && it.id !== g.source.itemId && it.row === widgetTargetRow,
-          );
+          // 路径 A：目标 span 范围内命中另一个 widget → 尝试互换
+          // 用范围交集匹配：[widgetTargetRow, +draggedSpan) 与另一个 widget 的 [row, +span) 有交集
+          // 这样 clock(span=2) 落到 row=1 时，能命中 search(row=2,span=1)，进入互换路径
+          const otherWidget = targetPageItems.find(it => {
+            if (it.type !== 'widget' || it.id === g.source.itemId) return false;
+            const span = getWidgetConfig(it.widgetType).rowSpan;
+            return widgetTargetRow < it.row + span && it.row < widgetTargetRow + draggedSpan0;
+          });
 
           if (otherWidget) {
+            // 路径 A：目标 span 范围内有另一个 widget → 两者互换行位置
+            // 互换后：A 起始行 = otherWidget.row，B 起始行 = src.row
+            // 校验：各自新位置无第三方 widget 重叠，且被覆盖的普通应用能 reflow 到对方腾出的行
             const srcSpan = draggedSpan0;
             const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
             const srcPageItems = d.pages[src.page] ?? [];
             const excludeIds = [g.source.itemId, otherWidget.id];
 
-            // A → otherWidget.row，B → src.row：检查各自新位置无第三方 widget 重叠
+            // 第三方 widget 重叠校验
             const srcOverlaps = wouldWidgetOverlap(targetPageItems, otherWidget.row, srcSpan, excludeIds);
             const otherOverlaps = wouldWidgetOverlap(srcPageItems, src.row, otherSpan, excludeIds);
+            if (srcOverlaps || otherOverlaps) {
+              toast.error('空间不足');
+              return;
+            }
 
-            // 各自新位置 rowSpan 范围内不能有普通应用
-            const srcHasApps = targetPageItems.some(
+            // 普通应用 reflow 校验
+            // A 新位置 [otherWidget.row, +srcSpan) 内的应用 → 平移到 A 腾出的 [src.row, +srcSpan)
+            const swapOffset = otherWidget.row - src.row;
+            const displacedBySrc = targetPageItems.filter(
               it => !excludeIds.includes(it.id) && it.type !== 'widget'
                 && it.row >= otherWidget.row && it.row < otherWidget.row + srcSpan,
             );
-            const otherHasApps = srcPageItems.some(
+            const canReflowSrc = displacedBySrc.every(it => {
+              const destRow = it.row - swapOffset;
+              if (destRow < src.row || destRow >= src.row + srcSpan) return false;
+              return !srcPageItems.some(o => !excludeIds.includes(o.id) && o.id !== it.id && o.row === destRow);
+            });
+            // B 新位置 [src.row, +otherSpan) 内的应用 → 平移到 B 腾出的 [otherWidget.row, +otherSpan)
+            const displacedByOther = srcPageItems.filter(
               it => !excludeIds.includes(it.id) && it.type !== 'widget'
                 && it.row >= src.row && it.row < src.row + otherSpan,
             );
+            const canReflowOther = displacedByOther.every(it => {
+              const destRow = it.row + swapOffset;
+              if (destRow < otherWidget.row || destRow >= otherWidget.row + otherSpan) return false;
+              return !targetPageItems.some(o => !excludeIds.includes(o.id) && o.id !== it.id && o.row === destRow);
+            });
 
-            if (srcOverlaps || otherOverlaps || srcHasApps || otherHasApps) {
+            if (!canReflowSrc || !canReflowOther) {
               toast.error('空间不足');
               return;
             }
             swap(g.source.itemId, src.page, src.row, '0', otherWidget.id, targetPage, otherWidget.row, '0');
 
           } else {
-            // 路径 B：目标行无其他 widget → 移动（允许普通应用被平移到腾出的旧行）
-            // 规则：
-            //   - 新 span 范围内不能有其他 widget（视觉重叠）
-            //   - 新 span 范围内的普通应用将被原子平移到 widget 腾出的旧行（reflow）
-            //   - 旧行腾出空间不足以承接这些普通应用时（旧行已有 item），拒绝
+            // 路径 B：目标 span 范围内无其他 widget → 直接移动
+            // 新 span 内的普通应用 reflow 到 widget 腾出的旧行
             const draggedSpan = draggedSpan0;
-            const widgetOverlap = wouldWidgetOverlap(targetPageItems, widgetTargetRow, draggedSpan, [g.source.itemId]);
-            if (widgetOverlap) {
-              toast.error('空间不足');
-              return;
-            }
-            // 检查被新 span 覆盖但不属于旧 span 的行（即新"侵入"的行）内的普通应用
-            // 这些应用会被平移到旧 span 腾出的对应行，需确保目标行没有其他 item
             const offset = widgetTargetRow - src.row; // 正=下移，负=上移
             const displaced = targetPageItems.filter(
               it => it.id !== g.source.itemId && it.type !== 'widget'
@@ -658,7 +672,6 @@ const Desktop: React.FC = () => {
             );
             const canReflow = displaced.every(it => {
               const destRow = it.row - offset;
-              // 目标行必须在旧 span 腾出的范围内，且该格没有其他 item
               if (destRow < src.row || destRow >= src.row + draggedSpan) return false;
               return !targetPageItems.some(
                 other => other.id !== g.source.itemId && other.id !== it.id && other.row === destRow,
