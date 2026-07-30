@@ -30,6 +30,8 @@ interface DesktopContextType {
   swapDesktopItems: (idA: string, pageA: number, rowA: number, colA: string, idB: string, pageB: number, rowB: number, colB: string) => void;
   // 拖拽：widget 移动到目标行，同时把被新 span 覆盖的普通应用平移到腾出的旧行（原子操作）
   moveWidgetWithReflow: (id: string, fromPage: number, toPage: number, oldRow: number, newRow: number, span: number) => void;
+  // 拖拽：两个 widget 互换行，同时 reflow 各自新位置内被覆盖的普通应用
+  swapWidgetsWithReflow: (idA: string, pageA: number, rowA: number, spanA: number, idB: string, pageB: number, rowB: number, spanB: number) => void;
   // 拖拽：移动到空白位置
   moveItemTo: (id: string, fromPage: number, toPage: number, row: number, col: number) => void;
   // 拖拽：从文件夹移到桌面
@@ -405,6 +407,24 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const idx = fromItems.findIndex((it) => it.id === id);
       if (idx < 0) return prev;
 
+      const offset = newRow - oldRow; // 正=下移，负=上移
+
+      // 先平移被新 span 覆盖、但不在旧 span 内的普通应用（新侵入的行）
+      // 这些应用需要移到 widget 腾出的旧行，必须在 widget.row 更新前处理，
+      // 否则 widget.row 已变，fromItems 判断会错乱。
+      const pageToFix = next.pages[toPage];
+      if (pageToFix && offset !== 0) {
+        for (const it of pageToFix) {
+          if (it.type === 'widget' || it.id === id) continue;
+          // 仅处理新侵入的行：在新 span 内 且 不在旧 span 内
+          const inNewSpan = it.row >= newRow && it.row < newRow + span;
+          const inOldSpan = it.row >= oldRow && it.row < oldRow + span;
+          if (inNewSpan && !inOldSpan) {
+            it.row = it.row - offset;
+          }
+        }
+      }
+
       // 移动 widget 本身
       const widget = fromItems[idx];
       widget.row = newRow;
@@ -414,21 +434,54 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toItems.push(widget);
       }
 
-      // 平移：把新 span 范围 [newRow, newRow+span) 内被覆盖的普通应用
-      // 移到 widget 腾出的旧范围对应行。
-      // 原理：widget 从 oldRow 移到 newRow，两者的 span 范围必然有交集（相邻移动），
-      // 新范围"侵入"的行 = 新范围中不属于旧范围的行，对应的旧范围"空出"的行可以承接它们。
-      // offset = newRow - oldRow（正数=下移，负数=上移）
-      // 侵入行 r（在 [newRow, newRow+span)）→ 映射到空出行 r - offset（在旧范围）
-      const offset = newRow - oldRow;
-      const pageToFix = next.pages[toPage]; // 同页或跨页均用目标页
-      if (pageToFix && offset !== 0) {
-        for (const it of pageToFix) {
-          if (it.type === 'widget' || it.id === id) continue;
-          if (it.row >= newRow && it.row < newRow + span) {
-            it.row = it.row - offset;
-          }
-        }
+      return next;
+    });
+  }, []);
+
+  /**
+   * 两个 widget 互换行，同时把各自新位置内被覆盖的普通应用 reflow 到对方腾出的行
+   */
+  const swapWidgetsWithReflow = useCallback((
+    idA: string, pageA: number, rowA: number, spanA: number,
+    idB: string, pageB: number, rowB: number, spanB: number,
+  ) => {
+    setData((prev) => {
+      const next = deepClone(prev);
+      const itemsA = next.pages[pageA];
+      const itemsB = next.pages[pageB];
+      if (!itemsA || !itemsB) return prev;
+
+      const idxA = itemsA.findIndex((it) => it.id === idA);
+      const idxB = itemsB.findIndex((it) => it.id === idB);
+      if (idxA < 0 || idxB < 0) return prev;
+
+      const swapOffset = rowB - rowA; // A 的位移方向
+
+      // A 移到 rowB：把 [rowB, rowB+spanA) 内 且 不在 [rowA, rowA+spanA) 内的普通应用 → rowA 腾出的对应行
+      for (const it of itemsB) {
+        if (it.type === 'widget' || it.id === idA || it.id === idB) continue;
+        const inNewA = it.row >= rowB && it.row < rowB + spanA;
+        const inOldA = it.row >= rowA && it.row < rowA + spanA;
+        if (inNewA && !inOldA) it.row = it.row - swapOffset;
+      }
+      // B 移到 rowA：把 [rowA, rowA+spanB) 内 且 不在 [rowB, rowB+spanB) 内的普通应用 → rowB 腾出的对应行
+      for (const it of itemsA) {
+        if (it.type === 'widget' || it.id === idA || it.id === idB) continue;
+        const inNewB = it.row >= rowA && it.row < rowA + spanB;
+        const inOldB = it.row >= rowB && it.row < rowB + spanB;
+        if (inNewB && !inOldB) it.row = it.row + swapOffset;
+      }
+
+      // 互换 widget 本身的行号
+      const a = itemsA[idxA];
+      const b = itemsB[idxB];
+      a.row = rowB; a.page = pageB;
+      b.row = rowA; b.page = pageA;
+      if (pageA !== pageB) {
+        itemsA.splice(idxA, 1);
+        itemsB.splice(idxB, 1);
+        itemsB.push(a);
+        itemsA.push(b);
       }
 
       return next;
@@ -899,6 +952,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         removeItem,
         swapDesktopItems,
         moveWidgetWithReflow,
+        swapWidgetsWithReflow,
         moveItemTo,
         moveFromFolderToDesktop,
         moveDesktopToFolder,

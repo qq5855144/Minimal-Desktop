@@ -60,6 +60,7 @@ const Desktop: React.FC = () => {
     moveItemTo,
     swapDesktopItems,
     moveWidgetWithReflow,
+    swapWidgetsWithReflow,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -203,14 +204,14 @@ const Desktop: React.FC = () => {
   }, []);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, swapWidgetsWithReflow, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, swapWidgetsWithReflow, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
@@ -387,6 +388,7 @@ const Desktop: React.FC = () => {
               moveItemTo: moveTo,
               swapDesktopItems: swap,
               moveWidgetWithReflow: moveWidget,
+              swapWidgetsWithReflow: swapWidgets,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
@@ -661,7 +663,10 @@ const Desktop: React.FC = () => {
               toast.error('空间不足');
               return;
             }
-            swap(g.source.itemId, src.page, src.row, '0', otherWidget.id, targetPage, otherWidget.row, '0');
+            swapWidgets(
+              g.source.itemId, src.page, src.row, srcSpan,
+              otherWidget.id, targetPage, otherWidget.row, otherSpan,
+            );
 
           } else {
             // 路径 B：目标 span 范围内无其他 widget → 直接移动
