@@ -512,8 +512,11 @@ const Desktop: React.FC = () => {
           }
 
           // 2. 为 widget 的 rowSpan 覆盖范围补全虚拟逻辑行
-          // widget DOM 节点只有起始行有 cell，其余行被视觉覆盖但无 DOM 节点
-          // → 取 widget 起始行的 Y 范围，按 rowSpan 均分，为每个子行写入 rowBounds
+          // widget DOM 节点的 cell 高度 = rowSpan 个 grid track（视觉全高），
+          // 必须将其均分为 rowSpan 份，每份对应一个逻辑行。
+          // 关键：被拖拽的 widget 自身的 row=w.row 已被步骤1收集（全高），
+          // 必须强制覆盖（不能用 !has() 跳过），否则 row=0 永远等于全高，
+          // 导致落在 clock 下半时命中 row=0 → 触发 stayInPlace → 无法下移。
           const pageWidgets = (d.pages[targetPage] ?? []).filter(it => it.type === 'widget');
           for (const w of pageWidgets) {
             const span = getWidgetConfig(w.widgetType).rowSpan;
@@ -524,12 +527,11 @@ const Desktop: React.FC = () => {
             const rowH = totalH / span;
             for (let s = 0; s < span; s++) {
               const logicalRow = w.row + s;
-              if (!rowBounds.has(logicalRow)) {
-                rowBounds.set(logicalRow, {
-                  top: startBound.top + s * rowH,
-                  bottom: startBound.top + (s + 1) * rowH,
-                });
-              }
+              // 强制写入（覆盖步骤1收集的全高 bound），确保每个子行仅占 1/span 高度
+              rowBounds.set(logicalRow, {
+                top: startBound.top + s * rowH,
+                bottom: startBound.top + (s + 1) * rowH,
+              });
             }
           }
 
