@@ -59,7 +59,6 @@ const Desktop: React.FC = () => {
     removeItem,
     moveItemTo,
     swapDesktopItems,
-    swapWidgetsWithReflow,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -203,14 +202,14 @@ const Desktop: React.FC = () => {
   }, []);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, swapWidgetsWithReflow, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, swapWidgetsWithReflow, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
@@ -386,7 +385,6 @@ const Desktop: React.FC = () => {
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
               swapDesktopItems: swap,
-              swapWidgetsWithReflow: swapWidgets,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
@@ -522,65 +520,66 @@ const Desktop: React.FC = () => {
             });
           }
 
-          // 检查落点是否是另一个组件（widget ↔ widget 交换）
-          // 用 rowSpan 范围匹配：只要拖拽目标范围 [widgetTargetRow, +draggedSpan) 内
-          // 覆盖了另一个 widget 的任意行，都视为"命中该 widget"，进入互换逻辑。
-          // 这修复了大组件（span>1）拖到小组件上方时，精确 row 匹配找不到目标 widget
-          // 导致直接报"空间不足"而非触发合法互换的问题。
+          // ── widget 拖拽落点判定 ──
+          // 规则：
+          //   1. 落点与自身重叠（未移动）→ 忽略
+          //   2. 落点恰好是另一个 widget 的 row（精确匹配）→ 互换，但需要：
+          //        a. 各自新位置的 rowSpan 范围内无第三方 widget 重叠
+          //        b. 各自新位置的 rowSpan 范围内无普通应用（不强制推移普通应用）
+          //   3. 落点是纯空行 → 直接移动（整个 rowSpan 范围内不能有任何 item）
           const targetPageItems = d.pages[targetPage] ?? [];
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
           const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
-          const otherWidget = targetPageItems.find(it => {
-            if (it.type !== 'widget' || it.id === g.source.itemId) return false;
-            const span = getWidgetConfig(it.widgetType).rowSpan;
-            // 目标范围 与 该 widget 的 span 范围 有交集
-            return widgetTargetRow < it.row + span && it.row < widgetTargetRow + draggedSpan0;
-          });
+
+          // 未移动：落回自身占据的行范围
+          const stayInPlace = widgetTargetRow >= src.row && widgetTargetRow < src.row + draggedSpan0
+            && src.page === targetPage;
+          if (stayInPlace) return;
+
+          // 路径 A：精确命中另一个 widget 的起始行 → 尝试互换
+          const otherWidget = targetPageItems.find(
+            it => it.type === 'widget' && it.id !== g.source.itemId && it.row === widgetTargetRow,
+          );
 
           if (otherWidget) {
-            // 两个组件互换行位置（同时原子平移被覆盖的普通应用，无需额外校验）
             const srcSpan = draggedSpan0;
             const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
             const srcPageItems = d.pages[src.page] ?? [];
-            const samePage = src.page === targetPage;
             const excludeIds = [g.source.itemId, otherWidget.id];
 
-            // widget↔widget span 重叠校验（仍需排除三方 widget 干扰）
-            const srcOverlaps = wouldWidgetOverlap(
-              targetPageItems, otherWidget.row, srcSpan, excludeIds,
-            );
-            const otherOverlaps = wouldWidgetOverlap(
-              srcPageItems, src.row, otherSpan, excludeIds,
-            );
-            const selfOverlap = samePage &&
-              otherWidget.row < src.row + otherSpan && src.row < otherWidget.row + srcSpan;
+            // A → otherWidget.row，B → src.row：检查各自新位置无第三方 widget 重叠
+            const srcOverlaps = wouldWidgetOverlap(targetPageItems, otherWidget.row, srcSpan, excludeIds);
+            const otherOverlaps = wouldWidgetOverlap(srcPageItems, src.row, otherSpan, excludeIds);
 
-            if (srcOverlaps || otherOverlaps || selfOverlap) {
+            // 各自新位置 rowSpan 范围内不能有普通应用
+            const srcHasApps = targetPageItems.some(
+              it => !excludeIds.includes(it.id) && it.type !== 'widget'
+                && it.row >= otherWidget.row && it.row < otherWidget.row + srcSpan,
+            );
+            const otherHasApps = srcPageItems.some(
+              it => !excludeIds.includes(it.id) && it.type !== 'widget'
+                && it.row >= src.row && it.row < src.row + otherSpan,
+            );
+
+            if (srcOverlaps || otherOverlaps || srcHasApps || otherHasApps) {
               toast.error('空间不足');
               return;
             }
-            // 使用原子方法：交换两 widget 行号，同时把被覆盖的普通应用平移到安全区
-            swapWidgets(
-              g.source.itemId, src.page, src.row, srcSpan,
-              otherWidget.id, targetPage, otherWidget.row, otherSpan,
-            );
+            swap(g.source.itemId, src.page, src.row, '0', otherWidget.id, targetPage, otherWidget.row, '0');
+
           } else {
-            // 检查目标 widget 将占据的整个 rowSpan 范围内是否有其他项（含普通应用和其他 widget）
+            // 路径 B：目标是空行 → 直接移动
+            // 整个 [widgetTargetRow, +draggedSpan) 范围内不能有任何 item（widget 或普通应用）
             const draggedSpan = draggedSpan0;
-            const hasApps = targetPageItems.some(
+            const rangeBlocked = targetPageItems.some(
               it => it.id !== g.source.itemId
-                && it.type !== 'widget'
                 && it.row >= widgetTargetRow
                 && it.row < widgetTargetRow + draggedSpan,
             );
-            // 校验目标范围内是否与其他 widget 的 span 重叠（之前缺失该校验，
-            // 导致 widget 可被拖入另一个 widget 的视觉区域内，造成"覆盖"bug）
-            const widgetOverlap = wouldWidgetOverlap(
-              targetPageItems, widgetTargetRow, draggedSpan, [g.source.itemId],
-            );
-            if (hasApps || widgetOverlap) {
+            const widgetOverlap = wouldWidgetOverlap(targetPageItems, widgetTargetRow, draggedSpan, [g.source.itemId]);
+            if (rangeBlocked || widgetOverlap) {
               toast.error('空间不足');
-              return; // 不移动，组件自动复位
+              return;
             }
             moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
           }
