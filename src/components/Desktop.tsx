@@ -59,6 +59,7 @@ const Desktop: React.FC = () => {
     removeItem,
     moveItemTo,
     swapDesktopItems,
+    swapWidgetsWithReflow,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -202,14 +203,14 @@ const Desktop: React.FC = () => {
   }, []);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, swapWidgetsWithReflow, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, swapWidgetsWithReflow, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
@@ -385,6 +386,7 @@ const Desktop: React.FC = () => {
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
               swapDesktopItems: swap,
+              swapWidgetsWithReflow: swapWidgets,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
@@ -536,19 +538,14 @@ const Desktop: React.FC = () => {
           });
 
           if (otherWidget) {
-            // 两个组件互换行位置
-            // 校验交换后是否会导致 widget span 视觉重叠（widget↔widget 或 widget↔普通应用）：
-            //   source → otherWidget.row（span = srcSpan）
-            //   otherWidget → src.row（span = otherSpan）
-            // 若有重叠，渲染循环（r += span - 1）会跳过被覆盖行，使被覆盖的 widget/应用消失
+            // 两个组件互换行位置（同时原子平移被覆盖的普通应用，无需额外校验）
             const srcSpan = draggedSpan0;
             const otherSpan = getWidgetConfig(otherWidget.widgetType).rowSpan;
             const srcPageItems = d.pages[src.page] ?? [];
             const samePage = src.page === targetPage;
-            // 排除参与交换的两个 widget 自身（同页时二者都在同一数组里）
             const excludeIds = [g.source.itemId, otherWidget.id];
 
-            // widget↔widget span 重叠校验
+            // widget↔widget span 重叠校验（仍需排除三方 widget 干扰）
             const srcOverlaps = wouldWidgetOverlap(
               targetPageItems, otherWidget.row, srcSpan, excludeIds,
             );
@@ -558,29 +555,14 @@ const Desktop: React.FC = () => {
             const selfOverlap = samePage &&
               otherWidget.row < src.row + otherSpan && src.row < otherWidget.row + srcSpan;
 
-            // widget↔普通应用重叠校验：
-            // source 放到 otherWidget.row 后，[otherWidget.row, +srcSpan) 范围内的普通应用会被覆盖
-            const srcHasApps = targetPageItems.some(
-              it => !excludeIds.includes(it.id)
-                && it.type !== 'widget'
-                && it.row >= otherWidget.row
-                && it.row < otherWidget.row + srcSpan,
-            );
-            // otherWidget 放到 src.row 后，[src.row, +otherSpan) 范围内的普通应用会被覆盖
-            const otherHasApps = srcPageItems.some(
-              it => !excludeIds.includes(it.id)
-                && it.type !== 'widget'
-                && it.row >= src.row
-                && it.row < src.row + otherSpan,
-            );
-
-            if (srcOverlaps || otherOverlaps || selfOverlap || srcHasApps || otherHasApps) {
+            if (srcOverlaps || otherOverlaps || selfOverlap) {
               toast.error('空间不足');
-              return; // 不交换，组件自动复位
+              return;
             }
-            swap(
-              g.source.itemId, src.page, src.row, '0',
-              otherWidget.id, targetPage, otherWidget.row, '0',
+            // 使用原子方法：交换两 widget 行号，同时把被覆盖的普通应用平移到安全区
+            swapWidgets(
+              g.source.itemId, src.page, src.row, srcSpan,
+              otherWidget.id, targetPage, otherWidget.row, otherSpan,
             );
           } else {
             // 检查目标 widget 将占据的整个 rowSpan 范围内是否有其他项（含普通应用和其他 widget）

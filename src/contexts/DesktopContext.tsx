@@ -28,6 +28,8 @@ interface DesktopContextType {
   removeItem: (id: string) => void;
   // 拖拽：交换桌面位置
   swapDesktopItems: (idA: string, pageA: number, rowA: number, colA: string, idB: string, pageB: number, rowB: number, colB: string) => void;
+  // 拖拽：widget 互换并同步平移被覆盖的普通应用（原子操作，防止普通应用被 widget span 覆盖）
+  swapWidgetsWithReflow: (idA: string, pageA: number, rowA: number, spanA: number, idB: string, pageB: number, rowB: number, spanB: number) => void;
   // 拖拽：移动到空白位置
   moveItemTo: (id: string, fromPage: number, toPage: number, row: number, col: number) => void;
   // 拖拽：从文件夹移到桌面
@@ -389,6 +391,69 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
     }
   }, []);
+
+  const swapWidgetsWithReflow = useCallback((
+    idA: string, pageA: number, rowA: number, spanA: number,
+    idB: string, pageB: number, rowB: number, spanB: number,
+  ) => {
+    setData((prev) => {
+      const next = deepClone(prev);
+      // 找到两个 widget
+      const idxA = next.pages[pageA]?.findIndex((it) => it.id === idA);
+      const idxB = next.pages[pageB]?.findIndex((it) => it.id === idB);
+      if (idxA < 0 || idxB < 0) return prev;
+
+      const a = next.pages[pageA][idxA];
+      const b = next.pages[pageB][idxB];
+
+      // widget A 换到 rowB，B 换到 rowA
+      a.row = rowB; a.page = pageB;
+      b.row = rowA; b.page = pageA;
+
+      // 如果跨页，移动数组成员
+      if (pageA !== pageB) {
+        next.pages[pageA].splice(idxA, 1);
+        next.pages[pageB].splice(idxB, 1);
+        next.pages[pageB].push(a);
+        next.pages[pageA].push(b);
+      }
+
+      // ── 平移被覆盖的普通应用 ──
+      // A 从 rowA 移到 rowB，其 span 范围 [rowB, rowB+spanA) 可能覆盖普通应用；
+      // 这些应用原本处于 A 离开后空出的 [rowA, rowA+spanA) 范围，
+      // 现在 B（spanB）占据 rowA，所以普通应用应移到 rowA+spanB 开始的位置。
+      // 同理，B 从 rowB 移到 rowA，其 span 范围 [rowA, rowA+spanB) 中若有普通应用
+      // 应移到 rowB+spanA 开始。
+      //
+      // 简化策略（同页）：把被 A 新位置 [rowB, rowB+spanA) 覆盖的普通应用
+      // 平移到 B 腾出的位置（rowB+spanA 之后的空行），
+      // 把被 B 新位置 [rowA, rowA+spanB) 覆盖的普通应用平移到 A 腾出的位置。
+      const fixPage = (page: number) => {
+        const items = next.pages[page];
+        if (!items) return;
+
+        // A 新占据 [rowB, rowB+spanA)，B 新占据 [rowA, rowA+spanB)
+        // 普通应用若落在这两个范围内，分别移到对方腾出的安全区
+        for (const it of items) {
+          if (it.type === 'widget') continue;
+          // 落在 A 的新 span 范围内 → 移到 rowA（B 腾出的位置开始）
+          if (it.row >= rowB && it.row < rowB + spanA) {
+            it.row = rowA + (it.row - rowB);
+          }
+          // 落在 B 的新 span 范围内 → 移到 rowB+spanA（A 腾出的位置之后）
+          else if (it.row >= rowA && it.row < rowA + spanB) {
+            it.row = rowB + spanA + (it.row - rowA - spanB);
+          }
+        }
+      };
+
+      fixPage(pageA);
+      if (pageB !== pageA) fixPage(pageB);
+
+      return next;
+    });
+  }, []);
+
 
   const swapDesktopItems = useCallback(
     (
@@ -853,6 +918,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateItem,
         removeItem,
         swapDesktopItems,
+        swapWidgetsWithReflow,
         moveItemTo,
         moveFromFolderToDesktop,
         moveDesktopToFolder,
