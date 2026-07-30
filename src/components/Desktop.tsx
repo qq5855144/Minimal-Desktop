@@ -609,13 +609,16 @@ const Desktop: React.FC = () => {
           if (widgetTargetRow === src.row && src.page === targetPage) return;
 
           // 唯一规则：目标 rowSpan 范围 [widgetTargetRow, +span) 内不能有任何其他 item
-          // （包括其他 widget 和普通应用），完全空闲才可放置
-          const blocked = targetPageItems.some(
-            it => it.id !== g.source.itemId
+          // 注意：widget 的数据层 row 是起始行，但视觉覆盖 [row, row+span)，
+          // 必须用区间重叠判定（wouldWidgetOverlap），而不是简单的 it.row >= start 检查。
+          // 普通应用用 it.row 判断即可（span=1）。
+          const widgetBlocked = wouldWidgetOverlap(targetPageItems, widgetTargetRow, draggedSpan0, [g.source.itemId]);
+          const appBlocked = targetPageItems.some(
+            it => it.id !== g.source.itemId && it.type !== 'widget'
               && it.row >= widgetTargetRow
               && it.row < widgetTargetRow + draggedSpan0,
           );
-          if (blocked) {
+          if (widgetBlocked || appBlocked) {
             toast.error('空间不足');
             return;
           }
