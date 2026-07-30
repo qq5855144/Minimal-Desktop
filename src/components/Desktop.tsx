@@ -533,6 +533,48 @@ const Desktop: React.FC = () => {
             }
           }
 
+          // 3. 补全"空行"的 Y 范围：空行没有 DOM cell 也不被 widget 覆盖，
+          // 通过相邻行的 bottom/top 插值，保证落点计算不会跳过空行直接命中下方的行。
+          // 策略：找出 rowBounds 中已有的最大行号，再往下补若干行（按行高估算）
+          {
+            const knownRows = Array.from(rowBounds.keys()).sort((a, b) => a - b);
+            if (knownRows.length >= 2) {
+              // 估算行高：取相邻两行 top 差的中位数
+              const gaps: number[] = [];
+              for (let i = 1; i < knownRows.length; i++) {
+                const prev2 = rowBounds.get(knownRows[i - 1])!;
+                const curr2 = rowBounds.get(knownRows[i])!;
+                gaps.push(curr2.top - prev2.top);
+              }
+              gaps.sort((a, b) => a - b);
+              const medianRowH = gaps[Math.floor(gaps.length / 2)];
+              const maxKnownRow = knownRows[knownRows.length - 1];
+              const maxKnownBound = rowBounds.get(maxKnownRow)!;
+              // 向后补全至 maxRow+4 行（覆盖所有可能落点）
+              for (let r = maxKnownRow + 1; r <= maxKnownRow + 4; r++) {
+                if (!rowBounds.has(r)) {
+                  const offset2 = r - maxKnownRow;
+                  rowBounds.set(r, {
+                    top: maxKnownBound.top + offset2 * medianRowH,
+                    bottom: maxKnownBound.top + (offset2 + 1) * medianRowH,
+                  });
+                }
+              }
+              // 向前补全 row=0 以上（若最小行不是 0）
+              const minKnownRow = knownRows[0];
+              const minKnownBound = rowBounds.get(minKnownRow)!;
+              for (let r = minKnownRow - 1; r >= 0; r--) {
+                if (!rowBounds.has(r)) {
+                  const offset2 = minKnownRow - r;
+                  rowBounds.set(r, {
+                    top: minKnownBound.top - offset2 * medianRowH,
+                    bottom: minKnownBound.top - (offset2 - 1) * medianRowH,
+                  });
+                }
+              }
+            }
+          }
+
           let widgetTargetRow = targetRow;
           let hit = false;
           // 第一步：直接命中
