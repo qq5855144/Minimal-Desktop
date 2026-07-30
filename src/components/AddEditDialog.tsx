@@ -127,21 +127,24 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
     runProbe(url, false);
   }, [url, runProbe]);
 
-  // 本地文件上传 → 弹出裁剪弹窗
+  // 本地文件上传 → 先把 base64 存入 localIconData，再弹出裁剪弹窗
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { alert('图片不超过 10MB'); return; }
     const reader = new FileReader();
-    reader.onload = (ev) => { setCropSrc(ev.target?.result as string); };
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setLocalIconData(dataUrl); // 保证 effectiveIcon 有值
+      setCropSrc(dataUrl);       // 弹出裁剪
+    };
     reader.readAsDataURL(file);
     e.target.value = '';
   }, []);
 
-  // 裁剪确认（新版）：接收 IconCrop 参数而非 dataURL，直接保存裁剪区域信息
+  // 裁剪确认：只更新裁剪参数，localIconData 已在 handleFileChange 里写好
   const handleCropConfirm = useCallback((crop: IconCrop) => {
     setIconCrop(crop);
-    // 如果当前是本地上传，裁剪结果保留 localIconData 不变（URL 类图标也直接记参数）
     setCropSrc(undefined);
   }, []);
 
