@@ -59,8 +59,6 @@ const Desktop: React.FC = () => {
     removeItem,
     moveItemTo,
     swapDesktopItems,
-    moveWidgetWithReflow,
-    swapWidgetsWithReflow,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -204,14 +202,14 @@ const Desktop: React.FC = () => {
   }, []);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, swapWidgetsWithReflow, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, moveWidgetWithReflow, swapWidgetsWithReflow, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,

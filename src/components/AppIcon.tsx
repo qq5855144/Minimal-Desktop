@@ -277,11 +277,11 @@ const AppIcon: React.FC<AppIconProps> = ({
         </div>
       );
     }
-    // 无图标 fallback：纯色首字母
+    // 无图标 fallback：有 iconUrl 但加载失败 → Globe；无 iconUrl → 首字母色块
     return (
       <div
         className="flex items-center justify-center ios-icon-shadow"
-        style={{ ...iconStyle, background: '#888888' }}
+        style={{ ...iconStyle, background: getColorStyle(item.color) }}
       >
         {item.url ? (
           <Globe style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />

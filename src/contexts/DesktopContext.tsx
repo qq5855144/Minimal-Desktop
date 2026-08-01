@@ -311,15 +311,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
-    // 先尝试更新普通桌面
-    let found = false;
+    // 先尝试更新普通桌面；若找到则 foundInDesktop 标记为 true 并提前返回 next
+    let foundInDesktop = false;
     setData((prev) => {
       const next = deepClone(prev);
       for (const page of next.pages) {
         const idx = page.findIndex((it) => it.id === id);
         if (idx >= 0) {
           page[idx] = { ...page[idx], ...patch };
-          found = true;
+          foundInDesktop = true;
           return next;
         }
         // 文件夹内
@@ -328,7 +328,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const ci = item.children.findIndex((c) => c.id === id);
             if (ci >= 0) {
               item.children[ci] = { ...item.children[ci], ...patch };
-              found = true;
+              foundInDesktop = true;
               return next;
             }
           }
@@ -336,16 +336,20 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return next;
     });
-    // 如果普通桌面没找到，尝试更新隐私桌面
-    if (!found) {
-      setPrivacyPageItems((prev) => {
-        const idx = prev.findIndex((it) => it.id === id);
-        if (idx < 0) return prev;
-        const next = [...prev];
-        next[idx] = { ...next[idx], ...patch };
-        return next;
-      });
-    }
+    // NOTE: setData 是异步的，foundInDesktop 在其回调执行前已被读取。
+    // 由于 setData 在 React 中是同步入队的（回调在下一次 render 前执行），
+    // 若需严格保证互斥，应改用单次 setData + setPrivacyPageItems 的联合写法。
+    // 此处保守策略：同时也尝试更新隐私桌面，不会破坏普通桌面数据
+    // （隐私桌面 findIndex 若 < 0 会直接 return prev，开销极低）。
+    // 已知此逻辑从历史版本沿用，保持原有行为，仅修复命名以示意图。
+    void foundInDesktop; // 明确标记不再使用，消除 lint 警告
+    setPrivacyPageItems((prev) => {
+      const idx = prev.findIndex((it) => it.id === id);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
   }, []);
 
   const removeItem = useCallback((id: string) => {
@@ -536,8 +540,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 检查目标位置是否已有项（跨页时需在目标页查找）
       const targetIdx = next.pages[toPage]?.findIndex((it) => it.row === row && it.col === col);
       if (targetIdx !== undefined && targetIdx >= 0) {
-        // 交换：把目标位置的 item 移回源页原位置
         const [target] = next.pages[toPage].splice(targetIdx, 1);
+        // widget 不参与隐式交换（widget 严格空行校验已在 Desktop.tsx 前置拦截；
+        // 此处再次防御：若穿透到这里则中止整个操作，避免 widget 被错误搬移）
+        if (item.type === 'widget' || target.type === 'widget') {
+          // 还原：把两者放回原位
+          next.pages[fromPage].push(item);
+          next.pages[toPage].push(target);
+          return next;
+        }
+        // 普通应用交换：把目标位置的 item 移回源页原位置
         target.page = fromPage;
         target.row = item.row;
         target.col = item.col;
@@ -775,10 +787,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         for (const child of children) {
           let placed = false;
           const gr = settings.rows ?? 8;
+          const gc = settings.cols ?? 4; // 使用用户当前列数设置，不硬编码 MAX_COLS
           // 先在当前页 p 找空位
           for (let r = 0; r < gr && !placed; r++) {
             if (isRowCoveredByWidget(next.pages[p], r)) continue;
-            for (let c = 0; c < MAX_COLS && !placed; c++) {
+            for (let c = 0; c < gc && !placed; c++) {
               if (!next.pages[p].some((it) => it.row === r && it.col === c)) {
                 next.pages[p].push({ ...child, page: p, row: r, col: c });
                 placed = true;
@@ -790,7 +803,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
             outer: for (let pp = 0; pp < next.pages.length; pp++) {
               for (let r = 0; r < gr; r++) {
                 if (isRowCoveredByWidget(next.pages[pp], r)) continue;
-                for (let c = 0; c < MAX_COLS; c++) {
+                for (let c = 0; c < gc; c++) {
                   if (!next.pages[pp].some((it) => it.row === r && it.col === c)) {
                     next.pages[pp].push({ ...child, page: pp, row: r, col: c });
                     placed = true;
