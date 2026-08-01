@@ -81,13 +81,8 @@ const AppIcon: React.FC<AppIconProps> = ({
     item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined
   );
 
-  // 用 ref 记录上次 iconUrl，useEffect 只在 iconUrl 真正变化时才更新 iconSrc（跳过初次挂载）
-  const prevIconUrlRef = useRef(item.iconUrl);
-
-  // item.iconUrl 变化时（编辑后）同步更新 iconSrc；初次挂载时 prevIconUrlRef === item.iconUrl → 跳过
+  // item.iconUrl 变化时（编辑后）同步更新 iconSrc
   useEffect(() => {
-    if (prevIconUrlRef.current === item.iconUrl) return;
-    prevIconUrlRef.current = item.iconUrl;
     setImgError(false);
     setIconSrc(item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined);
   }, [item.iconUrl]);
