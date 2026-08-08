@@ -10,7 +10,6 @@ import { isRowCoveredByWidget } from '@/lib/widgetConfig';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
 import { HistoryBuffer } from '@/lib/historyBuffer';
-import type { LayoutSnapshot } from '@/lib/layoutSnapshotStorage';
 import {
   LAYOUT_LIMITS,
   findFirstAvailableSlot,
@@ -65,9 +64,6 @@ interface DesktopContextType {
   dissolveFolder: (folderId: string) => void;
   addPage: () => void;
   importData: (data: unknown, options?: { recordHistory?: boolean }) => boolean;
-  restoreLayoutSnapshot: (snapshot: LayoutSnapshot) => boolean;
-  canUndo: boolean;
-  canRedo: boolean;
   undo: () => boolean;
   redo: () => boolean;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
@@ -170,7 +166,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
   const privacyLockTokenRef = useRef<object | null>(null);
   const historyRef = useRef(new HistoryBuffer<DesktopHistoryState>(50));
-  const [, setHistoryRevision] = useState(0);
   // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
   privacyPageItemsRef.current = privacyPageItems;
@@ -189,7 +184,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     else historyRef.current.clear();
     dataRef.current = next;
     setData(next);
-    setHistoryRevision((revision) => revision + 1);
     return true;
   }, [captureHistoryState]);
 
@@ -208,7 +202,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentPage((page) => (
       page < 0 ? page : Math.min(page, Math.max(0, nextData.pages.length - 1))
     ));
-    setHistoryRevision((revision) => revision + 1);
   }, []);
 
   const undo = useCallback(() => {
@@ -227,11 +220,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const clearDesktopHistory = useCallback(() => {
     historyRef.current.clear();
-    setHistoryRevision((revision) => revision + 1);
   }, []);
-
-  const canUndo = historyRef.current.canUndo;
-  const canRedo = historyRef.current.canRedo;
 
   const initialLayoutNormalizedRef = useRef(false);
   useEffect(() => {
@@ -687,37 +676,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [commitDesktopData]);
 
-  const restoreLayoutSnapshot = useCallback((snapshot: LayoutSnapshot) => {
-    const parsed = parseDesktopData(snapshot.data);
-    if (!parsed.ok) return false;
-    const cols: 4 | 5 = snapshot.cols === 5 ? 5 : 4;
-    const minRows = minimumRowsForEnabledWidgets(parsed.data);
-    const rows = Math.min(
-      LAYOUT_LIMITS.maxRows,
-      Math.max(minRows, Math.round(snapshot.rows)),
-    );
-    try {
-      let next: DesktopData = {
-        ...dataForHistory(parsed.data),
-        version: CURRENT_DESKTOP_VERSION,
-      };
-      if (validateDesktopLayout(next, { cols, rows }).length > 0) {
-        next = reflowDesktopData(next, cols, rows);
-      }
-
-      // 先提交桌面数据，让历史记录捕获恢复前的数据与网格设置。
-      commitDesktopData(next);
-      const nextSettings: DesktopSettings = { ...settingsRef.current, cols, rows };
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
-      saveSettings(nextSettings);
-      setCurrentPage(0);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [commitDesktopData]);
-
   /**
    * 恢复云端数据后调用：清除内存中的密钥和明文隐私数据。
    * 防止 privacyPageItems effect 用旧密钥重新加密空数据，覆盖刚恢复的 vault。
@@ -873,9 +831,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         dissolveFolder,
         addPage,
         importData,
-        restoreLayoutSnapshot,
-        canUndo,
-        canRedo,
         undo,
         redo,
         resetPrivacyLock,
