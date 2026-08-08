@@ -9,6 +9,8 @@ import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { isRowCoveredByWidget } from '@/lib/widgetConfig';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
+import { HistoryBuffer } from '@/lib/historyBuffer';
+import type { LayoutSnapshot } from '@/lib/layoutSnapshotStorage';
 import {
   LAYOUT_LIMITS,
   findFirstAvailableSlot,
@@ -62,7 +64,12 @@ interface DesktopContextType {
   renameFolder: (folderId: string, name: string) => void;
   dissolveFolder: (folderId: string) => void;
   addPage: () => void;
-  importData: (data: unknown) => boolean;
+  importData: (data: unknown, options?: { recordHistory?: boolean }) => boolean;
+  restoreLayoutSnapshot: (snapshot: LayoutSnapshot) => boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => boolean;
+  redo: () => boolean;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
   resetPrivacyLock: () => void;
   /** 正常锁定：先把最新明文加密落盘，再清除内存密钥与明文。 */
@@ -94,6 +101,22 @@ function collectIconUrls(data: DesktopData): Set<string> {
   };
   data.pages.forEach((page) => page.forEach(addItem));
   return urls;
+}
+
+interface DesktopHistoryState {
+  data: DesktopData;
+  cols: 4 | 5;
+  rows: number;
+}
+
+function dataForHistory(data: DesktopData): DesktopData {
+  const {
+    privacyVault: _privacyVault,
+    privacyItems: _privacyItems,
+    pinHash: _pinHash,
+    ...desktop
+  } = deepClone(data);
+  return desktop;
 }
 
 function collapseFolderAfterChildRemoval(
@@ -146,11 +169,69 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyEpochRef = useRef(0);
   const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
   const privacyLockTokenRef = useRef<object | null>(null);
+  const historyRef = useRef(new HistoryBuffer<DesktopHistoryState>(50));
+  const [, setHistoryRevision] = useState(0);
   // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
   privacyPageItemsRef.current = privacyPageItems;
   settingsRef.current = settings;
   privacyCryptoKeyRef.current = privacyCryptoKey;
+
+  const captureHistoryState = useCallback((): DesktopHistoryState => ({
+    data: dataForHistory(dataRef.current),
+    cols: settingsRef.current.cols === 5 ? 5 : 4,
+    rows: settingsRef.current.rows ?? 8,
+  }), []);
+
+  const commitDesktopData = useCallback((next: DesktopData, recordHistory = true): boolean => {
+    if (next === dataRef.current) return false;
+    if (recordHistory) historyRef.current.record(captureHistoryState());
+    else historyRef.current.clear();
+    dataRef.current = next;
+    setData(next);
+    setHistoryRevision((revision) => revision + 1);
+    return true;
+  }, [captureHistoryState]);
+
+  const applyHistoryState = useCallback((state: DesktopHistoryState) => {
+    const nextData = dataForHistory(state.data);
+    const nextSettings: DesktopSettings = {
+      ...settingsRef.current,
+      cols: state.cols,
+      rows: state.rows,
+    };
+    dataRef.current = nextData;
+    settingsRef.current = nextSettings;
+    setData(nextData);
+    setSettings(nextSettings);
+    saveSettings(nextSettings);
+    setCurrentPage((page) => (
+      page < 0 ? page : Math.min(page, Math.max(0, nextData.pages.length - 1))
+    ));
+    setHistoryRevision((revision) => revision + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    const previous = historyRef.current.undo(captureHistoryState());
+    if (!previous) return false;
+    applyHistoryState(previous);
+    return true;
+  }, [applyHistoryState, captureHistoryState]);
+
+  const redo = useCallback(() => {
+    const next = historyRef.current.redo(captureHistoryState());
+    if (!next) return false;
+    applyHistoryState(next);
+    return true;
+  }, [applyHistoryState, captureHistoryState]);
+
+  const clearDesktopHistory = useCallback(() => {
+    historyRef.current.clear();
+    setHistoryRevision((revision) => revision + 1);
+  }, []);
+
+  const canUndo = historyRef.current.canUndo;
+  const canRedo = historyRef.current.canRedo;
 
   const initialLayoutNormalizedRef = useRef(false);
   useEffect(() => {
@@ -264,10 +345,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     if (!slot) return;
     next.pages[slot.page].push({ ...draft, page: slot.page, row: slot.row, col: slot.col });
-    dataRef.current = next;
-    setData(next);
+    commitDesktopData(next);
     setCurrentPage(slot.page);
-  }, [settings.cols, settings.rows]);
+  }, [commitDesktopData, settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
     const next = deepClone(dataRef.current);
@@ -275,16 +355,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const idx = page.findIndex((it) => it.id === id);
       if (idx >= 0) {
         page[idx] = { ...page[idx], ...patch };
-        dataRef.current = next;
-        setData(next);
+        commitDesktopData(next);
         return;
       }
       for (const candidate of page) {
         const childIndex = candidate.children?.findIndex((child) => child.id === id) ?? -1;
         if (childIndex >= 0 && candidate.children) {
           candidate.children[childIndex] = { ...candidate.children[childIndex], ...patch };
-          dataRef.current = next;
-          setData(next);
+          commitDesktopData(next);
           return;
         }
       }
@@ -296,7 +374,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ));
     privacyPageItemsRef.current = nextPrivacy;
     setPrivacyPageItems(nextPrivacy);
-  }, []);
+  }, [commitDesktopData]);
 
   const removeItem = useCallback((id: string) => {
     const next = deepClone(dataRef.current);
@@ -304,8 +382,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const idx = next.pages[p].findIndex((it) => it.id === id);
       if (idx >= 0) {
         next.pages[p].splice(idx, 1);
-        dataRef.current = next;
-        setData(next);
+        commitDesktopData(next);
         setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
         return;
       }
@@ -320,8 +397,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const folderIndex = next.pages[p].findIndex((candidate) => candidate.id === item.id);
           if (folderIndex >= 0) next.pages[p].splice(folderIndex, 1);
         }
-        dataRef.current = next;
-        setData(next);
+        commitDesktopData(next);
         setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
         return;
       }
@@ -330,7 +406,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (nextPrivacy.length === privacyPageItemsRef.current.length) return;
     privacyPageItemsRef.current = nextPrivacy;
     setPrivacyPageItems(nextPrivacy);
-  }, []);
+  }, [commitDesktopData]);
 
   const swapDesktopItems = useCallback(
     (
@@ -353,10 +429,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
       );
       if (!result.ok || result.data === dataRef.current) return;
-      dataRef.current = result.data;
-      setData(result.data);
+      commitDesktopData(result.data);
     },
-    [],
+    [commitDesktopData],
   );
 
   const moveItemTo = useCallback((id: string, fromPage: number, toPage: number, row: number, col: number) => {
@@ -365,70 +440,62 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       settings.cols ?? 4, settings.rows ?? 8,
     );
     if (!result.ok || result.data === dataRef.current) return;
-    dataRef.current = result.data;
-    setData(result.data);
-  }, [settings.cols, settings.rows]);
+    commitDesktopData(result.data);
+  }, [commitDesktopData, settings.cols, settings.rows]);
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      const rows = settingsRef.current.rows ?? 8;
-      const cols = settingsRef.current.cols ?? 4;
-      if (!next.pages[page]
-        || !Number.isInteger(row) || row < 0 || row >= rows
-        || !Number.isInteger(col) || col < 0 || col >= cols
-        || isRowCoveredByWidget(next.pages[page], row)) return prev;
-      let folder: DesktopItem | null = null;
-      let folderPageIdx = -1;
-      for (let p = 0; p < next.pages.length; p++) {
-        const fi = next.pages[p].findIndex((it) => it.id === folderId);
-        if (fi >= 0) {
-          folder = next.pages[p][fi];
-          folderPageIdx = p;
-          break;
-        }
+    const next = deepClone(dataRef.current);
+    const rows = settingsRef.current.rows ?? 8;
+    const cols = settingsRef.current.cols ?? 4;
+    if (!next.pages[page]
+      || !Number.isInteger(row) || row < 0 || row >= rows
+      || !Number.isInteger(col) || col < 0 || col >= cols
+      || isRowCoveredByWidget(next.pages[page], row)) return;
+    let folder: DesktopItem | null = null;
+    let folderPageIdx = -1;
+    for (let p = 0; p < next.pages.length; p++) {
+      const fi = next.pages[p].findIndex((it) => it.id === folderId);
+      if (fi >= 0) {
+        folder = next.pages[p][fi];
+        folderPageIdx = p;
+        break;
       }
-      if (!folder || !folder.children) return prev;
-      const ci = folder.children.findIndex((c) => c.id === childId);
-      if (ci < 0) return prev;
-      const child = folder.children.splice(ci, 1)[0];
-      // 检查目标位置
-      const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
-      if (targetIdx !== undefined && targetIdx >= 0) {
-        const target = next.pages[page][targetIdx];
-        if (target.type === 'widget' || target.type === 'system') {
-          folder.children.splice(ci, 0, child);
-          return prev;
-        }
+    }
+    if (!folder || !folder.children) return;
+    const ci = folder.children.findIndex((c) => c.id === childId);
+    if (ci < 0) return;
+    const child = folder.children.splice(ci, 1)[0];
+    const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
+    if (targetIdx !== undefined && targetIdx >= 0) {
+      const target = next.pages[page][targetIdx];
+      if (target.type === 'widget' || target.type === 'system') return;
 
-        if (target.type === 'folder') {
-          if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) {
-            folder.children.splice(ci, 0, child);
-            return prev;
-          }
-          target.children.push({
-            ...child,
-            page: target.page,
-            row: target.row,
-            col: target.col,
-          });
-          collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-          return next;
-        }
-
-        target.page = folderPageIdx;
-        target.row = folder.row;
-        target.col = folder.col;
-        folder.children.push(target);
+      if (target.type === 'folder') {
+        if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) return;
+        target.children.push({
+          ...child,
+          page: target.page,
+          row: target.row,
+          col: target.col,
+        });
+        collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
+        commitDesktopData(next);
+        return;
       }
-      child.page = page;
-      child.row = row;
-      child.col = col;
-      next.pages[page].push(child);
-      collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-      return next;
-    });
-  }, []);
+
+      target.page = folderPageIdx;
+      target.row = folder.row;
+      target.col = folder.col;
+      folder.children.push(target);
+      next.pages[page].splice(targetIdx, 1);
+    }
+    child.page = page;
+    child.row = row;
+    child.col = col;
+    next.pages[page].push(child);
+    collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
+    commitDesktopData(next);
+  }, [commitDesktopData]);
 
   const moveDesktopToFolder = useCallback((itemId: string, folderId: string): boolean => {
     const next = deepClone(dataRef.current);
@@ -450,26 +517,24 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (folder.children.length >= MAX_FOLDER_APPS) return false;
     folder.children.push({ ...item, page: folder.page, row: folder.row, col: folder.col });
     next.pages[itemPage].splice(itemIdx, 1);
-    dataRef.current = next;
-    setData(next);
+    commitDesktopData(next);
     return true;
-  }, []);
+  }, [commitDesktopData]);
 
   const reorderFolderChildren = useCallback((folderId: string, fromIdx: number, toIdx: number) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (const page of next.pages) {
-        const folder = page.find((it) => it.id === folderId);
-        if (folder?.children) {
-          if (fromIdx < 0 || fromIdx >= folder.children.length || toIdx < 0 || toIdx >= folder.children.length) return prev;
-          const [moved] = folder.children.splice(fromIdx, 1);
-          folder.children.splice(toIdx, 0, moved);
-          break;
-        }
+    const next = deepClone(dataRef.current);
+    for (const page of next.pages) {
+      const folder = page.find((it) => it.id === folderId);
+      if (folder?.children) {
+        if (fromIdx < 0 || fromIdx >= folder.children.length || toIdx < 0 || toIdx >= folder.children.length) return;
+        if (fromIdx === toIdx) return;
+        const [moved] = folder.children.splice(fromIdx, 1);
+        folder.children.splice(toIdx, 0, moved);
+        commitDesktopData(next);
+        return;
       }
-      return next;
-    });
-  }, []);
+    }
+  }, [commitDesktopData]);
 
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
       const next = deepClone(dataRef.current);
@@ -536,8 +601,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
         }
-        dataRef.current = next;
-        setData(next);
+        commitDesktopData(next);
         return true;
       }
       // 创建新文件夹
@@ -557,24 +621,22 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
       }
-      dataRef.current = next;
-      setData(next);
+      commitDesktopData(next);
       return true;
-  }, []);
+  }, [commitDesktopData]);
 
   const renameFolder = useCallback((folderId: string, name: string) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (const page of next.pages) {
-        const folder = page.find((it) => it.id === folderId);
-        if (folder) {
-          folder.name = name;
-          break;
-        }
+    const next = deepClone(dataRef.current);
+    for (const page of next.pages) {
+      const folder = page.find((it) => it.id === folderId);
+      if (folder) {
+        if (folder.name === name) return;
+        folder.name = name;
+        commitDesktopData(next);
+        return;
       }
-      return next;
-    });
-  }, []);
+    }
+  }, [commitDesktopData]);
 
   const dissolveFolder = useCallback((folderId: string) => {
     const next = deepClone(dataRef.current);
@@ -598,19 +660,17 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!slot) return; // 整个操作不提交，避免解散时丢失子应用。
       next.pages[slot.page].push({ ...child, page: slot.page, row: slot.row, col: slot.col });
     }
-    dataRef.current = next;
-    setData(next);
-  }, []);
+    commitDesktopData(next);
+  }, [commitDesktopData]);
 
   const addPage = useCallback(() => {
     if (dataRef.current.pages.length >= LAYOUT_LIMITS.maxPages) return;
     const next = deepClone(dataRef.current);
     next.pages.push([]);
-    dataRef.current = next;
-    setData(next);
-  }, []);
+    commitDesktopData(next);
+  }, [commitDesktopData]);
 
-  const importData = useCallback((newData: unknown) => {
+  const importData = useCallback((newData: unknown, options: { recordHistory?: boolean } = {}) => {
     const parsed = parseDesktopData(newData);
     if (!parsed.ok) return false;
     try {
@@ -619,14 +679,44 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settingsRef.current.cols ?? 4,
         settingsRef.current.rows ?? 8,
       );
-      dataRef.current = next;
-      setData(next);
+      commitDesktopData(next, options.recordHistory ?? true);
       setCurrentPage(0);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [commitDesktopData]);
+
+  const restoreLayoutSnapshot = useCallback((snapshot: LayoutSnapshot) => {
+    const parsed = parseDesktopData(snapshot.data);
+    if (!parsed.ok) return false;
+    const cols: 4 | 5 = snapshot.cols === 5 ? 5 : 4;
+    const minRows = minimumRowsForEnabledWidgets(parsed.data);
+    const rows = Math.min(
+      LAYOUT_LIMITS.maxRows,
+      Math.max(minRows, Math.round(snapshot.rows)),
+    );
+    try {
+      let next: DesktopData = {
+        ...dataForHistory(parsed.data),
+        version: CURRENT_DESKTOP_VERSION,
+      };
+      if (validateDesktopLayout(next, { cols, rows }).length > 0) {
+        next = reflowDesktopData(next, cols, rows);
+      }
+
+      // 先提交桌面数据，让历史记录捕获恢复前的数据与网格设置。
+      commitDesktopData(next);
+      const nextSettings: DesktopSettings = { ...settingsRef.current, cols, rows };
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      saveSettings(nextSettings);
+      setCurrentPage(0);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [commitDesktopData]);
 
   /**
    * 恢复云端数据后调用：清除内存中的密钥和明文隐私数据。
@@ -697,12 +787,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
+    // 隐私数据不进入普通桌面历史；跨边界移动后清空历史，避免撤销造成数据复制。
+    clearDesktopHistory();
     dataRef.current = result.data;
     privacyPageItemsRef.current = result.privacyItems;
     setData(result.data);
     setPrivacyPageItems(result.privacyItems);
     return true;
-  }, []);
+  }, [clearDesktopHistory]);
 
   /** 隐私页内部图标重新排列（拖拽换位） */
   const reorderPrivacyItems = useCallback((id: string, row: number, col: number) => {
@@ -727,12 +819,13 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
+    clearDesktopHistory();
     dataRef.current = result.data;
     privacyPageItemsRef.current = result.privacyItems;
     setData(result.data);
     setPrivacyPageItems(result.privacyItems);
     return true;
-  }, []);
+  }, [clearDesktopHistory]);
 
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
     const prev = settingsRef.current;
@@ -745,8 +838,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (gridChanged) {
       try {
         const reflowed = reflowDesktopData(dataRef.current, cols, rows);
-        dataRef.current = reflowed;
-        setData(reflowed);
+        commitDesktopData(reflowed);
         setCurrentPage(0);
       } catch {
         return;
@@ -755,7 +847,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     settingsRef.current = next;
     setSettings(next);
     saveSettings(next);
-  }, []);
+  }, [commitDesktopData]);
 
   return (
     <DesktopContext.Provider
@@ -781,6 +873,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         dissolveFolder,
         addPage,
         importData,
+        restoreLayoutSnapshot,
+        canUndo,
+        canRedo,
+        undo,
+        redo,
         resetPrivacyLock,
         lockPrivacy,
         moveItemToPrivacy,

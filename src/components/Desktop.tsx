@@ -72,6 +72,8 @@ const Desktop: React.FC = () => {
     privacyRevision,
     setPrivacyUnlockData,
     lockPrivacy,
+    undo,
+    redo,
   } = useDesktop();
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
@@ -221,6 +223,27 @@ const Desktop: React.FC = () => {
     document.addEventListener('contextmenu', handler, { capture: true });
     return () => document.removeEventListener('contextmenu', handler, { capture: true });
   }, []);
+
+  // 桌面操作历史快捷键：⌘/Ctrl+Z 撤销，⌘/Ctrl+Shift+Z 或 Ctrl+Y 重做。
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (currentPage === -1 || openFolderId || openSync || addDialogOpen || editingItem || contextMenu || isDragging) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (!event.metaKey && !event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z') {
+        event.preventDefault();
+        const changed = event.shiftKey ? redo() : undo();
+        if (changed) toast.success(event.shiftKey ? '已重做桌面操作' : '已撤销上一步桌面操作');
+      } else if (key === 'y' && event.ctrlKey) {
+        event.preventDefault();
+        if (redo()) toast.success('已重做桌面操作');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openSync, redo, undo]);
 
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,

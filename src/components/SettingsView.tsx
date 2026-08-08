@@ -5,7 +5,7 @@ import type { DesktopStyle } from '@/types';
 import {
   Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
   RotateCcw, FilePlus, X, Check, Clock, Search, Layers,
-  Loader2,
+  Loader2, Undo2, Redo2, Archive, Save, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS, DEFAULT_BG_IMAGE } from '@/lib/storage';
@@ -15,8 +15,16 @@ import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wa
 import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
 import { getWidgetConfig } from '@/lib/widgetConfig';
+import {
+  createLayoutSnapshot,
+  deleteLayoutSnapshot,
+  listLayoutSnapshots,
+  MAX_LAYOUT_SNAPSHOTS,
+  saveLayoutSnapshot,
+  type LayoutSnapshot,
+} from '@/lib/layoutSnapshotStorage';
 
-type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
+type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets' | 'snapshots';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
 
 interface BingImage {
@@ -98,7 +106,10 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
-  const { data, addPage, setCurrentPage, importData, settings, updateSettings } = useDesktop();
+  const {
+    data, addPage, setCurrentPage, importData, settings, updateSettings,
+    canUndo, canRedo, undo, redo, restoreLayoutSnapshot,
+  } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -108,6 +119,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const [bingImages, setBingImages] = useState<BingImage[]>([]);
   const [bingLoading, setBingLoading] = useState(false);
   const [bingError, setBingError] = useState(false);
+  const [layoutSnapshots, setLayoutSnapshots] = useState<LayoutSnapshot[]>([]);
+  const [snapshotName, setSnapshotName] = useState('');
+  const [snapshotBusy, setSnapshotBusy] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   // 每次打开面板时生成新随机基数，保证每次壁纸不同
@@ -116,6 +130,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const t = getPanelTheme(isNeu);
 
   const handleClose = () => { setPanel('main'); onClose(); };
+
+  const refreshLayoutSnapshots = useCallback(async () => {
+    setLayoutSnapshots(await listLayoutSnapshots());
+  }, []);
+
+  useEffect(() => {
+    if (open) void refreshLayoutSnapshots();
+  }, [open, refreshLayoutSnapshots]);
 
   // ── 必应壁纸 fetch ──
   const fetchBingWallpapers = useCallback(async () => {
@@ -266,6 +288,48 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     handleClose();
   }, [importData]);
 
+  const handleSaveLayoutSnapshot = useCallback(async () => {
+    setSnapshotBusy('save');
+    try {
+      const fallbackName = `布局 ${new Date().toLocaleString('zh-CN', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })}`;
+      const snapshot = createLayoutSnapshot(snapshotName || fallbackName, data, settings);
+      await saveLayoutSnapshot(snapshot);
+      setSnapshotName('');
+      await refreshLayoutSnapshots();
+      toast.success(`已保存布局「${snapshot.name}」`);
+    } catch {
+      toast.error('布局快照保存失败');
+    } finally {
+      setSnapshotBusy(null);
+    }
+  }, [data, refreshLayoutSnapshots, settings, snapshotName]);
+
+  const handleRestoreLayoutSnapshot = useCallback((snapshot: LayoutSnapshot) => {
+    if (!window.confirm(`恢复布局「${snapshot.name}」？当前布局可通过“撤销”恢复。`)) return;
+    if (restoreLayoutSnapshot(snapshot)) {
+      toast.success(`已恢复布局「${snapshot.name}」`);
+      setPanel('main');
+    } else {
+      toast.error('布局快照无效或无法适配当前桌面');
+    }
+  }, [restoreLayoutSnapshot]);
+
+  const handleDeleteLayoutSnapshot = useCallback(async (snapshot: LayoutSnapshot) => {
+    if (!window.confirm(`删除布局快照「${snapshot.name}」？`)) return;
+    setSnapshotBusy(snapshot.id);
+    try {
+      await deleteLayoutSnapshot(snapshot.id);
+      await refreshLayoutSnapshots();
+      toast.success('布局快照已删除');
+    } catch {
+      toast.error('布局快照删除失败');
+    } finally {
+      setSnapshotBusy(null);
+    }
+  }, [refreshLayoutSnapshots]);
+
   // ── 组件管理 ──
   const widgetExists = (id: string) => data.pages.flat().some((it) => it.id === id);
 
@@ -312,6 +376,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           color: 'bg-teal-500',
           disabled: false,
         },
+        {
+          id: 'snapshots' as Panel,
+          icon: <Archive className="w-5 h-5" />,
+          label: '布局快照',
+          desc: layoutSnapshots.length > 0 ? `已保存 ${layoutSnapshots.length} 个布局` : '保存并随时恢复桌面布局',
+          color: 'bg-amber-500',
+          disabled: false,
+        },
       ].map((item) => (
         <button
           key={item.id}
@@ -348,6 +420,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       <div className="pt-2 grid grid-cols-2 gap-3">
         <button
           type="button"
+          onClick={() => { if (undo()) toast.success('已撤销上一步桌面操作'); }}
+          disabled={!canUndo}
+          className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 ${t.itemBg} ${t.itemBgHover} ${t.textMuted} text-sm transition-colors border ${t.itemBorder} disabled:opacity-35 disabled:cursor-not-allowed`}
+        >
+          <Undo2 className="w-4 h-4" /> 撤销
+        </button>
+        <button
+          type="button"
+          onClick={() => { if (redo()) toast.success('已重做桌面操作'); }}
+          disabled={!canRedo}
+          className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 ${t.itemBg} ${t.itemBgHover} ${t.textMuted} text-sm transition-colors border ${t.itemBorder} disabled:opacity-35 disabled:cursor-not-allowed`}
+        >
+          <Redo2 className="w-4 h-4" /> 重做
+        </button>
+      </div>
+
+      <div className="pt-2 grid grid-cols-2 gap-3">
+        <button
+          type="button"
           onClick={handleAddPage}
           className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.itemBg} ${t.itemBgHover} ${t.textMuted} text-sm transition-colors border ${t.itemBorder}`}
         >
@@ -364,6 +455,78 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
 
 
+    </div>
+  );
+
+  // ── 布局快照 ──
+  const renderSnapshots = () => (
+    <div className="px-5 py-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
+          <ChevronLeft className="w-4 h-4" /> 返回
+        </button>
+        <h3 className={`text-sm font-semibold ${t.textPrimary}`}>布局快照</h3>
+        <span className={`text-xs ${t.textDim}`}>{layoutSnapshots.length}/{MAX_LAYOUT_SNAPSHOTS}</span>
+      </div>
+
+      <div className={`rounded-2xl p-3 ${t.itemBg} border ${t.itemBorder} space-y-2`}>
+        <p className={`text-xs ${t.textDim}`}>保存桌面应用、文件夹、组件位置和网格行列；不保存隐私桌面内容。</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={snapshotName}
+            maxLength={60}
+            onChange={(event) => setSnapshotName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && snapshotBusy === null) void handleSaveLayoutSnapshot();
+            }}
+            placeholder="快照名称（可选）"
+            className={`flex-1 min-w-0 bg-transparent border rounded-xl px-3 py-2 text-xs outline-none ${t.itemBorder} ${t.textPrimary}`}
+          />
+          <button
+            type="button"
+            onClick={() => void handleSaveLayoutSnapshot()}
+            disabled={snapshotBusy !== null}
+            className="shrink-0 px-3 py-2 rounded-xl bg-primary hover:bg-primary/90 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40"
+          >
+            {snapshotBusy === 'save' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            保存当前
+          </button>
+        </div>
+      </div>
+
+      {layoutSnapshots.length === 0 ? (
+        <div className={`text-center py-8 text-sm ${t.textDim}`}>还没有布局快照</div>
+      ) : (
+        <div className="space-y-2">
+          {layoutSnapshots.map((snapshot) => (
+            <div key={snapshot.id} className={`flex items-center gap-3 rounded-2xl px-3 py-3 ${t.itemBg} border ${t.itemBorder}`}>
+              <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+                <Archive className="w-4 h-4" />
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRestoreLayoutSnapshot(snapshot)}
+                className="flex-1 min-w-0 text-left"
+              >
+                <p className={`text-sm font-medium truncate ${t.textPrimary}`}>{snapshot.name}</p>
+                <p className={`text-xs ${t.textDim}`}>
+                  {snapshot.cols} 列 × {snapshot.rows} 行 · {new Date(snapshot.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteLayoutSnapshot(snapshot)}
+                disabled={snapshotBusy !== null}
+                title="删除快照"
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${t.dangerBg} ${t.dangerText} disabled:opacity-40`}
+              >
+                {snapshotBusy === snapshot.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -725,6 +888,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
           {panel === 'view'    && renderView()}
           {panel === 'style'   && renderStyle()}
           {panel === 'widgets' && renderWidgets()}
+          {panel === 'snapshots' && renderSnapshots()}
           {panel !== 'bg' && <div className="pb-6" />}
         </div>
       </div>

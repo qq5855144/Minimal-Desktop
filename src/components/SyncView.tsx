@@ -3,7 +3,8 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { loadSyncConfig, saveSyncConfig, clearSyncConfig, clearPrivacyVault, savePrivacyVault } from '@/lib/storage';
 import { verifyToken, ensureRepo, getBranchHead, uploadToGithub, downloadFromGithub } from '@/lib/github';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
-import type { SyncConfig } from '@/types';
+import { summarizeDesktopDiff, type DesktopDiffSummary } from '@/lib/desktopDiff';
+import type { DesktopData, SyncConfig } from '@/types';
 import {
   LogOut, Loader2, CheckCircle2, AlertCircle, Github, X,
   CloudUpload, CloudDownload, RefreshCw, ToggleLeft, ToggleRight,
@@ -25,6 +26,12 @@ const DEFAULT_CONFIG: SyncConfig = {
   syncInterval: 'manual', autoSync: false,
 };
 
+interface PendingRestore {
+  data: DesktopData;
+  remoteHead?: string;
+  summary: DesktopDiffSummary;
+}
+
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const { data, importData, resetPrivacyLock, settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
@@ -36,6 +43,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const [syncing, setSyncing] = useState<'upload' | 'download' | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -50,6 +58,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         setLoggedIn(false);
       }
       setStatusMsg(null);
+      setPendingRestore(null);
     }
   }, [open]);
 
@@ -123,32 +132,48 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
       const result = await downloadFromGithub(syncCfg);
-      setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok && result.data) {
-        // 先停止所有旧密钥写入，再校验/导入桌面；校验失败时不覆盖本地 vault。
-        resetPrivacyLock();
-        if (!importData(result.data)) {
-          setStatusMsg({ type: 'error', msg: '云端数据无法适配当前桌面布局' });
-          toast.error('云端数据布局无效，未覆盖本地桌面');
-          return;
-        }
-        if (result.data.privacyVault) savePrivacyVault(result.data.privacyVault);
-        else clearPrivacyVault();
-        const next = {
-          ...config,
-          lastSyncAt: new Date().toISOString(),
-          lastRemoteHead: result.remoteHead ?? config.lastRemoteHead,
-        };
-        setConfig(next); saveSyncConfig(next);
-        toast.success(result.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');
-      } else { toast.error(result.message); }
+        setPendingRestore({
+          data: result.data,
+          remoteHead: result.remoteHead,
+          summary: summarizeDesktopDiff(data, result.data),
+        });
+        setStatusMsg({ type: 'success', msg: '已读取云端备份，请确认差异后恢复' });
+        toast.success('云端备份已读取');
+      } else {
+        setStatusMsg({ type: 'error', msg: result.message });
+        toast.error(result.message);
+      }
     } catch { setStatusMsg({ type: 'error', msg: '下载失败，请检查网络' }); }
     finally { setSyncing(null); }
-  }, [config, importData, resetPrivacyLock]);
+  }, [config, data]);
+
+  const handleConfirmRestore = useCallback(() => {
+    if (!pendingRestore) return;
+    // 先停止所有旧密钥写入，再导入桌面，避免旧浏览器内存密钥覆盖刚恢复的 vault。
+    resetPrivacyLock();
+    if (!importData(pendingRestore.data, { recordHistory: false })) {
+      setStatusMsg({ type: 'error', msg: '云端数据无法适配当前桌面布局' });
+      toast.error('云端数据布局无效，未覆盖本地桌面');
+      return;
+    }
+    if (pendingRestore.data.privacyVault) savePrivacyVault(pendingRestore.data.privacyVault);
+    else clearPrivacyVault();
+    const next = {
+      ...config,
+      lastSyncAt: new Date().toISOString(),
+      lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
+    };
+    setConfig(next);
+    saveSyncConfig(next);
+    setPendingRestore(null);
+    setStatusMsg({ type: 'success', msg: '云端备份已恢复' });
+    toast.success(pendingRestore.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');
+  }, [config, importData, pendingRestore, resetPrivacyLock]);
 
   const handleLogout = useCallback(() => {
     clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput('');
-    setLoggedIn(false); setStatusMsg(null);
+    setLoggedIn(false); setStatusMsg(null); setPendingRestore(null);
     toast.success('已断开连接');
   }, []);
 
@@ -285,12 +310,62 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 </div>
               )}
 
+              {pendingRestore && (
+                <div className={`rounded-2xl p-4 space-y-3 ${isNeu ? 'bg-indigo-50 border border-indigo-200' : 'bg-indigo-500/10 border border-indigo-400/20'}`}>
+                  <div>
+                    <p className={`text-sm font-semibold ${t.textPrimary}`}>恢复前差异预览</p>
+                    <p className={`text-xs mt-0.5 ${t.textDim}`}>确认后才会覆盖当前桌面；布局会自动适配当前网格。</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className={`rounded-xl p-2.5 ${t.itemBg}`}>
+                      <p className={t.textDim}>桌面页</p>
+                      <p className={`font-semibold mt-0.5 ${t.textPrimary}`}>{pendingRestore.summary.beforePages} → {pendingRestore.summary.afterPages}</p>
+                    </div>
+                    <div className={`rounded-xl p-2.5 ${t.itemBg}`}>
+                      <p className={t.textDim}>桌面项目</p>
+                      <p className={`font-semibold mt-0.5 ${t.textPrimary}`}>{pendingRestore.summary.beforeItems} → {pendingRestore.summary.afterItems}</p>
+                    </div>
+                  </div>
+
+                  <div className={`grid grid-cols-4 gap-1 text-center text-xs ${t.textMuted}`}>
+                    <div><span className="block font-semibold text-emerald-500">+{pendingRestore.summary.added}</span>新增</div>
+                    <div><span className="block font-semibold text-red-400">-{pendingRestore.summary.removed}</span>删除</div>
+                    <div><span className="block font-semibold text-indigo-400">{pendingRestore.summary.moved}</span>移动</div>
+                    <div><span className="block font-semibold text-amber-500">{pendingRestore.summary.changed}</span>修改</div>
+                  </div>
+
+                  <div className={`text-xs rounded-xl px-3 py-2 ${pendingRestore.summary.hasPrivacyVault ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                    {pendingRestore.summary.hasPrivacyVault
+                      ? '✓ 此备份包含加密隐私桌面，可继续使用原密码解锁。'
+                      : '⚠ 此备份不含隐私保险库；确认恢复会清除当前浏览器中的隐私保险库。'}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setPendingRestore(null); setStatusMsg(null); }}
+                      className={`flex-1 rounded-xl py-2.5 text-xs font-medium border ${t.itemBorder} ${t.itemBg} ${t.textMuted}`}
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmRestore}
+                      className="flex-1 rounded-xl py-2.5 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+                    >
+                      确认恢复
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className={`h-px ${t.divider}`} />
 
               {/* 操作按钮 */}
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  type="button" onClick={handleUpload} disabled={!!syncing}
+                  type="button" onClick={handleUpload} disabled={!!syncing || !!pendingRestore}
                   className="flex items-center justify-center gap-2 rounded-2xl py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors disabled:opacity-40"
                 >
                   {syncing === 'upload'
@@ -299,7 +374,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                   上传备份
                 </button>
                 <button
-                  type="button" onClick={handleDownload} disabled={!!syncing}
+                  type="button" onClick={handleDownload} disabled={!!syncing || !!pendingRestore}
                   className="flex items-center justify-center gap-2 rounded-2xl py-3.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium transition-colors disabled:opacity-40"
                 >
                   {syncing === 'download'
