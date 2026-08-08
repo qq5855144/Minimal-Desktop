@@ -1,8 +1,11 @@
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
+import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
+import { LAYOUT_LIMITS } from './layoutEngine';
 
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
+const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
 
 const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
@@ -14,7 +17,8 @@ export function loadPrivacyVault(): PrivacyVault | null {
   try {
     const raw = localStorage.getItem(PRIVACY_VAULT_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PrivacyVault;
+    const parsed = privacyVaultSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
   } catch { return null; }
 }
 
@@ -76,7 +80,7 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
 
 export const defaultDesktopData: DesktopData = {
   pages: [JSON.parse(JSON.stringify([...WIDGET_ITEMS, ...SYSTEM_APPS]))],
-  version: 3,
+  version: CURRENT_DESKTOP_VERSION,
 };
 
 /** 判断某行是否完全空闲（页面中没有任何 item 占据该行的任意列） */
@@ -85,7 +89,7 @@ function isRowEmpty(page: import('@/types').DesktopItem[], row: number): boolean
 }
 
 /** 找第一个完全空闲的行 */
-function findEmptyRow(page: import('@/types').DesktopItem[], maxRows = 6): number {
+function findEmptyRow(page: import('@/types').DesktopItem[], maxRows = LAYOUT_LIMITS.maxRows): number {
   for (let r = 0; r < maxRows; r++) {
     if (isRowEmpty(page, r)) return r;
   }
@@ -96,9 +100,9 @@ export function loadDesktopData(): DesktopData {
   try {
     const raw = localStorage.getItem(DESKTOP_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as DesktopData;
-      if (parsed.pages && Array.isArray(parsed.pages) && parsed.pages.length > 0) {
-        const ensured = JSON.parse(JSON.stringify(parsed)) as DesktopData;
+      const validated = parseDesktopData(JSON.parse(raw));
+      if (validated.ok) {
+        const ensured = JSON.parse(JSON.stringify(validated.data)) as DesktopData;
         const allItems = ensured.pages.flat();
 
         // ── 迁移 1：确保三个系统应用始终存在 ──
@@ -107,8 +111,8 @@ export function loadDesktopData(): DesktopData {
           if (!exists) {
             let placed = false;
             outer: for (let p = 0; p < ensured.pages.length; p++) {
-              for (let r = 0; r < 6; r++) {
-                for (let c = 0; c < 6; c++) {
+              for (let r = 0; r < LAYOUT_LIMITS.maxRows; r++) {
+                for (let c = 0; c < LAYOUT_LIMITS.maxCols; c++) {
                   if (!ensured.pages[p].some((it) => it.row === r && it.col === c)) {
                     ensured.pages[p].push({ ...sysApp, page: p, row: r, col: c });
                     placed = true;
@@ -142,6 +146,7 @@ export function loadDesktopData(): DesktopData {
           }
         }
 
+        ensured.version = CURRENT_DESKTOP_VERSION;
         return ensured;
       }
     }
@@ -151,11 +156,16 @@ export function loadDesktopData(): DesktopData {
   return JSON.parse(JSON.stringify(defaultDesktopData));
 }
 
-export function saveDesktopData(data: DesktopData): void {
-  // privacyVault 单独存 ios_privacy_vault，不混入桌面数据
+export function saveDesktopData(data: DesktopData): boolean {
+  // 隐私字段不进入普通桌面 localStorage：vault 单独存储，旧明文/哈希字段不再持久化。
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { privacyVault: _v, ...rest } = data;
-  localStorage.setItem(DESKTOP_KEY, JSON.stringify(rest));
+  const { privacyVault: _v, privacyItems: _legacyItems, pinHash: _legacyPin, ...rest } = data;
+  try {
+    localStorage.setItem(DESKTOP_KEY, JSON.stringify(rest));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function loadSyncConfig(): SyncConfig | null {
@@ -167,6 +177,14 @@ export function loadSyncConfig(): SyncConfig | null {
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
+      // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
+      const legacyToken = parsed.token;
+      if (legacyToken) {
+        try { sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, legacyToken); } catch { /* ignore */ }
+        parsed.token = '';
+        try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
+      }
+      try { parsed.token = sessionStorage.getItem(SYNC_TOKEN_SESSION_KEY) ?? ''; } catch { parsed.token = ''; }
       return parsed;
     }
   } catch {
@@ -176,11 +194,17 @@ export function loadSyncConfig(): SyncConfig | null {
 }
 
 export function saveSyncConfig(config: SyncConfig): void {
-  localStorage.setItem(SYNC_KEY, JSON.stringify(config));
+  const { token, ...persisted } = config;
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify({ ...persisted, token: '' })); } catch { /* ignore */ }
+  try {
+    if (token) sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, token);
+    else sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY);
+  } catch { /* ignore */ }
 }
 
 export function clearSyncConfig(): void {
-  localStorage.removeItem(SYNC_KEY);
+  try { localStorage.removeItem(SYNC_KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY); } catch { /* ignore */ }
 }
 
 const SETTINGS_KEY = 'ios_desktop_settings';
@@ -206,15 +230,26 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
 export function loadSettings(): import('@/types').DesktopSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      delete parsed.pixabayKey; // 已移除共享/客户端壁纸 API Key 方案
+      return { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
+    }
   } catch { /* ignore */ }
   return { ...DEFAULT_SETTINGS };
 }
 
-export function saveSettings(s: import('@/types').DesktopSettings): void {
-  // blob: URL 不持久化（刷新后失效）；'__idb__' 标记和真实 URL 均可持久化
+export function saveSettings(s: import('@/types').DesktopSettings): boolean {
+  // blob: URL 刷新后失效；本地媒体本体已写入 IndexedDB，这里只保存恢复标记。
   const bgVideo =
-    s.bgVideo?.startsWith('blob:') ? undefined : s.bgVideo;
-  const toSave = { ...s, bgVideo };
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSave));
+    s.bgVideo?.startsWith('blob:') ? '__idb__' : s.bgVideo;
+  const bgImage =
+    s.bgImage?.startsWith('blob:') ? '__idb_wallpaper__' : s.bgImage;
+  const toSave = { ...s, bgVideo, bgImage };
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSave));
+    return true;
+  } catch {
+    return false;
+  }
 }

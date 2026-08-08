@@ -2,15 +2,28 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
 import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
-import { encryptItems } from '@/lib/privacyCrypto';
+import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
 import { deepClone } from '@/lib/utils/deepClone';
 import { pruneIconCaches } from '@/lib/iconCache';
 import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
-import { getWidgetConfig, isRowCoveredByWidget } from '@/lib/widgetConfig';
+import { isRowCoveredByWidget } from '@/lib/widgetConfig';
+import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
+import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
+import {
+  LAYOUT_LIMITS,
+  findFirstAvailableSlot,
+  findFirstAvailableSlotAcrossPages,
+  minimumRowsForEnabledWidgets,
+  moveDesktopItem,
+  reflowDesktopData,
+  transferDesktopToPrivacy,
+  transferPrivacyToDesktop,
+  validateDesktopLayout,
+} from '@/lib/layoutEngine';
 
-const MAX_ROWS = 16;  // 绝对上限，用户可配置 1-16
-const MAX_COLS = 6;
-const MAX_FOLDER_APPS = 9;
+const MAX_ROWS = LAYOUT_LIMITS.maxRows;
+const MAX_COLS = LAYOUT_LIMITS.maxCols;
+const MAX_FOLDER_APPS = LAYOUT_LIMITS.maxFolderApps;
 
 interface DesktopContextType {
   data: DesktopData;
@@ -28,10 +41,6 @@ interface DesktopContextType {
   removeItem: (id: string) => void;
   // 拖拽：交换桌面位置
   swapDesktopItems: (idA: string, pageA: number, rowA: number, colA: string, idB: string, pageB: number, rowB: number, colB: string) => void;
-  // 拖拽：widget 移动到目标行，同时把被新 span 覆盖的普通应用平移到腾出的旧行（原子操作）
-  moveWidgetWithReflow: (id: string, fromPage: number, toPage: number, oldRow: number, newRow: number, span: number) => void;
-  // 拖拽：两个 widget 互换行，同时 reflow 各自新位置内被覆盖的普通应用
-  swapWidgetsWithReflow: (idA: string, pageA: number, rowA: number, spanA: number, idB: string, pageB: number, rowB: number, spanB: number) => void;
   // 拖拽：移动到空白位置
   moveItemTo: (id: string, fromPage: number, toPage: number, row: number, col: number) => void;
   // 拖拽：从文件夹移到桌面
@@ -41,19 +50,23 @@ interface DesktopContextType {
   // 拖拽：文件夹内排序
   reorderFolderChildren: (folderId: string, fromIdx: number, toIdx: number) => void;
   // 拖拽：移动到隐私页
-  moveItemToPrivacy: (id: string, row: number, col: number) => void;
+  moveItemToPrivacy: (id: string, row: number, col: number) => boolean;
   // 拖拽：从隐私页移到普通页
-  movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => void;
+  movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => boolean;
   reorderPrivacyItems: (id: string, row: number, col: number) => void;
   privacyPageItems: DesktopItem[];
+  /** 每次加密 vault 成功落盘后递增，供自动同步捕获纯隐私数据变化。 */
+  privacyRevision: number;
   setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   renameFolder: (folderId: string, name: string) => void;
   dissolveFolder: (folderId: string) => void;
   addPage: () => void;
-  importData: (data: DesktopData) => void;
+  importData: (data: unknown) => boolean;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
   resetPrivacyLock: () => void;
+  /** 正常锁定：先把最新明文加密落盘，再清除内存密钥与明文。 */
+  lockPrivacy: () => Promise<void>;
 }
 
 // HMR 热重载时 createContext 会生成新对象，导致 Provider 与 useContext 不匹配。
@@ -81,108 +94,6 @@ function collectIconUrls(data: DesktopData): Set<string> {
   };
   data.pages.forEach((page) => page.forEach(addItem));
   return urls;
-}
-
-// 查找空白位置（maxCols/maxRows 限制实际渲染范围，避免图标放到不可见位置）
-function findEmptySlot(
-  pages: DesktopItem[][],
-  preferPage?: number,
-  maxCols: number = MAX_COLS,
-  maxRows: number = MAX_ROWS,
-): { page: number; row: number; col: number } | null {
-  // 从 preferPage 开始搜索，保证新应用优先出现在当前页
-  const order = preferPage !== undefined
-    ? [preferPage, ...Array.from({ length: pages.length }, (_, i) => i).filter(i => i !== preferPage)]
-    : Array.from({ length: pages.length }, (_, i) => i);
-
-  for (const p of order) {
-    for (let r = 0; r < maxRows; r++) {
-      // 跳过被 widget 视觉区域（rowSpan）覆盖的所有行
-      if (isRowCoveredByWidget(pages[p], r)) continue;
-      for (let c = 0; c < maxCols; c++) {
-        const occupied = pages[p].some((it) => it.row === r && it.col === c);
-        if (!occupied) return { page: p, row: r, col: c };
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * 列数变更时重新布局所有桌面图标。
- *
- * 策略：
- * 1. 保持每一页内的图标顺序不变（按 row*oldCols+col 排序），
- *    同时保留 widget/system/folder 的页内相对顺序。
- * 2. 将每页图标在新列数下逐行逐列重新填充；超出当前页容量时
- *    自动追加新页承接溢出图标。
- * 3. widget 独占整行（col=0，span 整行），不参与普通网格排列。
- *    每个 widget 在数据层按 rowSpan 累计 row 号（clock rowSpan=2 → row=0，
- *    search rowSpan=1 → row=2），与 CSS gridRow: span N 精确对应。
- *    rows 表示总视觉行数（= 数据层 row 最大槽数）。
- */
-function reflowDesktopItems(
-  data: DesktopData,
-  newCols: number,
-  rows: number,
-): DesktopData {
-  const next = deepClone(data);
-  const newPages: DesktopItem[][] = [];
-
-  for (let p = 0; p < next.pages.length; p++) {
-    const page = next.pages[p];
-    // 按原始位置排序，保证顺序稳定
-    const sorted = [...page].sort((a, b) => {
-      const oldCols = MAX_COLS; // 历史数据使用宽松排序即可
-      return (a.row * oldCols + a.col) - (b.row * oldCols + b.col);
-    });
-
-    const widgets = sorted.filter((it) => it.type === 'widget');
-    const nonWidgets = sorted.filter((it) => it.type !== 'widget');
-
-    // 当前输出页
-    let curPageIdx = newPages.length;
-    newPages.push([]);
-
-    // 先把 widget 放回：每个 widget 在数据层按 rowSpan 累计 row 号
-    // 视觉层用 CSS gridRow: span N 真实占据对应 grid track，数据 row 与视觉行精确对应
-    let widgetRow = 0;
-    for (const w of widgets) {
-      newPages[curPageIdx].push({ ...w, page: curPageIdx, row: widgetRow, col: 0 });
-      const span = getWidgetConfig(w.widgetType).rowSpan;
-      widgetRow += span;
-    }
-
-    // 非 widget 图标：从 widgetRow（widget 视觉行末尾）开始填充，每行 newCols 列
-    // rows 表示总视觉行数（=数据 row 总槽数），图标可用槽 = rows - widgetRow
-    let row = widgetRow;
-    let col = 0;
-
-    for (const item of nonWidgets) {
-      // 当前页满了（超过 rows 数据槽）→ 新建页
-      if (row >= rows) {
-        curPageIdx = newPages.length;
-        newPages.push([]);
-        row = 0;
-        col = 0;
-      }
-      newPages[curPageIdx].push({ ...item, page: curPageIdx, row, col });
-      col++;
-      if (col >= newCols) {
-        col = 0;
-        row++;
-      }
-    }
-  }
-
-  // 移除末尾的空页（至少保留 1 页）
-  while (newPages.length > 1 && newPages[newPages.length - 1].length === 0) {
-    newPages.pop();
-  }
-  if (newPages.length === 0) newPages.push([]);
-
-  next.pages = newPages;
-  return next;
 }
 
 function collapseFolderAfterChildRemoval(
@@ -220,8 +131,53 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 加密架构下，隐私数据在解锁时由 PrivacyScreen 解密注入，初始为空
   const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>([]);
   // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
-  const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{ key: CryptoKey; salt: Uint8Array } | null>(null);
+  const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{
+    key: CryptoKey;
+    salt: Uint8Array;
+    iterations: number;
+  } | null>(null);
+  const [privacyRevision, setPrivacyRevision] = useState(0);
   const firstRender = useRef(true);
+  const dataRef = useRef<DesktopData>(data);
+  const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
+  const settingsRef = useRef<DesktopSettings>(settings);
+  const privacyCryptoKeyRef = useRef(privacyCryptoKey);
+  const privacyWriteSeqRef = useRef(0);
+  const privacyEpochRef = useRef(0);
+  const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
+  const privacyLockTokenRef = useRef<object | null>(null);
+  // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
+  dataRef.current = data;
+  privacyPageItemsRef.current = privacyPageItems;
+  settingsRef.current = settings;
+  privacyCryptoKeyRef.current = privacyCryptoKey;
+
+  const initialLayoutNormalizedRef = useRef(false);
+  useEffect(() => {
+    if (initialLayoutNormalizedRef.current) return;
+    initialLayoutNormalizedRef.current = true;
+    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
+    const safeRows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, settingsRef.current.rows ?? 8));
+    const safeCols = Math.min(
+      LAYOUT_LIMITS.maxCols,
+      Math.max(LAYOUT_LIMITS.minCols, settingsRef.current.cols ?? 4),
+    ) as 4 | 5;
+    const safeSettings: DesktopSettings = { ...settingsRef.current, rows: safeRows, cols: safeCols };
+    if (safeRows !== settingsRef.current.rows || safeCols !== settingsRef.current.cols) {
+      settingsRef.current = safeSettings;
+      setSettings(safeSettings);
+      saveSettings(safeSettings);
+    }
+    if (validateDesktopLayout(dataRef.current, safeSettings).length > 0) {
+      try {
+        const normalized = reflowDesktopData(dataRef.current, safeCols, safeRows);
+        dataRef.current = normalized;
+        setData(normalized);
+      } catch {
+        // 极端损坏数据保持原状，后续导入/设置操作仍会拒绝不合法写入。
+      }
+    }
+  }, []);
 
   // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
   useEffect(() => {
@@ -237,6 +193,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       });
     }
+    if (s.bgType === 'image' && s.bgImage === IDB_WALLPAPER_MARKER) {
+      loadWallpaperDB().then((file) => {
+        if (file) {
+          setSettings((prev) => ({ ...prev, bgImage: URL.createObjectURL(file) }));
+        } else {
+          setSettings((prev) => ({ ...prev, bgImage: undefined, bgType: 'default' }));
+          saveSettings({ ...s, bgImage: undefined, bgType: 'default' });
+        }
+      });
+    }
   }, []);
 
   // data 变更时持久化（跳过首次挂载）
@@ -249,8 +215,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 同时依赖 privacyCryptoKey state，确保密钥清空后立即停止写入，不存在竞态
   useEffect(() => {
     if (!privacyCryptoKey) return; // 未解锁 / 已重置 → 不写 vault
-    const { key, salt } = privacyCryptoKey;
-    encryptItems(privacyPageItems, key, salt).then(savePrivacyVault).catch(() => {/* 静默失败 */});
+    const writeSeq = ++privacyWriteSeqRef.current;
+    const { key, salt, iterations } = privacyCryptoKey;
+    const snapshot = deepClone(privacyPageItems);
+    encryptItems(snapshot, key, salt, iterations).then((vault) => {
+      // 慢的旧加密任务完成时不得覆盖更新的数据。
+      if (writeSeq !== privacyWriteSeqRef.current) return;
+      savePrivacyVault(vault);
+      setPrivacyRevision((revision) => revision + 1);
+    }).catch(() => {/* 静默失败 */});
   }, [privacyPageItems, privacyCryptoKey]);
 
   // 模拟骨架屏加载
@@ -265,231 +238,98 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ) => {
     const gridCols = settings.cols ?? 4;
     const gridRows = settings.rows ?? 8;
+    const draft = { ...item, id: uid(), page: 0, row: 0, col: 0 } as DesktopItem;
 
     // 添加到隐私桌面
     if (preferPage === -1) {
-      setPrivacyPageItems((prev) => {
-        // 找隐私桌面的空格
-        const occupied = new Set(prev.map((it) => `${it.row},${it.col}`));
-        for (let r = 0; r < gridRows; r++) {
-          for (let c = 0; c < gridCols; c++) {
-            if (!occupied.has(`${r},${c}`)) {
-              return [...prev, { ...item, id: uid(), page: -1, row: r, col: c }];
-            }
-          }
-        }
-        // 满了就追加到最后一行
-        const lastRow = prev.length > 0 ? Math.max(...prev.map((it) => it.row)) + 1 : 0;
-        return [...prev, { ...item, id: uid(), page: -1, row: lastRow, col: 0 }];
-      });
+      if (draft.type !== 'app') return;
+      const slot = findFirstAvailableSlot(privacyPageItemsRef.current, draft, gridCols, gridRows);
+      if (!slot) return;
+      const nextPrivacy = [
+        ...privacyPageItemsRef.current.map((candidate) => ({ ...candidate })),
+        { ...draft, page: -1, row: slot.row, col: slot.col },
+      ];
+      privacyPageItemsRef.current = nextPrivacy;
+      setPrivacyPageItems(nextPrivacy);
       return;
     }
 
-    let targetPage = 0;
-    setData((prev) => {
-      const next = deepClone(prev);
-      const slot = findEmptySlot(next.pages, preferPage, gridCols, gridRows);
-      if (!slot) {
-        next.pages.push([]);
-        const newSlot = { page: next.pages.length - 1, row: 0, col: 0 };
-        targetPage = newSlot.page;
-        next.pages[newSlot.page].push({
-          ...item, id: uid(),
-          page: newSlot.page, row: newSlot.row, col: newSlot.col,
-        });
-      } else {
-        targetPage = slot.page;
-        next.pages[slot.page].push({
-          ...item, id: uid(),
-          page: slot.page, row: slot.row, col: slot.col,
-        });
-      }
-      return next;
-    });
-    // 在下一个宏任务中跳转（等 setData 的 state 已 commit）
-    setTimeout(() => setCurrentPage(targetPage), 0);
+    const next = deepClone(dataRef.current);
+    let slot = findFirstAvailableSlotAcrossPages(next.pages, draft, gridCols, gridRows, preferPage);
+    if (!slot && next.pages.length < LAYOUT_LIMITS.maxPages) {
+      const page = next.pages.length;
+      next.pages.push([]);
+      const position = findFirstAvailableSlot(next.pages[page], draft, gridCols, gridRows);
+      if (position) slot = { page, ...position };
+    }
+    if (!slot) return;
+    next.pages[slot.page].push({ ...draft, page: slot.page, row: slot.row, col: slot.col });
+    dataRef.current = next;
+    setData(next);
+    setCurrentPage(slot.page);
   }, [settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
-    // 先尝试更新普通桌面；若找到则 foundInDesktop 标记为 true 并提前返回 next
-    let foundInDesktop = false;
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (const page of next.pages) {
-        const idx = page.findIndex((it) => it.id === id);
-        if (idx >= 0) {
-          page[idx] = { ...page[idx], ...patch };
-          foundInDesktop = true;
-          return next;
-        }
-        // 文件夹内
-        for (const item of page) {
-          if (item.type === 'folder' && item.children) {
-            const ci = item.children.findIndex((c) => c.id === id);
-            if (ci >= 0) {
-              item.children[ci] = { ...item.children[ci], ...patch };
-              foundInDesktop = true;
-              return next;
-            }
-          }
+    const next = deepClone(dataRef.current);
+    for (const page of next.pages) {
+      const idx = page.findIndex((it) => it.id === id);
+      if (idx >= 0) {
+        page[idx] = { ...page[idx], ...patch };
+        dataRef.current = next;
+        setData(next);
+        return;
+      }
+      for (const candidate of page) {
+        const childIndex = candidate.children?.findIndex((child) => child.id === id) ?? -1;
+        if (childIndex >= 0 && candidate.children) {
+          candidate.children[childIndex] = { ...candidate.children[childIndex], ...patch };
+          dataRef.current = next;
+          setData(next);
+          return;
         }
       }
-      return next;
-    });
-    // NOTE: setData 是异步的，foundInDesktop 在其回调执行前已被读取。
-    // 由于 setData 在 React 中是同步入队的（回调在下一次 render 前执行），
-    // 若需严格保证互斥，应改用单次 setData + setPrivacyPageItems 的联合写法。
-    // 此处保守策略：同时也尝试更新隐私桌面，不会破坏普通桌面数据
-    // （隐私桌面 findIndex 若 < 0 会直接 return prev，开销极低）。
-    // 已知此逻辑从历史版本沿用，保持原有行为，仅修复命名以示意图。
-    void foundInDesktop; // 明确标记不再使用，消除 lint 警告
-    setPrivacyPageItems((prev) => {
-      const idx = prev.findIndex((it) => it.id === id);
-      if (idx < 0) return prev;
-      const next = [...prev];
-      next[idx] = { ...next[idx], ...patch };
-      return next;
-    });
+    }
+    const privacyIndex = privacyPageItemsRef.current.findIndex((candidate) => candidate.id === id);
+    if (privacyIndex < 0) return;
+    const nextPrivacy = privacyPageItemsRef.current.map((candidate, index) => (
+      index === privacyIndex ? { ...candidate, ...patch } : { ...candidate }
+    ));
+    privacyPageItemsRef.current = nextPrivacy;
+    setPrivacyPageItems(nextPrivacy);
   }, []);
 
   const removeItem = useCallback((id: string) => {
-    let found = false;
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (let p = 0; p < next.pages.length; p++) {
-        const idx = next.pages[p].findIndex((it) => it.id === id);
-        if (idx >= 0) {
-          next.pages[p].splice(idx, 1);
-          found = true;
-          setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
-          return next;
-        }
-        for (const item of next.pages[p]) {
-          if (item.type === 'folder' && item.children) {
-            const ci = item.children.findIndex((c) => c.id === id);
-            if (ci >= 0) {
-              item.children.splice(ci, 1);
-              found = true;
-              // 单应用解散
-              if (item.children.length <= 1) {
-                const child = item.children[0];
-                if (child) {
-                  next.pages[p].push({
-                    ...child,
-                    page: item.page,
-                    row: item.row,
-                    col: item.col,
-                  });
-                }
-                const fi = next.pages[p].findIndex((it) => it.id === item.id);
-                if (fi >= 0) next.pages[p].splice(fi, 1);
-              }
-              setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
-              return next;
-            }
-          }
-        }
+    const next = deepClone(dataRef.current);
+    for (let p = 0; p < next.pages.length; p++) {
+      const idx = next.pages[p].findIndex((it) => it.id === id);
+      if (idx >= 0) {
+        next.pages[p].splice(idx, 1);
+        dataRef.current = next;
+        setData(next);
+        setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
+        return;
       }
-      return next;
-    });
-    // 如果普通桌面没找到，尝试从隐私桌面删除
-    if (!found) {
-      setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
+      for (const item of next.pages[p]) {
+        if (item.type !== 'folder' || !item.children) continue;
+        const childIndex = item.children.findIndex((child) => child.id === id);
+        if (childIndex < 0) continue;
+        item.children.splice(childIndex, 1);
+        if (item.children.length <= 1) {
+          const child = item.children[0];
+          if (child) next.pages[p].push({ ...child, page: item.page, row: item.row, col: item.col });
+          const folderIndex = next.pages[p].findIndex((candidate) => candidate.id === item.id);
+          if (folderIndex >= 0) next.pages[p].splice(folderIndex, 1);
+        }
+        dataRef.current = next;
+        setData(next);
+        setTimeout(() => pruneIconCaches(collectIconUrls(next)), 0);
+        return;
+      }
     }
-  }, []);
-
-  const moveWidgetWithReflow = useCallback((
-    id: string, fromPage: number, toPage: number,
-    oldRow: number, newRow: number, span: number,
-  ) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      const fromItems = next.pages[fromPage];
-      const toItems = next.pages[toPage];
-      if (!fromItems || !toItems) return prev;
-
-      const idx = fromItems.findIndex((it) => it.id === id);
-      if (idx < 0) return prev;
-
-      const offset = newRow - oldRow; // 正=下移，负=上移
-
-      // 先平移被新 span 覆盖、但不在旧 span 内的普通应用（新侵入的行）
-      // 这些应用需要移到 widget 腾出的旧行，必须在 widget.row 更新前处理，
-      // 否则 widget.row 已变，fromItems 判断会错乱。
-      const pageToFix = next.pages[toPage];
-      if (pageToFix && offset !== 0) {
-        for (const it of pageToFix) {
-          if (it.type === 'widget' || it.id === id) continue;
-          // 仅处理新侵入的行：在新 span 内 且 不在旧 span 内
-          const inNewSpan = it.row >= newRow && it.row < newRow + span;
-          const inOldSpan = it.row >= oldRow && it.row < oldRow + span;
-          if (inNewSpan && !inOldSpan) {
-            it.row = it.row - offset;
-          }
-        }
-      }
-
-      // 移动 widget 本身
-      const widget = fromItems[idx];
-      widget.row = newRow;
-      widget.page = toPage;
-      if (fromPage !== toPage) {
-        fromItems.splice(idx, 1);
-        toItems.push(widget);
-      }
-
-      return next;
-    });
-  }, []);
-
-  /**
-   * 两个 widget 互换行，同时把各自新位置内被覆盖的普通应用 reflow 到对方腾出的行
-   */
-  const swapWidgetsWithReflow = useCallback((
-    idA: string, pageA: number, rowA: number, spanA: number,
-    idB: string, pageB: number, rowB: number, spanB: number,
-  ) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      const itemsA = next.pages[pageA];
-      const itemsB = next.pages[pageB];
-      if (!itemsA || !itemsB) return prev;
-
-      const idxA = itemsA.findIndex((it) => it.id === idA);
-      const idxB = itemsB.findIndex((it) => it.id === idB);
-      if (idxA < 0 || idxB < 0) return prev;
-
-      const swapOffset = rowB - rowA; // A 的位移方向
-
-      // A 移到 rowB：把 [rowB, rowB+spanA) 内 且 不在 [rowA, rowA+spanA) 内的普通应用 → rowA 腾出的对应行
-      for (const it of itemsB) {
-        if (it.type === 'widget' || it.id === idA || it.id === idB) continue;
-        const inNewA = it.row >= rowB && it.row < rowB + spanA;
-        const inOldA = it.row >= rowA && it.row < rowA + spanA;
-        if (inNewA && !inOldA) it.row = it.row - swapOffset;
-      }
-      // B 移到 rowA：把 [rowA, rowA+spanB) 内 且 不在 [rowB, rowB+spanB) 内的普通应用 → rowB 腾出的对应行
-      for (const it of itemsA) {
-        if (it.type === 'widget' || it.id === idA || it.id === idB) continue;
-        const inNewB = it.row >= rowA && it.row < rowA + spanB;
-        const inOldB = it.row >= rowB && it.row < rowB + spanB;
-        if (inNewB && !inOldB) it.row = it.row + swapOffset;
-      }
-
-      // 互换 widget 本身的行号
-      const a = itemsA[idxA];
-      const b = itemsB[idxB];
-      a.row = rowB; a.page = pageB;
-      b.row = rowA; b.page = pageA;
-      if (pageA !== pageB) {
-        itemsA.splice(idxA, 1);
-        itemsB.splice(idxB, 1);
-        itemsB.push(a);
-        itemsA.push(b);
-      }
-
-      return next;
-    });
+    const nextPrivacy = privacyPageItemsRef.current.filter((candidate) => candidate.id !== id);
+    if (nextPrivacy.length === privacyPageItemsRef.current.length) return;
+    privacyPageItemsRef.current = nextPrivacy;
+    setPrivacyPageItems(nextPrivacy);
   }, []);
 
   const swapDesktopItems = useCallback(
@@ -497,77 +337,47 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       _idA: string,
       _pageA: number,
       _rowA: number,
-      colA: string,
+      _colA: string,
       _idB: string,
       _pageB: number,
       _rowB: number,
       colB: string,
     ) => {
-      const ca = Number.parseInt(colA, 10);
       const cb = Number.parseInt(colB, 10);
-      setData((prev) => {
-        const next = deepClone(prev);
-        const idxA = next.pages[_pageA]?.findIndex((it) => it.id === _idA);
-        const idxB = next.pages[_pageB]?.findIndex((it) => it.id === _idB);
-        if (idxA < 0 || idxB < 0) return prev;
-        const a = next.pages[_pageA][idxA];
-        const b = next.pages[_pageB][idxB];
-        // 更新字段
-        a.row = _rowB; a.col = cb; a.page = _pageB;
-        b.row = _rowA; b.col = ca; b.page = _pageA;
-        // 若跨页，实际移动数组成员
-        if (_pageA !== _pageB) {
-          next.pages[_pageA].splice(idxA, 1);
-          next.pages[_pageB].splice(idxB, 1);
-          next.pages[_pageB].push(a);
-          next.pages[_pageA].push(b);
-        }
-        return next;
-      });
+      const expectedTarget = dataRef.current.pages[_pageB]?.find((item) => (
+        item.id === _idB && item.row === _rowB && item.col === cb
+      ));
+      if (!expectedTarget) return;
+      const result = moveDesktopItem(
+        dataRef.current, _idA, _pageA, _pageB, _rowB, cb,
+        settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+      );
+      if (!result.ok || result.data === dataRef.current) return;
+      dataRef.current = result.data;
+      setData(result.data);
     },
     [],
   );
 
   const moveItemTo = useCallback((id: string, fromPage: number, toPage: number, row: number, col: number) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      const fromIdx = next.pages[fromPage]?.findIndex((it) => it.id === id);
-      if (fromIdx === undefined || fromIdx < 0) return prev;
-
-      // 从源页数组中取出 item
-      const [item] = next.pages[fromPage].splice(fromIdx, 1);
-
-      // 检查目标位置是否已有项（跨页时需在目标页查找）
-      const targetIdx = next.pages[toPage]?.findIndex((it) => it.row === row && it.col === col);
-      if (targetIdx !== undefined && targetIdx >= 0) {
-        const [target] = next.pages[toPage].splice(targetIdx, 1);
-        // widget 不参与隐式交换（widget 严格空行校验已在 Desktop.tsx 前置拦截；
-        // 此处再次防御：若穿透到这里则中止整个操作，避免 widget 被错误搬移）
-        if (item.type === 'widget' || target.type === 'widget') {
-          // 还原：把两者放回原位
-          next.pages[fromPage].push(item);
-          next.pages[toPage].push(target);
-          return next;
-        }
-        // 普通应用交换：把目标位置的 item 移回源页原位置
-        target.page = fromPage;
-        target.row = item.row;
-        target.col = item.col;
-        next.pages[fromPage].push(target);
-      }
-
-      // 将 item 放入目标页数组
-      item.page = toPage;
-      item.row = row;
-      item.col = col;
-      next.pages[toPage].push(item);
-      return next;
-    });
-  }, []);
+    const result = moveDesktopItem(
+      dataRef.current, id, fromPage, toPage, row, col,
+      settings.cols ?? 4, settings.rows ?? 8,
+    );
+    if (!result.ok || result.data === dataRef.current) return;
+    dataRef.current = result.data;
+    setData(result.data);
+  }, [settings.cols, settings.rows]);
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
     setData((prev) => {
       const next = deepClone(prev);
+      const rows = settingsRef.current.rows ?? 8;
+      const cols = settingsRef.current.cols ?? 4;
+      if (!next.pages[page]
+        || !Number.isInteger(row) || row < 0 || row >= rows
+        || !Number.isInteger(col) || col < 0 || col >= cols
+        || isRowCoveredByWidget(next.pages[page], row)) return prev;
       let folder: DesktopItem | null = null;
       let folderPageIdx = -1;
       for (let p = 0; p < next.pages.length; p++) {
@@ -621,31 +431,28 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const moveDesktopToFolder = useCallback((itemId: string, folderId: string): boolean => {
-    let success = false;
-    setData((prev) => {
-      const next = deepClone(prev);
-      let folder: DesktopItem | null = null;
-      let item: DesktopItem | null = null;
-      let itemPage = -1;
-      let itemIdx = -1;
-      for (let p = 0; p < next.pages.length; p++) {
-        const fi = next.pages[p].findIndex((it) => it.id === folderId);
-        if (fi >= 0) folder = next.pages[p][fi];
-        const ii = next.pages[p].findIndex((it) => it.id === itemId);
-        if (ii >= 0) {
-          item = next.pages[p][ii];
-          itemPage = p;
-          itemIdx = ii;
-        }
+    const next = deepClone(dataRef.current);
+    let folder: DesktopItem | null = null;
+    let item: DesktopItem | null = null;
+    let itemPage = -1;
+    let itemIdx = -1;
+    for (let p = 0; p < next.pages.length; p++) {
+      const folderIndex = next.pages[p].findIndex((candidate) => candidate.id === folderId);
+      if (folderIndex >= 0) folder = next.pages[p][folderIndex];
+      const sourceIndex = next.pages[p].findIndex((candidate) => candidate.id === itemId);
+      if (sourceIndex >= 0) {
+        item = next.pages[p][sourceIndex];
+        itemPage = p;
+        itemIdx = sourceIndex;
       }
-      if (!folder || !folder.children || !item) return prev;
-      if (folder.children.length >= MAX_FOLDER_APPS) return prev;
-      folder.children.push(item);
-      next.pages[itemPage].splice(itemIdx, 1);
-      success = true;
-      return next;
-    });
-    return success;
+    }
+    if (!folder || folder.type !== 'folder' || !folder.children || !item || item.type !== 'app') return false;
+    if (folder.children.length >= MAX_FOLDER_APPS) return false;
+    folder.children.push({ ...item, page: folder.page, row: folder.row, col: folder.col });
+    next.pages[itemPage].splice(itemIdx, 1);
+    dataRef.current = next;
+    setData(next);
+    return true;
   }, []);
 
   const reorderFolderChildren = useCallback((folderId: string, fromIdx: number, toIdx: number) => {
@@ -654,6 +461,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       for (const page of next.pages) {
         const folder = page.find((it) => it.id === folderId);
         if (folder?.children) {
+          if (fromIdx < 0 || fromIdx >= folder.children.length || toIdx < 0 || toIdx >= folder.children.length) return prev;
           const [moved] = folder.children.splice(fromIdx, 1);
           folder.children.splice(toIdx, 0, moved);
           break;
@@ -664,9 +472,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
-    let success = false;
-    setData((prev) => {
-      const next = deepClone(prev);
+      const next = deepClone(dataRef.current);
       let source: DesktopItem | null = null;
       let target: DesktopItem | null = null;
       let sourcePage = -1;
@@ -706,10 +512,10 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           targetIdx = ti;
         }
       }
-      if (!source || !target) return prev;
-      if (target.type === 'system' || target.type === 'widget') return prev;
-      if (sourceFolderId && target.id === sourceFolderId) return prev;
-      if (source.type === 'folder' && target.type === 'folder') return prev;
+      if (!source || !target) return false;
+      if (source.type !== 'app') return false;
+      if (target.type === 'system' || target.type === 'widget') return false;
+      if (sourceFolderId && target.id === sourceFolderId) return false;
 
       if (sourceFolder && sourceChildIdx >= 0) {
         source = sourceFolder.children!.splice(sourceChildIdx, 1)[0];
@@ -717,8 +523,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 如果 target 已是文件夹
       if (target.type === 'folder' && target.children) {
         if (target.children.length >= MAX_FOLDER_APPS) {
-          if (sourceFolder && sourceChildIdx >= 0) sourceFolder.children!.splice(sourceChildIdx, 0, source);
-          return prev;
+          return false;
         }
         target.children.push({
           ...source,
@@ -731,8 +536,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
         }
-        success = true;
-        return next;
+        dataRef.current = next;
+        setData(next);
+        return true;
       }
       // 创建新文件夹
       const folder: DesktopItem = {
@@ -751,10 +557,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
       }
-      success = true;
-      return next;
-    });
-    return success;
+      dataRef.current = next;
+      setData(next);
+      return true;
   }, []);
 
   const renameFolder = useCallback((folderId: string, name: string) => {
@@ -772,70 +577,55 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const dissolveFolder = useCallback((folderId: string) => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (let p = 0; p < next.pages.length; p++) {
-        const fi = next.pages[p].findIndex((it) => it.id === folderId);
-        if (fi < 0) continue;
-        const folder = next.pages[p][fi];
-        const children = folder.children ?? [];
-
-        // 移除文件夹本身
-        next.pages[p].splice(fi, 1);
-
-        // 将每个子应用散落到桌面（贪心找空位，优先当前页）
-        for (const child of children) {
-          let placed = false;
-          const gr = settings.rows ?? 8;
-          const gc = settings.cols ?? 4; // 使用用户当前列数设置，不硬编码 MAX_COLS
-          // 先在当前页 p 找空位
-          for (let r = 0; r < gr && !placed; r++) {
-            if (isRowCoveredByWidget(next.pages[p], r)) continue;
-            for (let c = 0; c < gc && !placed; c++) {
-              if (!next.pages[p].some((it) => it.row === r && it.col === c)) {
-                next.pages[p].push({ ...child, page: p, row: r, col: c });
-                placed = true;
-              }
-            }
-          }
-          if (!placed) {
-            // 其他页面找空位
-            outer: for (let pp = 0; pp < next.pages.length; pp++) {
-              for (let r = 0; r < gr; r++) {
-                if (isRowCoveredByWidget(next.pages[pp], r)) continue;
-                for (let c = 0; c < gc; c++) {
-                  if (!next.pages[pp].some((it) => it.row === r && it.col === c)) {
-                    next.pages[pp].push({ ...child, page: pp, row: r, col: c });
-                    placed = true;
-                    break outer;
-                  }
-                }
-              }
-            }
-          }
-          if (!placed) {
-            // 新建页面
-            const np = next.pages.length;
-            next.pages.push([{ ...child, page: np, row: 0, col: 0 }]);
-          }
-        }
-        break;
+    const next = deepClone(dataRef.current);
+    const folderPage = next.pages.findIndex((page) => page.some((item) => item.id === folderId));
+    if (folderPage < 0) return;
+    const folderIndex = next.pages[folderPage].findIndex((item) => item.id === folderId);
+    const folder = next.pages[folderPage][folderIndex];
+    if (folder.type !== 'folder') return;
+    const children = folder.children ?? [];
+    next.pages[folderPage].splice(folderIndex, 1);
+    const cols = settingsRef.current.cols ?? 4;
+    const rows = settingsRef.current.rows ?? 8;
+    for (const child of children) {
+      let slot = findFirstAvailableSlotAcrossPages(next.pages, child, cols, rows, folderPage);
+      if (!slot && next.pages.length < LAYOUT_LIMITS.maxPages) {
+        const page = next.pages.length;
+        next.pages.push([]);
+        const position = findFirstAvailableSlot(next.pages[page], child, cols, rows);
+        if (position) slot = { page, ...position };
       }
-      return next;
-    });
+      if (!slot) return; // 整个操作不提交，避免解散时丢失子应用。
+      next.pages[slot.page].push({ ...child, page: slot.page, row: slot.row, col: slot.col });
+    }
+    dataRef.current = next;
+    setData(next);
   }, []);
 
   const addPage = useCallback(() => {
-    setData((prev) => {
-      const next = deepClone(prev);
-      if (next.pages.length < 20) next.pages.push([]);
-      return next;
-    });
+    if (dataRef.current.pages.length >= LAYOUT_LIMITS.maxPages) return;
+    const next = deepClone(dataRef.current);
+    next.pages.push([]);
+    dataRef.current = next;
+    setData(next);
   }, []);
 
-  const importData = useCallback((newData: DesktopData) => {
-    setData(newData);
-    setCurrentPage(0);
+  const importData = useCallback((newData: unknown) => {
+    const parsed = parseDesktopData(newData);
+    if (!parsed.ok) return false;
+    try {
+      const next = reflowDesktopData(
+        { ...parsed.data, version: CURRENT_DESKTOP_VERSION },
+        settingsRef.current.cols ?? 4,
+        settingsRef.current.rows ?? 8,
+      );
+      dataRef.current = next;
+      setData(next);
+      setCurrentPage(0);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   /**
@@ -843,110 +633,128 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
    * 防止 privacyPageItems effect 用旧密钥重新加密空数据，覆盖刚恢复的 vault。
    */
   const resetPrivacyLock = useCallback(() => {
+    privacyEpochRef.current += 1;
+    privacyWriteSeqRef.current += 1;
+    privacyCryptoKeyRef.current = null;
     setPrivacyCryptoKey(null);
+    privacyPageItemsRef.current = [];
     setPrivacyPageItems([]);
+  }, []);
+
+  const lockPrivacy = useCallback((): Promise<void> => {
+    if (privacyLockPromiseRef.current) return privacyLockPromiseRef.current;
+    const cryptoState = privacyCryptoKeyRef.current;
+    if (!cryptoState) {
+      privacyPageItemsRef.current = [];
+      setPrivacyPageItems([]);
+      return Promise.resolve();
+    }
+    const epoch = privacyEpochRef.current;
+    const snapshot = deepClone(privacyPageItemsRef.current);
+    const lockToken = {};
+    privacyLockTokenRef.current = lockToken;
+    const task = (async () => {
+      try {
+        const vault = await encryptItems(
+          snapshot, cryptoState.key, cryptoState.salt, cryptoState.iterations,
+        );
+        // 云端恢复/reset 或新的解锁会推进 epoch；旧锁定任务不得覆盖它们。
+        if (epoch !== privacyEpochRef.current || privacyCryptoKeyRef.current !== cryptoState) return;
+        savePrivacyVault(vault);
+        setPrivacyRevision((revision) => revision + 1);
+        privacyWriteSeqRef.current += 1;
+        privacyCryptoKeyRef.current = null;
+        privacyPageItemsRef.current = [];
+        setPrivacyCryptoKey(null);
+        setPrivacyPageItems([]);
+      } finally {
+        if (privacyLockTokenRef.current === lockToken) {
+          privacyLockPromiseRef.current = null;
+          privacyLockTokenRef.current = null;
+        }
+      }
+    })();
+    privacyLockPromiseRef.current = task;
+    return task;
   }, []);
 
   /** 解锁隐私桌面后注入解密数据和内存密钥 */
   const setPrivacyUnlockData = useCallback((items: DesktopItem[], key: CryptoKey) => {
     const vault = loadPrivacyVault();
     const salt = vault ? Uint8Array.from(atob(vault.salt), (c) => c.charCodeAt(0)) : new Uint8Array(16);
-    setPrivacyCryptoKey({ key, salt });
+    const iterations = vault?.iterations ?? LEGACY_PBKDF2_ITERATIONS;
+    privacyEpochRef.current += 1;
+    privacyPageItemsRef.current = deepClone(items);
+    privacyCryptoKeyRef.current = { key, salt, iterations };
+    setPrivacyCryptoKey({ key, salt, iterations });
     setPrivacyPageItems(items);
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
-  // 用 ref 跟踪 data 最新值，供 callback 中同步读取（避免 React 18 批处理闭包竞态）
-  const dataRef = useRef<DesktopData>(data);
-  useEffect(() => { dataRef.current = data; }, [data]);
-
   const moveItemToPrivacy = useCallback((id: string, row: number, col: number) => {
-    // 先从 dataRef 同步读取图标，避免闭包竞态
-    let moved: DesktopItem | null = null;
-    for (const page of dataRef.current.pages) {
-      const found = page.find((it) => it.id === id);
-      if (found) { moved = found; break; }
-    }
-    if (!moved) return;
-    const movedItem = moved;
-    setData((prev) => {
-      const next = deepClone(prev);
-      for (let p = 0; p < next.pages.length; p++) {
-        const idx = next.pages[p].findIndex((it) => it.id === id);
-        if (idx >= 0) { next.pages[p].splice(idx, 1); return next; }
-      }
-      return prev;
-    });
-    setPrivacyPageItems((prev) => {
-      const next = prev.filter((it) => it.id !== movedItem.id);
-      // 目标位置已有图标则把它移回原位
-      const existIdx = next.findIndex((it) => it.row === row && it.col === col);
-      if (existIdx >= 0) {
-        next[existIdx] = { ...next[existIdx], row: movedItem.row, col: movedItem.col, page: -1 };
-      }
-      next.push({ ...movedItem, page: -1, row, col });
-      return next;
-    });
+    const result = transferDesktopToPrivacy(
+      dataRef.current, privacyPageItemsRef.current, id, row, col,
+      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+    );
+    if (!result.ok) return false;
+    dataRef.current = result.data;
+    privacyPageItemsRef.current = result.privacyItems;
+    setData(result.data);
+    setPrivacyPageItems(result.privacyItems);
+    return true;
   }, []);
-
-  // 用 ref 跟踪 privacyPageItems 最新值，供 callback 中同步读取
-  const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
-  useEffect(() => { privacyPageItemsRef.current = privacyPageItems; }, [privacyPageItems]);
 
   /** 隐私页内部图标重新排列（拖拽换位） */
   const reorderPrivacyItems = useCallback((id: string, row: number, col: number) => {
-    setPrivacyPageItems((prev) => {
-      const next = prev.map((it) => ({ ...it }));
-      const srcIdx = next.findIndex((it) => it.id === id);
-      if (srcIdx < 0) return prev;
-      const src = next[srcIdx];
-      const tgtIdx = next.findIndex((it) => it.row === row && it.col === col);
-      if (tgtIdx >= 0) {
-        // 目标位置有图标：交换坐标
-        next[tgtIdx] = { ...next[tgtIdx], row: src.row, col: src.col };
-      }
-      next[srcIdx] = { ...src, row, col };
-      return next;
-    });
+    const rows = settingsRef.current.rows ?? 8;
+    const cols = settingsRef.current.cols ?? 4;
+    if (!Number.isInteger(row) || row < 0 || row >= rows || !Number.isInteger(col) || col < 0 || col >= cols) return;
+    const next = privacyPageItemsRef.current.map((item) => ({ ...item }));
+    const srcIdx = next.findIndex((item) => item.id === id);
+    if (srcIdx < 0) return;
+    const source = next[srcIdx];
+    const targetIdx = next.findIndex((item) => item.id !== id && item.row === row && item.col === col);
+    if (targetIdx >= 0) next[targetIdx] = { ...next[targetIdx], row: source.row, col: source.col };
+    next[srcIdx] = { ...source, row, col };
+    privacyPageItemsRef.current = next;
+    setPrivacyPageItems(next);
   }, []);
 
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
-    // 直接从 ref 同步读取，避免 React 18 批处理下闭包变量竞态问题
-    const moved = privacyPageItemsRef.current.find((it) => it.id === id);
-    if (!moved) return;
-    setPrivacyPageItems((prev) => prev.filter((it) => it.id !== id));
-    setData((prev) => {
-      const next = deepClone(prev);
-      if (!next.pages[toPage]) next.pages[toPage] = [];
-      next.pages[toPage] = next.pages[toPage].filter((it) => !(it.row === row && it.col === col));
-      next.pages[toPage].push({ ...moved, page: toPage, row, col });
-      return next;
-    });
+    const result = transferPrivacyToDesktop(
+      dataRef.current, privacyPageItemsRef.current, id, toPage, row, col,
+      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+    );
+    if (!result.ok) return false;
+    dataRef.current = result.data;
+    privacyPageItemsRef.current = result.privacyItems;
+    setData(result.data);
+    setPrivacyPageItems(result.privacyItems);
+    return true;
   }, []);
 
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...patch };
-      saveSettings(next);
-
-      // cols 或 rows 变更时，重新布局桌面图标
-      const colsChanged = patch.cols !== undefined && patch.cols !== prev.cols;
-      const rowsChanged = patch.rows !== undefined && patch.rows !== prev.rows;
-      if (colsChanged || rowsChanged) {
-        const newCols = next.cols ?? 4;
-        const newRows = next.rows ?? 8;
-        setData((prevData) => {
-          const reflowed = reflowDesktopItems(prevData, newCols, newRows);
-          saveDesktopData(reflowed);
-          return reflowed;
-        });
-        // 重置到第一页，避免停留在已不存在的页
+    const prev = settingsRef.current;
+    const requested = { ...prev, ...patch };
+    const cols = Math.min(LAYOUT_LIMITS.maxCols, Math.max(LAYOUT_LIMITS.minCols, requested.cols ?? 4)) as 4 | 5;
+    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
+    const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
+    const next: DesktopSettings = { ...requested, cols, rows };
+    const gridChanged = cols !== prev.cols || rows !== prev.rows;
+    if (gridChanged) {
+      try {
+        const reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        dataRef.current = reflowed;
+        setData(reflowed);
         setCurrentPage(0);
+      } catch {
+        return;
       }
-
-      return next;
-    });
+    }
+    settingsRef.current = next;
+    setSettings(next);
+    saveSettings(next);
   }, []);
 
   return (
@@ -964,8 +772,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateItem,
         removeItem,
         swapDesktopItems,
-        moveWidgetWithReflow,
-        swapWidgetsWithReflow,
         moveItemTo,
         moveFromFolderToDesktop,
         moveDesktopToFolder,
@@ -976,10 +782,12 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addPage,
         importData,
         resetPrivacyLock,
+        lockPrivacy,
         moveItemToPrivacy,
         movePrivacyToPage,
         reorderPrivacyItems,
         privacyPageItems,
+        privacyRevision,
         setPrivacyUnlockData,
       }}
     >

@@ -2,7 +2,7 @@
  * SearchScreen — 搜索专用全屏覆盖层
  * - 打开时自动聚焦输入框
  * - 空查询时显示搜索历史（本地存储，最多 20 条）
- * - 有输入时实时拉取百度搜索建议（JSONP）
+ * - 有输入时拉取搜索建议（扩展后台代理 / 可选 Web JSON API）
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -33,12 +33,9 @@ function pushHistory(query: string) {
   saveHistory([query, ...list]);
 }
 
-// ── 百度搜索建议 ──────────────────────────────────────────────────────────────
-// 两种环境策略：
-//   1. 扩展环境 (VITE_IS_EXTENSION=true)：background SW 代理（无 Origin 头，绕过 CORS）
-//   2. Web 环境：动态 <script> 标签加载百度 JSONP（<script src> 不受同源策略限制，
-//      无需任何第三方 CORS 代理，延迟与百度直连持平）。此前走 cors.sh 公共代理
-//      实测每次 1.6–4.1s，是建议严重滞后的根因。
+// ── 搜索建议 ─────────────────────────────────────────────────────────────────
+// 扩展环境由 background SW 请求；Web 环境只接受部署方配置的 JSON API。
+// 禁止 JSONP / 动态远程 <script>：否则第三方脚本会在本站 origin 执行并读取本地数据。
 
 // 内存缓存：最近 30 条，避免重复请求同一关键词
 const suggestCache = new Map<string, string[]>();
@@ -46,53 +43,6 @@ const CACHE_MAX = 30;
 function cacheSet(key: string, val: string[]) {
   if (suggestCache.size >= CACHE_MAX) suggestCache.delete(suggestCache.keys().next().value!);
   suggestCache.set(key, val);
-}
-
-// ── Web 环境：JSONP 全局回调注册表 ───────────────────────────────────────────
-// 每个待处理请求分配一个唯一回调名，挂到 window；脚本加载完成/失败/取消时清理。
-const jsonpCallbacks = new Map<string, { resolve: (v: string[]) => void; script: HTMLScriptElement; timer: ReturnType<typeof setTimeout> }>();
-
-function jsonpBaiduSuggest(wd: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    const cbName = `__md_sug_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-    const script = document.createElement('script');
-
-    // 超时兜底：8s 未返回视为失败，返回空数组并清理
-    const timer = setTimeout(() => cleanup(cbName, []), 8000);
-
-    const cleanup = (name: string, value: string[]) => {
-      const entry = jsonpCallbacks.get(name);
-      if (entry) {
-        clearTimeout(entry.timer);
-        entry.script.remove();
-        jsonpCallbacks.delete(name);
-        try { delete (window as any)[name]; } catch { (window as any)[name] = undefined; }
-      }
-      resolve(value);
-    };
-
-    // 注册回调：百度会以 sugg({s:[...]}) 形式调用
-    (window as any)[cbName] = (data: { s?: string[] } | undefined) => {
-      const list = data?.s ?? [];
-      if (list.length) cacheSet(wd, list);
-      cleanup(cbName, list);
-    };
-
-    script.onerror = () => cleanup(cbName, []);
-    script.src = `https://suggestion.baidu.com/su?ie=utf-8&wd=${encodeURIComponent(wd)}&cb=${cbName}`;
-    jsonpCallbacks.set(cbName, { resolve, script, timer });
-    document.head.appendChild(script);
-  });
-}
-
-// 取消所有待处理的 JSONP 请求（对应 AbortController.abort() 的语义）
-function abortJsonp() {
-  jsonpCallbacks.forEach((entry, name) => {
-    clearTimeout(entry.timer);
-    entry.script.remove();
-    try { delete (window as any)[name]; } catch { (window as any)[name] = undefined; }
-  });
-  jsonpCallbacks.clear();
 }
 
 async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<string[]> {
@@ -118,17 +68,26 @@ async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<strin
     }
   }
 
-  // ── Web 环境：动态 <script> JSONP（无代理，延迟≈百度直连）──────────────────
-  // signal.aborted 时返回空，Promise 不会 resolve 出过期结果
-  return new Promise<string[]>((resolve) => {
-    if (signal.aborted) { resolve([]); return; }
-    const onAbort = () => { abortJsonp(); resolve([]); };
-    signal.addEventListener('abort', onAbort, { once: true });
-    jsonpBaiduSuggest(wd).then((list) => {
-      signal.removeEventListener('abort', onAbort);
-      resolve(list);
-    });
-  });
+  // Web：默认关闭远程建议。部署方可配置一个返回 JSON 的可信同源/边缘代理，
+  // 例如 { suggestions: ["..."] } 或 { data: ["..."] }。
+  const endpoint = import.meta.env.VITE_SUGGEST_API_URL?.trim();
+  if (!endpoint) return [];
+  try {
+    const url = new URL(endpoint, window.location.origin);
+    if (url.origin !== window.location.origin) return [];
+    url.searchParams.set('q', wd);
+    const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!response.ok) return [];
+    const body = await response.json() as { suggestions?: unknown; data?: unknown };
+    const raw = Array.isArray(body.suggestions) ? body.suggestions : body.data;
+    if (!Array.isArray(raw)) return [];
+    const result = raw.filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim()).filter(Boolean).slice(0, 10);
+    if (result.length) cacheSet(wd, result);
+    return result;
+  } catch {
+    return [];
+  }
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────

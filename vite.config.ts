@@ -23,15 +23,5 @@ export default defineConfig(({ command }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    server: {
-      proxy: {
-        // dev 环境：将 /api/suggest 代理到百度建议接口，服务端转发无 CORS 限制
-        '/api/suggest': {
-          target: 'https://suggestion.baidu.com',
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/api\/suggest/, '/su'),
-        },
-      },
-    },
   };
 });

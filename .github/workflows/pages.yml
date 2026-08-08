@@ -29,7 +29,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.16.0
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -43,15 +43,22 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
-        # 无 lockfile 时不能用 --frozen-lockfile，改用 --no-frozen-lockfile
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: npx vite build --outDir dist
-        env:
-          NODE_ENV: production
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build web
+        run: pnpm build
+
+      - name: Build extension
+        run: pnpm build:ext
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

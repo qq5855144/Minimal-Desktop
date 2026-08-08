@@ -1,7 +1,7 @@
 /**
- * 隐私屏密码加密工具（v2）
+ * 隐私屏密码加密工具（v3）
  * - AES-256-GCM 加密隐私桌面数据
- * - PBKDF2 密钥派生（100_000 次迭代）
+ * - PBKDF2 密钥派生（新 vault 600_000 次；兼容旧版 100_000 次）
  * - 一个密码只能解密自己加密的数据（重置/更改密码后旧数据不可访问）
  */
 
@@ -12,8 +12,12 @@ export interface PrivacyVault {
   salt: string;   // base64 随机盐（16 bytes）
   iv: string;     // base64 随机 IV（12 bytes）
   ct: string;     // base64 密文
-  v: number;      // 版本号，当前 2
+  v: number;      // 版本号，当前 3
+  iterations?: number; // PBKDF2 迭代次数；v2 缺省为 100_000
 }
+
+export const LEGACY_PBKDF2_ITERATIONS = 100_000;
+export const PBKDF2_ITERATIONS = 600_000;
 
 // ─── 工具函数 ────────────────────────────────────────────────────────────────
 
@@ -38,7 +42,11 @@ export function randomBytes(n: number): Uint8Array {
  * @param pin  用户 PIN
  * @param salt 16 字节随机盐
  */
-export async function deriveKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
+export async function deriveKey(
+  pin: string,
+  salt: Uint8Array,
+  iterations = PBKDF2_ITERATIONS,
+): Promise<CryptoKey> {
   const baseKey = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(pin),
@@ -47,7 +55,7 @@ export async function deriveKey(pin: string, salt: Uint8Array): Promise<CryptoKe
     ['deriveKey'],
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations: 100_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt.buffer as ArrayBuffer, iterations, hash: 'SHA-256' },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -64,6 +72,7 @@ export async function encryptItems(
   items: DesktopItem[],
   key: CryptoKey,
   salt: Uint8Array,
+  iterations = PBKDF2_ITERATIONS,
 ): Promise<PrivacyVault> {
   const iv = randomBytes(12);
   const plaintext = new TextEncoder().encode(JSON.stringify(items));
@@ -72,7 +81,7 @@ export async function encryptItems(
     key,
     plaintext,
   );
-  return { salt: toBase64(salt), iv: toBase64(iv), ct: toBase64(ciphertext), v: 2 };
+  return { salt: toBase64(salt), iv: toBase64(iv), ct: toBase64(ciphertext), v: 3, iterations };
 }
 
 /**
@@ -105,9 +114,9 @@ export async function unlockVault(
   vault: PrivacyVault,
 ): Promise<{ key: CryptoKey; items: DesktopItem[] } | null> {
   const salt = fromBase64(vault.salt);
-  const key = await deriveKey(pin, salt);
+  const iterations = vault.iterations ?? LEGACY_PBKDF2_ITERATIONS;
+  const key = await deriveKey(pin, salt, iterations);
   const items = await decryptItems(vault, key);
   if (items === null) return null;
   return { key, items };
 }
-

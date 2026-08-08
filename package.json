@@ -1,12 +1,17 @@
 {
-  "name": "miaoda-react-admin",
-  "version": "0.0.1",
+  "name": "minimal-desktop",
+  "version": "1.2.0",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
   "type": "module",
   "scripts": {
-    "dev": "echo 'Do not use this command, only use lint to check'",
-    "build": "echo 'Do not use this command, only use lint to check'",
+    "dev": "vite",
+    "build": "vite build",
     "build:ext": "vite build --config vite.config.extension.ts",
-    "lint": "tsgo -p tsconfig.check.json; npx biome lint; .rules/check.sh;npx tailwindcss -i ./src/index.css -o /dev/null 2>&1 | grep -E '^(CssSyntaxError|Error):.*' || true;.rules/testBuild.sh"
+    "typecheck": "tsgo -p tsconfig.check.json",
+    "test": "vitest run",
+    "lint": "biome lint .",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm build:ext"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -80,8 +85,8 @@
     "@types/bmapgl": "^0.0.7",
     "@types/chrome": "^0.2.2",
     "@types/lodash": "^4.17.24",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
     "@types/video-react": "^0.15.8",
     "@typescript/native-preview": "7.0.0-dev.20260514.1",
     "@vitejs/plugin-react": "^5.1.4",
@@ -89,7 +94,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.11",
     "typescript": "~5.9.3",
-    "vite": "npm:rolldown-vite@latest",
+    "vite": "npm:rolldown-vite@7.3.1",
     "vite-plugin-svgr": "^4.5.0",
     "vitest": "^4.1.10"
   }

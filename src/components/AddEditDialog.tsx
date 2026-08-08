@@ -8,6 +8,8 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, ChevronLeft, Crop } from 'lucide-react';
 import IconCropDialog from '@/components/IconCropDialog';
+import { optimizeIconFile } from '@/lib/imageOptimize';
+import { normalizeHttpUrl } from '@/lib/urlSafety';
 
 interface AddEditDialogProps {
   open: boolean;
@@ -128,17 +130,17 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   }, [url, runProbe]);
 
   // 本地文件上传 → 先把 base64 存入 localIconData，再弹出裁剪弹窗
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert('图片不超过 10MB'); return; }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
+    if (file.size > 10 * 1024 * 1024) { alert('图片不超过 10MB'); e.target.value = ''; return; }
+    try {
+      const dataUrl = await optimizeIconFile(file);
       setLocalIconData(dataUrl); // 保证 effectiveIcon 有值
       setCropSrc(dataUrl);       // 弹出裁剪
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '图片处理失败');
+    }
     e.target.value = '';
   }, []);
 
@@ -159,7 +161,9 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
   const handleSubmit = useCallback(() => {
     if (!name.trim()) { alert('请输入应用名称'); return; }
     const finalUrl = url.trim() ? normalizeUrl(url) : '';
-    const finalIcon = effectiveIcon;
+    const finalIcon = iconSource === 'url'
+      ? (normalizeHttpUrl(customIconUrl) ?? undefined)
+      : effectiveIcon;
     const patch: Partial<DesktopItem> = {
       name: name.trim(),
       url: finalUrl || undefined,
@@ -172,7 +176,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
       onAdd({ name: name.trim(), url: finalUrl, iconUrl: finalIcon, iconCrop });
     }
     onOpenChange(false);
-  }, [name, url, effectiveIcon, iconCrop, isEdit, item, onAdd, onEdit, onOpenChange]);
+  }, [name, url, iconSource, customIconUrl, effectiveIcon, iconCrop, isEdit, item, onAdd, onEdit, onOpenChange]);
 
   const handleDelete = useCallback(() => {
     if (item && onDelete) { onDelete(item.id); onOpenChange(false); }

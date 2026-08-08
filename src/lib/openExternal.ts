@@ -1,3 +1,5 @@
+import { normalizeHttpUrl } from '@/lib/urlSafety';
+
 function markExternalLaunch() {
   if (typeof document === 'undefined') {
     return () => {};
@@ -43,8 +45,8 @@ function markExternalLaunch() {
 }
 
 export function openExternalUrl(url: string) {
-  const trimmedUrl = url.trim();
-  if (!trimmedUrl) return;
+  const safeUrl = normalizeHttpUrl(url);
+  if (!safeUrl) return;
 
   // 部分浏览器在 `window.open()` 前会先完成一次当前页面重绘，
   // 对桌面这种大面积模糊/滤镜场景更容易感知成“闪一下”。
@@ -53,7 +55,7 @@ export function openExternalUrl(url: string) {
   if (typeof document !== 'undefined' && document.body) {
     markExternalLaunch();
     const anchor = document.createElement('a');
-    anchor.href = trimmedUrl;
+    anchor.href = safeUrl;
     anchor.target = '_blank';
     anchor.rel = 'noopener noreferrer';
     anchor.referrerPolicy = 'no-referrer';
@@ -68,5 +70,5 @@ export function openExternalUrl(url: string) {
     return;
   }
 
-  window.open(trimmedUrl, '_blank', 'noopener,noreferrer');
+  window.open(safeUrl, '_blank', 'noopener,noreferrer');
 }

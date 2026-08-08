@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { loadSyncConfig, saveSyncConfig, clearSyncConfig, loadPrivacyVault, savePrivacyVault } from '@/lib/storage';
-import { verifyToken, ensureRepo, uploadToGithub, downloadFromGithub } from '@/lib/github';
+import { loadSyncConfig, saveSyncConfig, clearSyncConfig, clearPrivacyVault, savePrivacyVault } from '@/lib/storage';
+import { verifyToken, ensureRepo, getBranchHead, uploadToGithub, downloadFromGithub } from '@/lib/github';
+import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import type { SyncConfig } from '@/types';
 import {
   LogOut, Loader2, CheckCircle2, AlertCircle, Github, X,
@@ -72,9 +73,11 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         toast.error(repoResult.message);
         return;
       }
+      const branch = repoResult.branch || 'main';
       const next: SyncConfig = {
         ...DEFAULT_CONFIG, token: tok, owner: user.login,
-        repo: DEFAULT_REPO, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
+        repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
+        lastRemoteHead: await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined,
       };
       setConfig(next);
       setLoggedIn(true);
@@ -99,15 +102,17 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
-      // 上传时携带加密 vault（包含密码和隐私数据）
-      const vault = loadPrivacyVault();
-      const uploadData = { ...data, privacyVault: vault ?? undefined };
+      const uploadData = buildSyncSnapshot(data);
       const result = await uploadToGithub(syncCfg, uploadData);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok) {
-        const next = { ...config, lastSyncAt: new Date().toISOString() };
+        const next = {
+          ...config,
+          lastSyncAt: new Date().toISOString(),
+          lastRemoteHead: result.remoteHead ?? config.lastRemoteHead,
+        };
         setConfig(next); saveSyncConfig(next);
-        toast.success(vault ? '已上传到云端（含加密隐私数据）' : '已上传到云端');
+        toast.success(uploadData.privacyVault ? '已上传到云端（含加密隐私数据）' : '已上传到云端');
       } else { toast.error(result.message); }
     } catch { setStatusMsg({ type: 'error', msg: '上传失败，请检查网络' }); }
     finally { setSyncing(null); }
@@ -120,15 +125,20 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       const result = await downloadFromGithub(syncCfg);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok && result.data) {
-        // 1. 先写入 vault 到 localStorage（在 React 状态更新之前）
-        if (result.data.privacyVault) {
-          savePrivacyVault(result.data.privacyVault);
-        }
-        // 2. 重置内存密钥（清空后 privacyPageItems effect 因 !kd 不会再写 vault）
+        // 先停止所有旧密钥写入，再校验/导入桌面；校验失败时不覆盖本地 vault。
         resetPrivacyLock();
-        // 3. 最后写入桌面数据（触发 React 重渲染）
-        importData(result.data);
-        const next = { ...config, lastSyncAt: new Date().toISOString() };
+        if (!importData(result.data)) {
+          setStatusMsg({ type: 'error', msg: '云端数据无法适配当前桌面布局' });
+          toast.error('云端数据布局无效，未覆盖本地桌面');
+          return;
+        }
+        if (result.data.privacyVault) savePrivacyVault(result.data.privacyVault);
+        else clearPrivacyVault();
+        const next = {
+          ...config,
+          lastSyncAt: new Date().toISOString(),
+          lastRemoteHead: result.remoteHead ?? config.lastRemoteHead,
+        };
         setConfig(next); saveSyncConfig(next);
         toast.success(result.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');
       } else { toast.error(result.message); }
@@ -195,7 +205,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 <ul className={`text-xs ${t.textDim} space-y-1 ml-8`}>
                   <li>✦ 自动验证账号</li>
                   <li>✦ 自动创建私有备份仓库</li>
-                  <li>✦ 即刻开始同步桌面数据</li>
+                  <li>✦ Token 仅保留在当前浏览会话</li>
                 </ul>
               </div>
 
@@ -203,16 +213,16 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               <div className="space-y-1.5">
                 <label className={t.labelCls}>GitHub 个人访问令牌</label>
                 <input
-                  type="text"
+                  type="password"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
                   autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                  placeholder="ghp_xxxxxxxxxxxx"
+                  placeholder="github_pat_xxxxxxxxxxxx"
                   className={t.inputCls}
                 />
                 <p className={`text-xs ${t.textDim} opacity-60`}>
-                  需要 repo 权限 · <span className="underline opacity-80">github.com/settings/tokens</span>
+                  推荐 Fine-grained Token，仅授予备份仓库 Contents 读写权限
                 </p>
               </div>
 
@@ -316,4 +326,3 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 };
 
 export default SyncView;
-

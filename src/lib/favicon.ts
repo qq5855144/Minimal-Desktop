@@ -1,3 +1,5 @@
+import { normalizeHttpUrl } from '@/lib/urlSafety';
+
 // 获取网站 favicon URL（无需外网，使用多源回退）
 // 来源1: favicon.im（国内可访问的 favicon 聚合服务）
 // 来源2: 直连网站 favicon.ico（组件层 onError 回退）
@@ -22,10 +24,7 @@ export function getDirectFaviconUrl(url: string): string {
 
 // 规范化 URL（补全协议）
 export function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  return normalizeHttpUrl(input) ?? '';
 }
 
 // 多源探测：按优先级逐一尝试各 favicon 服务，返回第一个成功加载的 URL

@@ -76,6 +76,8 @@ export interface SyncConfig {
   syncInterval: 'manual' | '1d' | '7d' | '30d';
   autoSync: boolean;   // 数据变更时自动上传
   lastSyncAt?: string; // ISO string
+  /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
+  lastRemoteHead?: string;
 }
 
 // 搜索引擎
@@ -91,8 +93,8 @@ export interface CustomSearchEngine {
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
 export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
 export interface DesktopSettings {
-  bgImage?: string;        // base64 或 URL（图片/GIF）
-  bgVideo?: string;        // object URL（视频，非持久化）
+  bgImage?: string;        // URL / blob URL；本地文件本体持久化在 IndexedDB
+  bgVideo?: string;        // URL / blob URL；本地文件本体持久化在 IndexedDB
   bgType?: 'image' | 'video' | 'default';
   style: DesktopStyle;
   iconSize: number;        // 默认 46
@@ -104,7 +106,6 @@ export interface DesktopSettings {
   applyOverlayToWallpaper?: boolean;
   searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
   customEngines?: CustomSearchEngine[]; // 用户自定义搜索引擎列表
-  pixabayKey?: string;            // Pixabay API Key（用于壁纸分类加载）
 }
 
 // 拖拽来源信息

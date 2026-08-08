@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Solar } from 'lunar-javascript';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { CLOCK_VISUAL_MIN_HEIGHT_PX } from '@/lib/widgetConfig';
 
@@ -7,8 +6,9 @@ const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四
 
 // 用 lunar-javascript 获取精确农历信息及节日
 // getMonth() < 0 表示闰月，getMonthInChinese() 已包含"闰"前缀（如"闰六"）
-function getLunarInfo(date: Date): { lunarLabel: string } {
+async function getLunarInfo(date: Date): Promise<string> {
   try {
+    const { Solar } = await import('lunar-javascript');
     const solar = Solar.fromDate(date);
     const lunar = solar.getLunar();
 
@@ -23,16 +23,16 @@ function getLunarInfo(date: Date): { lunarLabel: string } {
     const jieQi: string = lunar.getJieQi();
 
     const festival = solarFestivals[0] || lunarFestivals[0] || jieQi || '';
-    const lunarLabel = festival ? `${lunarDate} · ${festival}` : lunarDate;
-    return { lunarLabel };
+    return festival ? `${lunarDate} · ${festival}` : lunarDate;
   } catch {
     // 兜底：若库异常则仅显示公历
-    return { lunarLabel: '' };
+    return '';
   }
 }
 
 const ClockWidget: React.FC = () => {
   const [now, setNow] = useState(new Date());
+  const [lunarLabel, setLunarLabel] = useState('');
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
 
@@ -41,12 +41,19 @@ const ClockWidget: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  const dateKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  useEffect(() => {
+    let active = true;
+    const [year, month, day] = dateKey.split('-').map(Number);
+    getLunarInfo(new Date(year, month, day)).then((label) => { if (active) setLunarLabel(label); });
+    return () => { active = false; };
+  }, [dateKey]);
+
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const solarMonth = now.getMonth() + 1;
   const solarDay = now.getDate();
   const weekday = WEEKDAYS[now.getDay()];
-  const { lunarLabel } = getLunarInfo(now);
 
   return (
     <div

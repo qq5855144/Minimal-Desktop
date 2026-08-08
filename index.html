@@ -1,25 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.png" />
+    <link rel="icon" type="image/png" href="%BASE_URL%favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- GitHub Pages SPA：还原 404.html 编码的路径 -->
-    <script>
-      (function(){
-        var q = window.location.search;
-        if (q && q.indexOf('p=/') > -1) {
-          var p = q.slice(1).split('&').reduce(function(m, kv) {
-            var a = kv.split('='); m[a[0]] = a.slice(1).join('='); return m;
-          }, {});
-          if (p.p) {
-            var path = '/' + p.p.replace(/~and~/g, '&');
-            var search = p.q ? ('?' + p.q.replace(/~and~/g, '&')) : '';
-            window.history.replaceState(null, null, path + search + window.location.hash);
-          }
-        }
-      }());
-    </script>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://api.github.com https://bing.biturl.top; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'" />
   </head>
   <body>
     <div id="root"></div>

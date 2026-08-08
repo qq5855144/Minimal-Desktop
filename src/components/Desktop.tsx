@@ -8,15 +8,18 @@ import { getWidgetComponent } from './widgetRenderer';
 import AppIcon from './AppIcon';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
-import FolderView from './FolderView';
-import AddEditDialog from './AddEditDialog';
-import SettingsView from './SettingsView';
-import SyncView from './SyncView';
-import ContextMenu, { type ContextMenuPosition } from './ContextMenu';
-import PrivacyScreen from './PrivacyScreen';
+import type { ContextMenuPosition } from './ContextMenu';
 import { toast } from 'sonner';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { uploadToGithub } from '@/lib/github';
+import { buildSyncSnapshot } from '@/lib/syncSnapshot';
+
+const FolderView = React.lazy(() => import('./FolderView'));
+const AddEditDialog = React.lazy(() => import('./AddEditDialog'));
+const SettingsView = React.lazy(() => import('./SettingsView'));
+const SyncView = React.lazy(() => import('./SyncView'));
+const ContextMenu = React.lazy(() => import('./ContextMenu'));
+const PrivacyScreen = React.lazy(() => import('./PrivacyScreen'));
 
 function getOverlayGradient(scheme: BgOverlayScheme): string {
   switch (scheme) {
@@ -66,7 +69,9 @@ const Desktop: React.FC = () => {
     movePrivacyToPage,
     reorderPrivacyItems,
     privacyPageItems,
+    privacyRevision,
     setPrivacyUnlockData,
+    lockPrivacy,
   } = useDesktop();
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
@@ -90,6 +95,15 @@ const Desktop: React.FC = () => {
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
+
+  // 离开隐私页即清除内存密钥和明文；跨页拖拽期间延迟到 pointerup 后再锁定。
+  useEffect(() => {
+    if (privacyUnlocked && currentPage !== -1 && !isDragging) {
+      void lockPrivacy()
+        .then(() => setPrivacyUnlocked(false))
+        .catch(() => toast.error('隐私数据加密保存失败，已保持解锁状态'));
+    }
+  }, [currentPage, isDragging, lockPrivacy, privacyUnlocked]);
 
   const edgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,26 +168,33 @@ const Desktop: React.FC = () => {
     });
   }, [addItem]);
 
-  // 自动同步：data 变更时若开启了 autoSync，防抖 3s 后自动上传
+  // 自动同步：普通桌面或加密隐私 vault 变更时，防抖 3s 后上传同一种完整快照。
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRenderRef = useRef(true);
   useEffect(() => {
+    // 即使首次挂载不上传，也立即触发旧版 PAT → sessionStorage 的安全迁移。
+    const cfg = loadSyncConfig();
     // 跳过首次挂载（避免页面刚加载就触发上传）
     if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
-    const cfg = loadSyncConfig();
     if (!cfg?.autoSync || !cfg.token || !cfg.owner || !cfg.repo) return;
     if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
     autoSyncTimerRef.current = setTimeout(async () => {
       try {
         const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
-        const result = await uploadToGithub(syncCfg, data);
+        const result = await uploadToGithub(syncCfg, buildSyncSnapshot(data));
         if (result.ok) {
-          saveSyncConfig({ ...cfg, lastSyncAt: new Date().toISOString() });
+          saveSyncConfig({
+            ...cfg,
+            lastSyncAt: new Date().toISOString(),
+            lastRemoteHead: result.remoteHead ?? cfg.lastRemoteHead,
+          });
+        } else if (result.conflict) {
+          toast.error('云端已有其他设备的新版本，自动同步已停止本次覆盖');
         }
       } catch { /* 静默失败，不打扰用户 */ }
     }, 3000);
     return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
-  }, [data]);
+  }, [data, privacyRevision]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
@@ -254,7 +275,7 @@ const Desktop: React.FC = () => {
 
   // 全局 pointer 监听
   useEffect(() => {
-    const onMove = (e: PointerEvent) => {
+    const processMove = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g) return;
       g.x = e.clientX;
@@ -364,6 +385,20 @@ const Desktop: React.FC = () => {
       }
     };
 
+    // 指针事件可能远高于屏幕刷新率；DOM 几何扫描最多每帧执行一次。
+    let moveFrame: number | null = null;
+    let latestMoveEvent: PointerEvent | null = null;
+    const onMove = (e: PointerEvent) => {
+      latestMoveEvent = e;
+      if (moveFrame !== null) return;
+      moveFrame = requestAnimationFrame(() => {
+        moveFrame = null;
+        const event = latestMoveEvent;
+        latestMoveEvent = null;
+        if (event) processMove(event);
+      });
+    };
+
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
       dragOverItemRef.current = null;
@@ -435,7 +470,7 @@ const Desktop: React.FC = () => {
       const targetItemId = cell.dataset.itemid ?? null;
 
       // ── 拖入隐私页（targetPage === -1）──
-      if (targetPage === -1 && g.source.type === 'desktop' && !isWidget) {
+      if (targetPage === -1 && g.source.type === 'desktop') {
         const { moveItemToPrivacy: toPrivacy, privacyUnlocked: unlocked, setCurrentPage: nav } = latestRef.current;
         // 防御：隐私桌面未解锁时中止移动，图标原地不动，跳转到隐私页触发密码认证
         if (!unlocked) {
@@ -443,14 +478,18 @@ const Desktop: React.FC = () => {
           return;
         }
         const srcItem = findItem(d.pages, g.source.itemId);
-        if (srcItem) toPrivacy(g.source.itemId, targetRow, targetCol);
+        if (srcItem && !toPrivacy(g.source.itemId, targetRow, targetCol)) {
+          toast.error(g.item.type === 'app' ? '隐私桌面目标位置已占用' : '仅普通应用可移入隐私桌面');
+        }
         return;
       }
 
       // ── 从隐私页拖到普通桌面 ──
       if (targetPage >= 0 && g.source.type === 'privacy') {
         const { movePrivacyToPage: fromPrivacy } = latestRef.current;
-        fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol);
+        if (!fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol)) {
+          toast.error('目标位置已占用，请选择空白位置');
+        }
         return;
       }
 
@@ -603,6 +642,11 @@ const Desktop: React.FC = () => {
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
           const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
 
+          if (widgetTargetRow < 0 || widgetTargetRow + draggedSpan0 > latestRef.current.gridRows) {
+            toast.error('组件超出桌面可用行数');
+            return;
+          }
+
           // 未移动：落回自身起始行 → 忽略
           if (widgetTargetRow === src.row && src.page === targetPage) return;
 
@@ -654,6 +698,7 @@ const Desktop: React.FC = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
+      if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     };
   }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer]);
 
@@ -992,7 +1037,11 @@ const Desktop: React.FC = () => {
           {/* 隐私页锁图标指示 */}
           <button
             type="button"
-            onClick={() => { setPrivacyUnlocked(false); setCurrentPage(-1); }}
+            onClick={() => {
+              void lockPrivacy()
+                .then(() => { setPrivacyUnlocked(false); setCurrentPage(-1); })
+                .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
+            }}
             className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
               currentPage === -1 ? 'opacity-100' : 'opacity-40 hover:opacity-70'
             }`}
@@ -1019,39 +1068,49 @@ const Desktop: React.FC = () => {
 
       {/* 文件夹展开 */}
       {openFolder && (
-        <FolderView
-          folder={openFolder}
-          onClose={() => { setOpenFolderId(null); setFolderRenameId(null); }}
-          onLongPress={(item, x, y) => handleLongPress(item, x, y)}
-          triggerRenameId={folderRenameId}
-          onRenameDone={() => setFolderRenameId(null)}
-          onDragOutBegin={(child, folderId, x, y) => {
-            // 不在此处关闭文件夹：遮罩已 pointer-events:none，onUp 落点后再关
-            handleDragFromFolder(child, folderId, x, y);
-          }}
-        />
+        <React.Suspense fallback={null}>
+          <FolderView
+            folder={openFolder}
+            onClose={() => { setOpenFolderId(null); setFolderRenameId(null); }}
+            onLongPress={(item, x, y) => handleLongPress(item, x, y)}
+            triggerRenameId={folderRenameId}
+            onRenameDone={() => setFolderRenameId(null)}
+            onDragOutBegin={(child, folderId, x, y) => {
+              // 不在此处关闭文件夹：遮罩已 pointer-events:none，onUp 落点后再关
+              handleDragFromFolder(child, folderId, x, y);
+            }}
+          />
+        </React.Suspense>
       )}
 
       {/* 添加应用弹窗 */}
-      <AddEditDialog
-        open={addDialogOpen}
-        onOpenChange={(v) => { setAddDialogOpen(v); if (!v) setClipPrefill(null); }}
-        onAdd={handleAddApp}
-        prefill={clipPrefill ?? undefined}
-      />
+      {addDialogOpen && (
+        <React.Suspense fallback={null}>
+          <AddEditDialog
+            open
+            onOpenChange={(v) => { setAddDialogOpen(v); if (!v) setClipPrefill(null); }}
+            onAdd={handleAddApp}
+            prefill={clipPrefill ?? undefined}
+          />
+        </React.Suspense>
+      )}
 
       {/* 编辑应用弹窗 */}
-      <AddEditDialog
-        open={!!editingItem}
-        onOpenChange={(v) => !v && setEditingItem(null)}
-        item={editingItem}
-        onEdit={handleEditApp}
-        onDelete={handleDeleteApp}
-      />
+      {editingItem && (
+        <React.Suspense fallback={null}>
+          <AddEditDialog
+            open
+            onOpenChange={(v) => !v && setEditingItem(null)}
+            item={editingItem}
+            onEdit={handleEditApp}
+            onDelete={handleDeleteApp}
+          />
+        </React.Suspense>
+      )}
 
       {/* ContextMenu */}
       {contextMenu && !contextMenu.isSystem && (
-        <ContextMenu
+        <React.Suspense fallback={null}><ContextMenu
           pos={contextMenu}
           onEdit={(id) => {
             // 先在普通桌面页查找
@@ -1082,17 +1141,27 @@ const Desktop: React.FC = () => {
             toast.success('文件夹已解散');
           }}
           onClose={() => setContextMenu(null)}
-        />
+        /></React.Suspense>
       )}
 
-      <SettingsView open={openSettings} onClose={() => setOpenSettings(false)} />
-      <SyncView open={openSync} onClose={() => setOpenSync(false)} />
+      {openSettings && (
+        <React.Suspense fallback={null}>
+          <SettingsView open onClose={() => setOpenSettings(false)} />
+        </React.Suspense>
+      )}
+      {openSync && (
+        <React.Suspense fallback={null}>
+          <SyncView open onClose={() => setOpenSync(false)} />
+        </React.Suspense>
+      )}
       {/* 隐私屏遮罩：进入隐私桌面且未解锁时显示 */}
       {currentPage === -1 && !privacyUnlocked && (
-        <PrivacyScreen
-          onUnlock={handleUnlock}
-          onClose={() => setCurrentPage(0)}
-        />
+        <React.Suspense fallback={null}>
+          <PrivacyScreen
+            onUnlock={handleUnlock}
+            onClose={() => setCurrentPage(0)}
+          />
+        </React.Suspense>
       )}
 
       {/* 统一拖拽 Ghost：widget 渲染真实组件，app 显示图标 */}
@@ -1146,7 +1215,10 @@ function findFirstEmpty(
   maxCols: number = MAX_COLS,
   maxRows: number = MAX_ROWS,
 ): { page: number; row: number; col: number } | null {
-  const order = [preferPage, ...Array.from({ length: pages.length }, (_, i) => i).filter(i => i !== preferPage)];
+  const allPages = Array.from({ length: pages.length }, (_, i) => i);
+  const order = preferPage >= 0 && preferPage < pages.length
+    ? [preferPage, ...allPages.filter((i) => i !== preferPage)]
+    : allPages;
   for (const p of order) {
     for (let r = 0; r < maxRows; r++) {
       // 跳过被任意 widget rowSpan 视觉覆盖的行（不只是起始行）

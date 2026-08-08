@@ -10,7 +10,11 @@ import {
 import { toast } from 'sonner';
 import { defaultDesktopData, WIDGET_ITEMS, DEFAULT_BG_IMAGE } from '@/lib/storage';
 import { getPanelTheme } from '@/lib/panelTheme';
-import { saveVideoDB, clearVideoDB, IDB_VIDEO_MARKER, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
+import { saveVideoDB, clearVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
+import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
+import { normalizeHttpUrl } from '@/lib/urlSafety';
+import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
+import { getWidgetConfig } from '@/lib/widgetConfig';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
@@ -27,13 +31,6 @@ interface CuratedWallpaper {
   title: string;
 }
 
-// 分类 → Pixabay 搜索关键词
-const PIXABAY_QUERIES: Record<Exclude<BgCategory, 'bing'>, string> = {
-  nature:  'nature forest mountain waterfall',
-  city:    'city skyline architecture night',
-  space:   'galaxy nebula space cosmos',
-  minimal: 'minimalism abstract geometry clean',
-};
 const CATEGORY_LABELS: Record<Exclude<BgCategory, 'bing'>, string> = {
   nature:  '自然风景',
   city:    '城市建筑',
@@ -95,44 +92,6 @@ function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessio
   });
 }
 
-// Pixabay API（主力源，国内直连，内容500万+，支持关键词分类搜索）
-const PIXABAY_KEY_DEFAULT = '56625856-05d192fea977d7f39a4401e8f';
-async function fetchPixabayImages(
-  cat: Exclude<BgCategory, 'bing'>,
-  page: number,
-  apiKey: string,
-): Promise<CuratedWallpaper[]> {
-  const q = encodeURIComponent(PIXABAY_QUERIES[cat]);
-  // Pixabay page 从 1 开始；order=popular 保证高质量图片优先
-  const directUrl = `https://pixabay.com/api/?key=${apiKey}&q=${q}&image_type=photo&orientation=horizontal&safesearch=true&order=popular&min_width=1920&per_page=9&page=${page + 1}`;
-
-  // 先尝试直连；若 CORS 拦截（status 0 / TypeError）则走 allorigins 代理
-  let data: { hits: Array<{ webformatURL: string; largeImageURL: string; tags: string }> } | null = null;
-  try {
-    const res = await fetch(directUrl, { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      data = await res.json();
-    }
-  } catch {
-    // 直连失败，走代理
-  }
-
-  if (!data) {
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`;
-    const proxyRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-    if (!proxyRes.ok) throw new Error(`Pixabay proxy HTTP ${proxyRes.status}`);
-    const wrapper = await proxyRes.json() as { contents: string };
-    data = JSON.parse(wrapper.contents);
-  }
-
-  if (!data?.hits?.length) throw new Error('no results');
-  return data.hits.map((h, i) => ({
-    thumb: h.webformatURL,
-    full:  h.largeImageURL,
-    title: `${CATEGORY_LABELS[cat]} ${page * 9 + i + 1}`,
-  }));
-}
-
 interface SettingsViewProps {
   open: boolean;
   onClose: () => void;
@@ -158,7 +117,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   const handleClose = () => { setPanel('main'); onClose(); };
 
-  // ── 必应壁纸 fetch（多源回退）──
+  // ── 必应壁纸 fetch ──
   const fetchBingWallpapers = useCallback(async () => {
     setBingLoading(true);
     setBingError(false);
@@ -183,19 +142,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
         setBingImages(valid);
         return;
       }
-      // 方案2: allorigins 代理 Bing 官方 API
-      const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(
-        'https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN'
-      )}`;
-      const res = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
-      const json = await res.json();
-      const parsed = JSON.parse(json.contents);
-      const imgs: BingImage[] = (parsed.images as { url: string; copyright: string; title?: string }[]).map((img) => ({
-        url: `https://www.bing.com${img.url}`,
-        copyright: img.copyright,
-        title: img.title ?? img.copyright.split('（')[0].split(' (')[0].trim(),
-      }));
-      setBingImages(imgs);
+      throw new Error('Bing wallpaper source unavailable');
     } catch {
       setBingError(true);
     } finally {
@@ -209,23 +156,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     }
   }, [panel, bgCat, bingImages.length, bingLoading, fetchBingWallpapers]);
 
-  // ── 精选分类壁纸 fetch（Pixabay 主力 + 精选Unsplash分类兜底）──
-  const fetchCategoryImages = useCallback(async (cat: Exclude<BgCategory, 'bing'>, page: number) => {
+  // ── 精选分类壁纸（固定可信图片池，无共享 API Key / CORS 代理）──
+  const fetchCategoryImages = useCallback((cat: Exclude<BgCategory, 'bing'>, page: number) => {
     const key = `${cat}-${page}-${sessionSeedRef.current}`;
     if (catImages[key]) return; // 已缓存
     setCatLoading(cat);
-    try {
-      const apiKey = PIXABAY_KEY_DEFAULT;
-      const items = await fetchPixabayImages(cat, page, apiKey);
-      setCatImages((prev) => ({ ...prev, [key]: items }));
-    } catch {
-      // Pixabay 失败 → 精选 Unsplash 分类兜底（内容与分类严格对应）
-      const items = unsplashFallback(cat, page, sessionSeedRef.current);
-      setCatImages((prev) => ({ ...prev, [key]: items }));
-    } finally {
-      setCatLoading(null);
-    }
-  }, [catImages, settings.pixabayKey]);
+    const items = unsplashFallback(cat, page, sessionSeedRef.current);
+    setCatImages((prev) => ({ ...prev, [key]: items }));
+    setCatLoading(null);
+  }, [catImages]);
 
   useEffect(() => {
     if (panel === 'bg' && bgCat !== 'bing') {
@@ -236,20 +175,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   const applyWallpaper = useCallback((url: string, label: string) => {
     updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+    void clearWallpaperDB();
+    void clearVideoDB();
     toast.success(`「${label}」已应用`);
   }, [updateSettings]);
 
   // ── 背景 ──
-  const handleBgFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBgFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target?.result as string;
-      updateSettings({ bgImage: base64, bgVideo: undefined, bgType: 'image' });
+    if (file.size > WALLPAPER_MAX_BYTES) {
+      toast.error(`图片文件过大，请选择 ${WALLPAPER_MAX_BYTES / 1024 / 1024} MB 以内的图片`);
+      e.target.value = '';
+      return;
+    }
+    try {
+      await saveWallpaperDB(file);
+      const blobUrl = URL.createObjectURL(file);
+      updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+      void clearVideoDB();
       toast.success('壁纸已更新');
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      toast.error('壁纸保存失败，请重试');
+    }
     e.target.value = '';
   }, [updateSettings]);
 
@@ -269,13 +217,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       await saveVideoDB(file);
       // 更新设置：内存中用 blobUrl 播放，localStorage 存标记 '__idb__'
       updateSettings({ bgVideo: blobUrl, bgImage: undefined, bgType: 'video' });
-      // 手动将 __idb__ 写入 localStorage（绕过 updateSettings 的 blob 拦截）
-      const raw = localStorage.getItem('ios_desktop_settings');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        parsed.bgVideo = IDB_VIDEO_MARKER;
-        localStorage.setItem('ios_desktop_settings', JSON.stringify(parsed));
-      }
+      void clearWallpaperDB();
       toast.success('视频壁纸已应用并持久化保存');
     } catch {
       toast.error('视频保存失败，请重试');
@@ -286,19 +228,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const handleClearBg = useCallback(() => {
     updateSettings({ bgImage: DEFAULT_BG_IMAGE, bgVideo: undefined, bgType: 'image' });
     clearVideoDB(); // 同步清除 IndexedDB 中的视频
+    clearWallpaperDB();
     toast.success('已恢复默认壁纸');
   }, [updateSettings]);
 
   // ── 通过 URL 应用壁纸 ──
   const handleBgUrl = useCallback(() => {
-    const url = urlInput.trim();
-    if (!url) return;
+    const url = normalizeHttpUrl(urlInput);
+    if (!url) { toast.error('请输入有效的 http/https 地址'); return; }
     const isVideo = /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
     if (isVideo) {
       updateSettings({ bgVideo: url, bgImage: undefined, bgType: 'video' });
+      void clearVideoDB();
+      void clearWallpaperDB();
       toast.success('视频壁纸已应用');
     } else {
       updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+      void clearVideoDB();
+      void clearWallpaperDB();
       toast.success('图片壁纸已应用');
     }
     setUrlInput('');
@@ -327,24 +274,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     if (exists) {
       const newData = deepClone(data);
       newData.pages = newData.pages.map((p) => p.filter((it) => it.id !== widgetId));
-      importData(newData);
-      toast.success('已移除组件');
+      if (importData(newData)) toast.success('已移除组件');
     } else {
       const def = WIDGET_ITEMS.find((w) => w.id === widgetId);
       if (!def) return;
+      const requiredRows = getWidgetConfig(def.widgetType).rowSpan;
+      if ((settings.rows ?? 8) < requiredRows) updateSettings({ rows: requiredRows });
       const newData = deepClone(data);
-      const usedRows = new Set(newData.pages[0].map((it) => it.row));
-      let targetRow = def.row;
-      if (usedRows.has(targetRow)) {
-        for (let r = 0; r < 8; r++) {
-          if (!usedRows.has(r)) { targetRow = r; break; }
-        }
-      }
-      newData.pages[0].push({ ...def, row: targetRow });
-      importData(newData);
-      toast.success('已添加组件');
+      newData.pages[0].push({ ...def });
+      if (importData(newData)) toast.success('已添加组件');
+      else toast.error('当前网格没有足够空间放置组件');
     }
-  }, [data, importData]);
+  }, [data, importData, settings.rows, updateSettings]);
 
   if (!open) return null;
 
@@ -626,10 +567,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
 
   // ── 应用视图设置面板 ──
   const renderView = () => {
+    const minRows = minimumRowsForEnabledWidgets(data);
     const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
       { label: '图标大小', value: settings.iconSize, min: 36, max: 64, step: 2, unit: 'px', key: 'iconSize' },
       { label: '图标圆角', value: settings.iconRadiusPct ?? 25, min: 0, max: 50, step: 1, unit: '%', key: 'iconRadiusPct' },
-      { label: '每页行数', value: settings.rows ?? 8, min: 1, max: 16, step: 1, unit: '行', key: 'rows' },
+      { label: '每页行数', value: settings.rows ?? 8, min: minRows, max: 16, step: 1, unit: '行', key: 'rows' },
     ];
     return (
       <div className="px-4 py-3 space-y-3">

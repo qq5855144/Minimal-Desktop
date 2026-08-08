@@ -20,9 +20,10 @@ chrome.action.onClicked.addListener(async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return;
 
-  // 过滤不可添加的系统页面
-  const forbidden = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'moz-extension://'];
-  if (forbidden.some((p) => tab.url!.startsWith(p))) {
+  // 仅剪藏 http(s)，避免把浏览器内部/file/data 等特权协议写入桌面数据。
+  let protocol = '';
+  try { protocol = new URL(tab.url).protocol; } catch { /* invalid URL */ }
+  if (protocol !== 'http:' && protocol !== 'https:') {
     // 直接打开新标签（无剪藏内容）
     await chrome.tabs.create({});
     return;
@@ -51,7 +52,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     .then((r) => r.text())
     .then((text) => {
       const m = text.match(/\bs\s*:\s*(\[[\s\S]*?\])/);
-      sendResponse({ ok: true, data: m ? JSON.parse(m[1]) : [] });
+      const parsed: unknown = m ? JSON.parse(m[1]) : [];
+      const data = Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === 'string').slice(0, 10)
+        : [];
+      sendResponse({ ok: true, data });
     })
     .catch(() => sendResponse({ ok: false, data: [] }));
   return true; // 保持 sendResponse 通道异步打开
