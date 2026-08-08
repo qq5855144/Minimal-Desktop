@@ -39,12 +39,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -59,7 +57,7 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-ext-
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       # ── 3. 生成扩展图标 ──────────────────────────────────────────────────
       - name: Install ImageMagick
@@ -76,7 +74,7 @@ jobs:
 
       # ── 4. 构建扩展 ──────────────────────────────────────────────────────
       - name: Build extension
-        run: pnpm exec vite build --config vite.config.extension.ts
+        run: pnpm build:ext
         env:
           NODE_ENV: production
 
@@ -213,7 +211,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install chrome-webstore-upload-cli
         run: npm install -g chrome-webstore-upload-cli@3
@@ -266,15 +264,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Install ImageMagick & generate icons
         run: |
@@ -285,7 +281,7 @@ jobs:
           done
 
       - name: Rebuild extension (web-ext 需要 dist-ext 目录)
-        run: pnpm exec vite build --config vite.config.extension.ts
+        run: pnpm build:ext
         env:
           NODE_ENV: production
 
@@ -318,5 +314,4 @@ jobs:
           name: amo-artifacts
           path: amo-artifacts/
           retention-days: 30
-
 
