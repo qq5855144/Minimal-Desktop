@@ -233,7 +233,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   }, [updateSettings]);
 
   // ── 通过 URL 应用壁纸 ──
-  const handleBgUrl = useCallback(() => {
+  // 先用 <img> 预加载验证（img 加载受 img-src 约束，不受 connect-src 限制），
+  // 避免保存无法解码的链接后静默显示空白背景（部分图床 MIME 与内容不符）。
+  const preloadImage = useCallback((url: string, timeoutMs = 10000): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      const timer = setTimeout(() => { img.src = ''; resolve(false); }, timeoutMs);
+      img.onload = () => { clearTimeout(timer); resolve(true); };
+      img.onerror = () => { clearTimeout(timer); resolve(false); };
+      img.src = url;
+    });
+  }, []);
+
+  const handleBgUrl = useCallback(async () => {
     const url = normalizeHttpUrl(urlInput);
     if (!url) { toast.error('请输入有效的 http/https 地址'); return; }
     const isVideo = /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
@@ -242,14 +254,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       void clearVideoDB();
       void clearWallpaperDB();
       toast.success('视频壁纸已应用');
-    } else {
-      updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
-      void clearVideoDB();
-      void clearWallpaperDB();
-      toast.success('图片壁纸已应用');
+      setUrlInput('');
+      return;
     }
+    const ok = await preloadImage(url);
+    if (!ok) {
+      toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
+      return;
+    }
+    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+    void clearVideoDB();
+    void clearWallpaperDB();
+    toast.success('图片壁纸已应用');
     setUrlInput('');
-  }, [urlInput, updateSettings]);
+  }, [urlInput, updateSettings, preloadImage]);
 
   // ── 数据 ──
   const handleAddPage = useCallback(() => {

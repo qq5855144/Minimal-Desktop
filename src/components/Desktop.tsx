@@ -96,6 +96,10 @@ const Desktop: React.FC = () => {
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
+  // 壁纸加载失败标记：失败时回退默认渐变背景；切换壁纸后重置
+  const [bgLoadFailed, setBgLoadFailed] = useState(false);
+  const bgErrorToastRef = useRef(false);
+  useEffect(() => { setBgLoadFailed(false); bgErrorToastRef.current = false; }, [settings.bgImage, settings.bgVideo]);
 
   // 隐私解锁状态在会话内保持：离开隐私页（切换普通页/翻页）不重置、不清除内存密钥，
   // 无需重复输入密码；页面刷新/重载或点击锁图标手动锁定后才需重新解锁。
@@ -1043,11 +1047,20 @@ const Desktop: React.FC = () => {
           src={settings.bgVideo}
           autoPlay loop muted playsInline
         />
-      ) : settings.bgType === 'image' && settings.bgImage ? (
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${settings.bgImage})` }}
+      ) : settings.bgType === 'image' && settings.bgImage && !bgLoadFailed ? (
+        <img
+          src={settings.bgImage}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
           data-desktop-layer="true"
+          onError={() => {
+            // 加载失败（链接失效/图床防盗链/格式异常）：回退默认渐变，避免静默空白
+            setBgLoadFailed(true);
+            if (!bgErrorToastRef.current) {
+              bgErrorToastRef.current = true;
+              toast.error('壁纸加载失败，已回退默认背景');
+            }
+          }}
         />
       ) : (
         <div className="absolute inset-0 bg-gradient-background" data-desktop-layer="true" />
