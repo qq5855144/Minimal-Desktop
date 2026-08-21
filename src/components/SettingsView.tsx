@@ -269,44 +269,46 @@ const sniffImageType = (buf: ArrayBuffer): string => {
 };
 
 const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
-  // 1) fetch 原始字节（CSP connect-src 已允许 https；不依赖 CORS）
-  try {
-    const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(20000) });
-    if (!res.ok) throw new Error(`http-${res.status}`);
-    const buf = await res.arrayBuffer();
-    const type = sniffImageType(buf);
-    if (type === 'application/octet-stream') throw new Error('not-image');
-    const blob = new Blob([buf], { type });
-    if (blob.size > WALLPAPER_MAX_BYTES) throw new Error('too-large');
-    // 2) 用正确 MIME 的 Blob 验证可解码（覆盖所有内核，绕过图床 MIME 错误）
-    const blobUrl = URL.createObjectURL(blob);
-    const decodable = await new Promise<boolean>((resolve) => {
-      const img = new window.Image();
-      const timer = setTimeout(() => { img.src = ''; resolve(false); }, 10000);
-      img.onload = () => { clearTimeout(timer); resolve(true); };
-      img.onerror = () => { clearTimeout(timer); resolve(false); };
-      img.src = blobUrl;
-    });
-    if (!decodable) throw new Error('decode-fail');
-    // 3) 本地持久化（刷新后从 IndexedDB 恢复）
-    await saveWallpaperDB(new File([blob], `wallpaper.${type.split('/')[1] || 'img'}`, { type }));
-    updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
-    void clearVideoDB();
-    toast.success('图片壁纸已应用并本地保存');
-    return true;
-  } catch {
-    // 4) 回退：预加载验证后直接引用原 URL（图床不可达时给出明确提示）
-    const ok = await preloadImage(url);
-    if (!ok) {
-      toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
-      return false;
-    }
-    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
-    void clearVideoDB();
-    void clearWallpaperDB();
-    toast.success('图片壁纸已应用');
-    return true;
+  // 主路径：img 预加载验证（img 为 no-cors 请求，不携带 Origin，图床防盗链不会拦截；
+  // 且浏览器按内容 sniff 解码，可绕过部分图床 MIME 与内容不符的问题）。
+  // 验证通过立即应用原 URL，不等待 fetch（部分图床对带 Origin 的 fetch 返回 403，等待是浪费）。
+  const ok = await preloadImage(url, 20000);
+  if (!ok) {
+    toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
+    return false;
   }
+  updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+  void clearVideoDB();
+  void clearWallpaperDB();
+  toast.success('图片壁纸已应用');
+  // 后台增强：fetch 下载原始字节 → magic bytes 识别真实格式 → 正确 MIME Blob 本地持久化。
+  // 成功则切换为 blob URL（刷新后从 IndexedDB 恢复，不依赖图床可用性）；失败静默忽略，
+  // 不影响已应用的原 URL（图床防盗链/CORS 不支持时保持直接引用即可）。
+  void (async () => {
+    try {
+      const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const type = sniffImageType(buf);
+      if (type === 'application/octet-stream') return;
+      const blob = new Blob([buf], { type });
+      if (blob.size > WALLPAPER_MAX_BYTES) return;
+      const blobUrl = URL.createObjectURL(blob);
+      const decodable = await new Promise<boolean>((resolve) => {
+        const img = new window.Image();
+        const timer = setTimeout(() => { img.src = ''; resolve(false); }, 10000);
+        img.onload = () => { clearTimeout(timer); resolve(true); };
+        img.onerror = () => { clearTimeout(timer); resolve(false); };
+        img.src = blobUrl;
+      });
+      if (!decodable) return;
+      await saveWallpaperDB(new File([blob], `wallpaper.${type.split('/')[1] || 'img'}`, { type }));
+      updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+    } catch {
+      // 静默：图床防盗链/网络异常时保持原 URL 引用
+    }
+  })();
+  return true;
 }, [preloadImage, updateSettings]);
 
   const handleBgUrl = useCallback(async () => {
