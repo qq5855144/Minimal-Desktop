@@ -245,56 +245,69 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     });
   }, []);
 
-  // 将远程图片重编码为本地壁纸：canvas 解码（真实格式识别，绕过图床 MIME 与内容不符）
-  // 后以 JPEG 存入 IndexedDB，刷新后由 IDB 标记恢复，不依赖第三方链接长期可用。
-  // 服务器不支持 CORS（crossOrigin 失败）时回退为直接引用原 URL。
-  const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
-    // 1) 预加载验证（普通 Image，无需 CORS）
+  // 将远程图片下载并重包装为本地壁纸：fetch 获取原始字节 → 按 magic bytes 识别
+// 真实格式（部分图床 MIME 与内容不符，如声称 JPEG 实为 WEBP）→ 以正确 MIME 的
+// Blob 存入 IndexedDB，刷新后由 IDB 标记恢复。不依赖 CORS、不依赖图床 MIME 正确性，
+// 跨浏览器内核一致；图床不可达/非图片时回退为预加载验证后直接引用原 URL。
+const sniffImageType = (buf: ArrayBuffer): string => {
+  const b = new Uint8Array(buf);
+  if (b.length < 12) return 'application/octet-stream';
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  if (b[0] === 0x42 && b[1] === 0x4d) return 'image/bmp';
+  // AVIF: ftypavif / ftypmif1
+  if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) {
+    const brand = String.fromCharCode(b[8], b[9], b[10], b[11]);
+    if (brand === 'avif' || brand === 'avis' || brand === 'mif1') return 'image/avif';
+  }
+  // SVG：文本内容
+  const head = new TextDecoder('utf-8').decode(b.slice(0, 256)).trimStart().toLowerCase();
+  if (head.startsWith('<svg') || head.startsWith('<?xml') && head.includes('<svg')) return 'image/svg+xml';
+  return 'application/octet-stream';
+};
+
+const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
+  // 1) fetch 原始字节（CSP connect-src 已允许 https；不依赖 CORS）
+  try {
+    const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`http-${res.status}`);
+    const buf = await res.arrayBuffer();
+    const type = sniffImageType(buf);
+    if (type === 'application/octet-stream') throw new Error('not-image');
+    const blob = new Blob([buf], { type });
+    if (blob.size > WALLPAPER_MAX_BYTES) throw new Error('too-large');
+    // 2) 用正确 MIME 的 Blob 验证可解码（覆盖所有内核，绕过图床 MIME 错误）
+    const blobUrl = URL.createObjectURL(blob);
+    const decodable = await new Promise<boolean>((resolve) => {
+      const img = new window.Image();
+      const timer = setTimeout(() => { img.src = ''; resolve(false); }, 10000);
+      img.onload = () => { clearTimeout(timer); resolve(true); };
+      img.onerror = () => { clearTimeout(timer); resolve(false); };
+      img.src = blobUrl;
+    });
+    if (!decodable) throw new Error('decode-fail');
+    // 3) 本地持久化（刷新后从 IndexedDB 恢复）
+    await saveWallpaperDB(new File([blob], `wallpaper.${type.split('/')[1] || 'img'}`, { type }));
+    updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+    void clearVideoDB();
+    toast.success('图片壁纸已应用并本地保存');
+    return true;
+  } catch {
+    // 4) 回退：预加载验证后直接引用原 URL（图床不可达时给出明确提示）
     const ok = await preloadImage(url);
     if (!ok) {
       toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
       return false;
     }
-    // 2) canvas 重编码（需要图床允许 CORS；haowallpaper 等返回 ACAO:*）
-    try {
-      const img = new window.Image();
-      img.crossOrigin = 'anonymous';
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('timeout')), 15000);
-        img.onload = () => { clearTimeout(timer); resolve(); };
-        img.onerror = () => { clearTimeout(timer); reject(new Error('cors')); };
-        img.src = url;
-      });
-      // 超大图按比例缩放，控制 canvas 内存（>16M 像素约 4K 级别）
-      const maxPixels = 16 * 1024 * 1024;
-      let w = img.naturalWidth, h = img.naturalHeight;
-      if (w * h > maxPixels) {
-        const scale = Math.sqrt(maxPixels / (w * h));
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('no-2d-context');
-      ctx.drawImage(img, 0, 0, w, h);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-      if (!blob || blob.size > WALLPAPER_MAX_BYTES) throw new Error('encode-too-large');
-      await saveWallpaperDB(new File([blob], 'wallpaper.jpg', { type: 'image/jpeg' }));
-      updateSettings({ bgImage: URL.createObjectURL(blob), bgVideo: undefined, bgType: 'image' });
-      void clearVideoDB();
-      toast.success('图片壁纸已应用并本地保存');
-      return true;
-    } catch {
-      // 图床不支持 CORS 或编码异常：回退为直接引用原 URL（浏览器仍可加载）
-      updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
-      void clearVideoDB();
-      void clearWallpaperDB();
-      toast.success('图片壁纸已应用');
-      return true;
-    }
-  }, [preloadImage, updateSettings]);
+    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+    void clearVideoDB();
+    void clearWallpaperDB();
+    toast.success('图片壁纸已应用');
+    return true;
+  }
+}, [preloadImage, updateSettings]);
 
   const handleBgUrl = useCallback(async () => {
     const url = normalizeHttpUrl(urlInput);
