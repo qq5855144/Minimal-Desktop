@@ -6,6 +6,7 @@ import { LAYOUT_LIMITS } from './layoutEngine';
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
+const SYNC_TOKEN_KEY = 'ios_sync_token';
 const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
 
@@ -174,6 +175,7 @@ export function loadSyncConfig(): SyncConfig | null {
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
+      if (parsed.rememberToken === undefined) parsed.rememberToken = false;
       // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
       const legacyToken = parsed.token;
       if (legacyToken) {
@@ -181,7 +183,11 @@ export function loadSyncConfig(): SyncConfig | null {
         parsed.token = '';
         try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
-      try { parsed.token = sessionStorage.getItem(SYNC_TOKEN_SESSION_KEY) ?? ''; } catch { parsed.token = ''; }
+      // 恢复 Token：勾选"保持登录"时持久化于 localStorage，否则仅当前会话副本。
+      try {
+        parsed.token = localStorage.getItem(SYNC_TOKEN_KEY) ?? '';
+        if (!parsed.token) parsed.token = sessionStorage.getItem(SYNC_TOKEN_SESSION_KEY) ?? '';
+      } catch { parsed.token = ''; }
       return parsed;
     }
   } catch {
@@ -194,14 +200,24 @@ export function saveSyncConfig(config: SyncConfig): void {
   const { token, ...persisted } = config;
   try { localStorage.setItem(SYNC_KEY, JSON.stringify({ ...persisted, token: '' })); } catch { /* ignore */ }
   try {
-    if (token) sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, token);
-    else sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY);
+    if (config.rememberToken) {
+      // 持久化模式：Token 写入 localStorage，并清除会话副本
+      if (token) localStorage.setItem(SYNC_TOKEN_KEY, token);
+      else localStorage.removeItem(SYNC_TOKEN_KEY);
+      sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY);
+    } else {
+      // 会话模式：Token 仅保留在当前浏览会话，并清除持久化副本
+      if (token) sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, token);
+      else sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY);
+      localStorage.removeItem(SYNC_TOKEN_KEY);
+    }
   } catch { /* ignore */ }
 }
 
 export function clearSyncConfig(): void {
   try { localStorage.removeItem(SYNC_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(SYNC_TOKEN_KEY); } catch { /* ignore */ }
 }
 
 const SETTINGS_KEY = 'ios_desktop_settings';

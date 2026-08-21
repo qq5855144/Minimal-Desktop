@@ -2,7 +2,6 @@ import type { DesktopData, SyncConfig } from '@/types';
 import { parseDesktopData } from '@/lib/desktopSchema';
 
 const API = 'https://api.github.com';
-
 // GitHub API 通用请求辅助
 async function ghFetch(
   token: string,
@@ -18,6 +17,19 @@ async function ghFetch(
       ...(options.headers ?? {}),
     },
   });
+}
+// 识别认证/权限类错误，返回面向用户的提示
+function authErrorMessage(res: Response): string | null {
+  if (res.status === 401) return 'Token 已失效或已撤销，请重新连接';
+  if (res.status === 403) return 'Token 权限不足，请确认已授予 Contents 读写权限';
+  return null;
+}
+// 统一的失败消息构造：优先认证错误，其次 GitHub 返回的 message
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  const auth = authErrorMessage(res);
+  if (auth) return auth;
+  const err = await res.json().catch(() => ({}));
+  return (err as { message?: string }).message || fallback;
 }
 
 // 验证 Token 并获取用户信息
@@ -40,14 +52,12 @@ export async function ensureRepo(
     return { ok: true, created: false, message: '仓库已存在', branch: existing.default_branch };
   }
   if (checkRes.status !== 404) {
-    const err = await checkRes.json().catch(() => ({}));
     return {
       ok: false,
       created: false,
-      message: (err as { message?: string }).message || `检查仓库失败 (${checkRes.status})`,
+      message: await errorMessage(checkRes, '检查仓库失败'),
     };
   }
-
   const createRes = await ghFetch(token, '/user/repos', {
     method: 'POST',
     body: JSON.stringify({
@@ -58,8 +68,7 @@ export async function ensureRepo(
     }),
   });
   if (!createRes.ok) {
-    const err = await createRes.json().catch(() => ({}));
-    return { ok: false, created: false, message: (err as { message?: string }).message || '创建仓库失败' };
+    return { ok: false, created: false, message: await errorMessage(createRes, '创建仓库失败') };
   }
   const created = await createRes.json() as { default_branch?: string };
   return { ok: true, created: true, message: '仓库已自动创建', branch: created.default_branch };
@@ -133,8 +142,7 @@ async function doUploadViaGitApi(
   // 步骤 1：获取分支最新 commit SHA 与 tree SHA
   const refRes = await ghFetch(token, `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
   if (!refRes.ok) {
-    const err = await refRes.json().catch(() => ({}));
-    return { ok: false, message: (err as { message?: string }).message || '获取分支信息失败' };
+    return { ok: false, message: await errorMessage(refRes, '获取分支信息失败') };
   }
   const refData = await refRes.json() as { object: { sha: string } };
   const latestCommitSha = refData.object.sha;
@@ -148,10 +156,9 @@ async function doUploadViaGitApi(
   }
 
   const commitRes = await ghFetch(token, `/repos/${owner}/${repo}/git/commits/${latestCommitSha}`);
-  if (!commitRes.ok) return { ok: false, message: '获取 commit 信息失败' };
+  if (!commitRes.ok) return { ok: false, message: await errorMessage(commitRes, '获取 commit 信息失败') };
   const commitData = await commitRes.json() as { tree: { sha: string } };
   const baseTreeSha = commitData.tree.sha;
-
   // 步骤 2：创建文件 blob
   const blobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs`, {
     method: 'POST',
@@ -160,9 +167,8 @@ async function doUploadViaGitApi(
       encoding: 'base64',
     }),
   });
-  if (!blobRes.ok) return { ok: false, message: '创建文件内容失败' };
+  if (!blobRes.ok) return { ok: false, message: await errorMessage(blobRes, '创建文件内容失败') };
   const blobData = await blobRes.json() as { sha: string };
-
   // 步骤 3：创建新 tree（仅替换目标文件）
   const treeRes = await ghFetch(token, `/repos/${owner}/${repo}/git/trees`, {
     method: 'POST',
@@ -176,9 +182,8 @@ async function doUploadViaGitApi(
       }],
     }),
   });
-  if (!treeRes.ok) return { ok: false, message: '创建文件树失败' };
+  if (!treeRes.ok) return { ok: false, message: await errorMessage(treeRes, '创建文件树失败') };
   const treeData = await treeRes.json() as { sha: string };
-
   // 步骤 4：创建新 commit
   const newCommitRes = await ghFetch(token, `/repos/${owner}/${repo}/git/commits`, {
     method: 'POST',
@@ -188,20 +193,18 @@ async function doUploadViaGitApi(
       parents: [latestCommitSha],
     }),
   });
-  if (!newCommitRes.ok) return { ok: false, message: '创建 commit 失败' };
+  if (!newCommitRes.ok) return { ok: false, message: await errorMessage(newCommitRes, '创建 commit 失败') };
   const newCommitData = await newCommitRes.json() as { sha: string };
-
   // 步骤 5：更新分支引用
   const updateRes = await ghFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
     method: 'PATCH',
     body: JSON.stringify({ sha: newCommitData.sha }),
   });
   if (!updateRes.ok) {
-    const err = await updateRes.json().catch(() => ({}));
     return {
       ok: false,
       conflict: updateRes.status === 409 || updateRes.status === 422,
-      message: (err as { message?: string }).message || '更新分支引用失败',
+      message: await errorMessage(updateRes, '更新分支引用失败'),
     };
   }
 
@@ -221,7 +224,7 @@ export async function downloadFromGithub(
 
   // 按已读取的 commit SHA 下载，保证 HEAD 检查和文件内容来自同一快照。
   const res = await ghFetch(token, `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${remoteHead}`);
-  if (!res.ok) return { ok: false, message: `下载失败 (${res.status})` };
+  if (!res.ok) return { ok: false, message: await errorMessage(res, `下载失败 (${res.status})`) };
 
   const file = await res.json() as { content?: string };
   if (!file.content) return { ok: false, message: '文件内容为空' };

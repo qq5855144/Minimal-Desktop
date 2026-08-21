@@ -6,7 +6,7 @@
 
 ## Security model
 
-- GitHub Personal Access Token 仅保存在当前浏览会话的 `sessionStorage`，不会写入持久化 `localStorage`。
+- GitHub Personal Access Token 默认仅保存在当前浏览会话的 `sessionStorage`，不写入持久化 `localStorage`。若用户在同步设置中勾选「保持登录」，Token 会持久化到 `localStorage` 以便下次自动连接——该选项默认关闭，请在可信设备上使用。
 - 隐私桌面使用 AES-256-GCM；新 vault 的 6 位 PIN 经 PBKDF2-SHA-256 600,000 次迭代派生密钥。6 位 PIN 仍属于低熵凭据，不能抵抗拥有 vault 副本的长期离线穷举。
 - Web 版不加载第三方 JSONP/远程脚本作为搜索建议。外部导航只接受 `http:`/`https:`。
 - 云同步使用远端 HEAD 乐观并发检查，检测到多设备更新时停止覆盖。

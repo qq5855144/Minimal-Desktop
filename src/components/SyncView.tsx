@@ -23,7 +23,7 @@ const DEFAULT_FILE = 'desktop_backup.json';
 const DEFAULT_CONFIG: SyncConfig = {
   token: '', owner: '', repo: DEFAULT_REPO, branch: 'main',
   path: DEFAULT_FILE, fileName: DEFAULT_FILE,
-  syncInterval: 'manual', autoSync: false,
+  syncInterval: 'manual', autoSync: false, rememberToken: false,
 };
 
 interface PendingRestore {
@@ -39,6 +39,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
   const [config, setConfig] = useState<SyncConfig>(DEFAULT_CONFIG);
   const [tokenInput, setTokenInput] = useState('');
+  const [remember, setRemember] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState<'upload' | 'download' | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -51,10 +52,12 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       if (saved?.token && saved?.owner) {
         setConfig(saved);
         setTokenInput(saved.token);
+        setRemember(!!saved.rememberToken);
         setLoggedIn(true);
       } else {
         setConfig(DEFAULT_CONFIG);
         setTokenInput(saved?.token ?? '');
+        setRemember(!!saved?.rememberToken);
         setLoggedIn(false);
       }
       setStatusMsg(null);
@@ -86,6 +89,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       const next: SyncConfig = {
         ...DEFAULT_CONFIG, token: tok, owner: user.login,
         repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
+        rememberToken: remember,
         lastRemoteHead: await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined,
       };
       setConfig(next);
@@ -98,7 +102,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       setStatusMsg({ type: 'error', msg: '连接失败，请检查网络' });
       toast.error('连接失败，请检查网络');
     } finally { setConnecting(false); }
-  }, [tokenInput]);
+  }, [tokenInput, remember]);
 
   const handleAutoSyncToggle = useCallback(() => {
     const next = { ...config, autoSync: !config.autoSync };
@@ -108,6 +112,11 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   }, [config]);
 
   const handleUpload = useCallback(async () => {
+    if (!config.token) {
+      setStatusMsg({ type: 'error', msg: '登录已过期，请重新连接' });
+      toast.error('登录已过期，请重新连接');
+      return;
+    }
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
@@ -128,6 +137,11 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   }, [config, data]);
 
   const handleDownload = useCallback(async () => {
+    if (!config.token) {
+      setStatusMsg({ type: 'error', msg: '登录已过期，请重新连接' });
+      toast.error('登录已过期，请重新连接');
+      return;
+    }
     setSyncing('download'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
@@ -172,7 +186,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   }, [config, importData, pendingRestore, resetPrivacyLock]);
 
   const handleLogout = useCallback(() => {
-    clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput('');
+    clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput(''); setRemember(false);
     setLoggedIn(false); setStatusMsg(null); setPendingRestore(null);
     toast.success('已断开连接');
   }, []);
@@ -230,7 +244,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 <ul className={`text-xs ${t.textDim} space-y-1 ml-8`}>
                   <li>✦ 自动验证账号</li>
                   <li>✦ 自动创建私有备份仓库</li>
-                  <li>✦ Token 仅保留在当前浏览会话</li>
+                  <li>✦ 可选保持登录，关闭浏览器后仍可同步</li>
                 </ul>
               </div>
 
@@ -249,6 +263,19 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 <p className={`text-xs ${t.textDim} opacity-60`}>
                   推荐 Fine-grained Token，仅授予备份仓库 Contents 读写权限
                 </p>
+              </div>
+
+              {/* 保持登录 */}
+              <div className={`flex items-center justify-between rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3`}>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${t.textPrimary}`}>保持登录</p>
+                  <p className={`text-xs ${t.textDim} opacity-70`}>关闭浏览器后仍保持连接</p>
+                </div>
+                <button type="button" onClick={() => setRemember(!remember)} className="shrink-0 ml-3 transition-transform active:scale-95">
+                  {remember
+                    ? <ToggleRight className="w-9 h-9 text-emerald-500" />
+                    : <ToggleLeft className={`w-9 h-9 ${t.textDim} opacity-40`} />}
+                </button>
               </div>
 
               {/* 状态提示 */}

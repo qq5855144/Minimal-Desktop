@@ -78,6 +78,8 @@ export interface SyncConfig {
   lastSyncAt?: string; // ISO string
   /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
   lastRemoteHead?: string;
+  /** 勾选后 Token 持久化到 localStorage；默认仅保留在当前会话 */
+  rememberToken?: boolean;
 }
 
 // 搜索引擎
