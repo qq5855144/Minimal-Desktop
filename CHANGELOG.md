@@ -8,6 +8,7 @@
 - 壁纸 URL 应用前增加预加载验证（`<img>` 探测，10s 超时），无效链接明确报错不再静默失败；桌面背景改用 `<img>` 渲染，加载失败自动回退默认渐变并提示。
 - URL 壁纸支持 canvas 重编码本地持久化：应用时解码并转 JPEG 存入 IndexedDB（绕过图床 MIME 与内容不符、防盗链差异），刷新后从本地恢复；图床不支持 CORS 时自动回退为直接引用原 URL。
 - 壁纸 URL 应用流程改为双轨：`<img>` 预加载验证通过后立即应用原 URL（不携带 Origin，可绕过图床防盗链 403）；后台 fetch 下载并按 magic bytes 识别真实格式后本地持久化，成功才切换 blob URL（失败静默，不影响已应用的壁纸）。
+- 壁纸预加载、桌面背景渲染与后台下载统一使用 `no-referrer` 策略：部分图床（如 haowallpaper）对带 Referer 的请求返回 403（`BlockReferer` 防盗链），去掉 Referer 后可正常加载（实测带 Referer 403 / 不带 200）。
 ### Removed
 - 移除仓库内 AI 开发工具链残留：`.skills/`、`.rules/`、`sgconfig.yml`、`historical_context.txt`、`tasks/` 截图与 `.env`。
 - 移除未使用的页面（`src/pages/`）与约 66 个未引用的 shadcn UI 组件，仅保留 button / input / sonner / tooltip。

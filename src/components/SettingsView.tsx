@@ -238,6 +238,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const preloadImage = useCallback((url: string, timeoutMs = 10000): Promise<boolean> => {
     return new Promise((resolve) => {
       const img = new window.Image();
+      // 部分图床有 Referer 防盗链（带 Referer 返回 403），预加载时去掉 Referer
+      img.referrerPolicy = 'no-referrer';
       const timer = setTimeout(() => { img.src = ''; resolve(false); }, timeoutMs);
       img.onload = () => { clearTimeout(timer); resolve(true); };
       img.onerror = () => { clearTimeout(timer); resolve(false); };
@@ -286,7 +288,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // 不影响已应用的原 URL（图床防盗链/CORS 不支持时保持直接引用即可）。
   void (async () => {
     try {
-      const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(8000) });
+      const res = await fetch(url, { credentials: 'omit', referrer: '', signal: AbortSignal.timeout(8000) });
       if (!res.ok) return;
       const buf = await res.arrayBuffer();
       const type = sniffImageType(buf);

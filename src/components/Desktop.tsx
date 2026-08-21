@@ -1051,6 +1051,7 @@ const Desktop: React.FC = () => {
         <img
           src={settings.bgImage}
           alt=""
+          referrerPolicy="no-referrer"
           className="absolute inset-0 w-full h-full object-cover"
           data-desktop-layer="true"
           onError={() => {
