@@ -1,16 +1,13 @@
+import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { LAYOUT_LIMITS } from './layoutEngine';
-
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
-
 const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
-
-import type { PrivacyVault } from '@/lib/privacyCrypto';
 
 /** 读取加密 vault */
 export function loadPrivacyVault(): PrivacyVault | null {
@@ -209,8 +206,8 @@ export function clearSyncConfig(): void {
 
 const SETTINGS_KEY = 'ios_desktop_settings';
 
-// 内置默认壁纸（导出供其他模块引用）
-export const DEFAULT_BG_IMAGE = 'https://miaoda-conversation-file.cdn.bcebos.com/user-a7uyohzdep6o/app-ctg0jdeaugap/20260711/e58e7365cac0d5957d2c6c7d8e0e9e41e58e7365cac0d5957d2c6c7d8e0e9e41.jpg';
+// 内置默认壁纸（本地资源，导出供其他模块引用）
+export const DEFAULT_BG_IMAGE = `${import.meta.env.BASE_URL}images/wallpaper-default.svg`;
 
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',

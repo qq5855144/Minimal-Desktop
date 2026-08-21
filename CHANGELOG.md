@@ -1,9 +1,16 @@
 # Changelog
-
 ## Unreleased
-
+### Removed
+- 移除仓库内 AI 开发工具链残留：`.skills/`、`.rules/`、`sgconfig.yml`、`historical_context.txt`、`tasks/` 截图与 `.env`。
+- 移除未使用的页面（`src/pages/`）与约 66 个未引用的 shadcn UI 组件，仅保留 button / input / sonner / tooltip。
+- 移除未使用的依赖（axios、ky、streamdown、recharts、motion、cmdk、vaul、video-react、@sentry/react、miaoda 等 50 个）。
+- 默认壁纸由外部 CDN 改为本地 SVG 资源。
+### Changed
+- 示例备份数据移入 `docs/examples-desktop-backup.json`。
+- `pnpm-workspace.yaml` 移除无关 workspace/catalog 配置。
+- 类型检查覆盖全部 `src`（含保留的 UI 组件）。
+## 1.2.0
 ### Added
-
 - 普通桌面支持最多 50 步 Undo / Redo，并提供 `Ctrl/Cmd+Z`、`Ctrl/Cmd+Shift+Z` 快捷键。
 - 云端恢复增加差异预览与二次确认，覆盖前展示页面、项目及新增/删除/移动/修改数量，并明确隐私 vault 状态。
 

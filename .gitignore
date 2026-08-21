@@ -34,3 +34,9 @@ history/*.json
 /.skills
 /tasks
 .private/
+
+# 环境变量
+.env
+.env.*
+!.env.example
+public/icons/

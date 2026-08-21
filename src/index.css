@@ -1,4 +1,4 @@
-/* stylelint-disable */
+/* 全局屏蔽浏览器默认行为（长按菜单、文字选中、图片拖拽、iOS 气泡） */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
