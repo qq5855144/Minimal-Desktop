@@ -56,6 +56,8 @@ interface DesktopContextType {
   movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => boolean;
   reorderPrivacyItems: (id: string, row: number, col: number) => void;
   privacyPageItems: DesktopItem[];
+  /** 隐私桌面当前是否处于解锁状态（会话内保持，刷新/手动锁定后为 false） */
+  privacyUnlocked: boolean;
   /** 每次加密 vault 成功落盘后递增，供自动同步捕获纯隐私数据变化。 */
   privacyRevision: number;
   setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
@@ -149,6 +151,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
   // 加密架构下，隐私数据在解锁时由 PrivacyScreen 解密注入，初始为空
   const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>([]);
+  // 解锁状态：会话内保持（切换普通页不重置），刷新/重载或手动锁定后为 false
+  const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
   // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
   const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{
     key: CryptoKey;
@@ -687,6 +691,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPrivacyCryptoKey(null);
     privacyPageItemsRef.current = [];
     setPrivacyPageItems([]);
+    setPrivacyUnlocked(false);
   }, []);
 
   const lockPrivacy = useCallback((): Promise<void> => {
@@ -695,6 +700,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!cryptoState) {
       privacyPageItemsRef.current = [];
       setPrivacyPageItems([]);
+      setPrivacyUnlocked(false);
       return Promise.resolve();
     }
     const epoch = privacyEpochRef.current;
@@ -715,6 +721,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         privacyPageItemsRef.current = [];
         setPrivacyCryptoKey(null);
         setPrivacyPageItems([]);
+        setPrivacyUnlocked(false);
       } finally {
         if (privacyLockTokenRef.current === lockToken) {
           privacyLockPromiseRef.current = null;
@@ -736,6 +743,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     privacyCryptoKeyRef.current = { key, salt, iterations };
     setPrivacyCryptoKey({ key, salt, iterations });
     setPrivacyPageItems(items);
+    setPrivacyUnlocked(true);
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
@@ -839,6 +847,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         movePrivacyToPage,
         reorderPrivacyItems,
         privacyPageItems,
+        privacyUnlocked,
         privacyRevision,
         setPrivacyUnlockData,
       }}

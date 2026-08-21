@@ -69,6 +69,7 @@ const Desktop: React.FC = () => {
     movePrivacyToPage,
     reorderPrivacyItems,
     privacyPageItems,
+    privacyUnlocked,
     privacyRevision,
     setPrivacyUnlockData,
     lockPrivacy,
@@ -78,11 +79,9 @@ const Desktop: React.FC = () => {
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
-  // 解锁状态：纯内存，刷新后重置（需重新输入密码）
-  const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
+  // 解锁状态提升至 DesktopContext（会话内保持：切换普通页不重置，刷新/重载或手动锁定后需重新输入）
   const handleUnlock = useCallback((items: import('@/types').DesktopItem[], key: CryptoKey) => {
     setPrivacyUnlockData(items, key);
-    setPrivacyUnlocked(true);
   }, [setPrivacyUnlockData]);
   const openFolder = openFolderId
     ? data.pages.flat().find((it) => it.id === openFolderId) ?? null
@@ -98,14 +97,9 @@ const Desktop: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
 
-  // 离开隐私页即清除内存密钥和明文；跨页拖拽期间延迟到 pointerup 后再锁定。
-  useEffect(() => {
-    if (privacyUnlocked && currentPage !== -1 && !isDragging) {
-      void lockPrivacy()
-        .then(() => setPrivacyUnlocked(false))
-        .catch(() => toast.error('隐私数据加密保存失败，已保持解锁状态'));
-    }
-  }, [currentPage, isDragging, lockPrivacy, privacyUnlocked]);
+  // 隐私解锁状态在会话内保持：离开隐私页（切换普通页/翻页）不重置、不清除内存密钥，
+  // 无需重复输入密码；页面刷新/重载或点击锁图标手动锁定后才需重新解锁。
+  // 数据持久化不受影响：解锁期间 privacyPageItems 变更仍会加密写入 vault（见 DesktopContext）。
 
   const edgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1126,8 +1120,9 @@ const Desktop: React.FC = () => {
           <button
             type="button"
             onClick={() => {
+              // 手动锁定：加密落盘 + 清除内存密钥/明文（privacyUnlocked 由 context 内部复位）
               void lockPrivacy()
-                .then(() => { setPrivacyUnlocked(false); setCurrentPage(-1); })
+                .then(() => setCurrentPage(-1))
                 .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
             }}
             className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
