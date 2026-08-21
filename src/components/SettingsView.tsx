@@ -245,6 +245,57 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     });
   }, []);
 
+  // 将远程图片重编码为本地壁纸：canvas 解码（真实格式识别，绕过图床 MIME 与内容不符）
+  // 后以 JPEG 存入 IndexedDB，刷新后由 IDB 标记恢复，不依赖第三方链接长期可用。
+  // 服务器不支持 CORS（crossOrigin 失败）时回退为直接引用原 URL。
+  const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
+    // 1) 预加载验证（普通 Image，无需 CORS）
+    const ok = await preloadImage(url);
+    if (!ok) {
+      toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
+      return false;
+    }
+    // 2) canvas 重编码（需要图床允许 CORS；haowallpaper 等返回 ACAO:*）
+    try {
+      const img = new window.Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timeout')), 15000);
+        img.onload = () => { clearTimeout(timer); resolve(); };
+        img.onerror = () => { clearTimeout(timer); reject(new Error('cors')); };
+        img.src = url;
+      });
+      // 超大图按比例缩放，控制 canvas 内存（>16M 像素约 4K 级别）
+      const maxPixels = 16 * 1024 * 1024;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w * h > maxPixels) {
+        const scale = Math.sqrt(maxPixels / (w * h));
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no-2d-context');
+      ctx.drawImage(img, 0, 0, w, h);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob || blob.size > WALLPAPER_MAX_BYTES) throw new Error('encode-too-large');
+      await saveWallpaperDB(new File([blob], 'wallpaper.jpg', { type: 'image/jpeg' }));
+      updateSettings({ bgImage: URL.createObjectURL(blob), bgVideo: undefined, bgType: 'image' });
+      void clearVideoDB();
+      toast.success('图片壁纸已应用并本地保存');
+      return true;
+    } catch {
+      // 图床不支持 CORS 或编码异常：回退为直接引用原 URL（浏览器仍可加载）
+      updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+      void clearVideoDB();
+      void clearWallpaperDB();
+      toast.success('图片壁纸已应用');
+      return true;
+    }
+  }, [preloadImage, updateSettings]);
+
   const handleBgUrl = useCallback(async () => {
     const url = normalizeHttpUrl(urlInput);
     if (!url) { toast.error('请输入有效的 http/https 地址'); return; }
@@ -257,17 +308,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       setUrlInput('');
       return;
     }
-    const ok = await preloadImage(url);
-    if (!ok) {
-      toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
-      return;
-    }
-    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
-    void clearVideoDB();
-    void clearWallpaperDB();
-    toast.success('图片壁纸已应用');
+    await applyRemoteImage(url);
     setUrlInput('');
-  }, [urlInput, updateSettings, preloadImage]);
+  }, [urlInput, applyRemoteImage]);
 
   // ── 数据 ──
   const handleAddPage = useCallback(() => {
