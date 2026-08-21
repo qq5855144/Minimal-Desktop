@@ -3,6 +3,7 @@
 ### Added
 - 云同步新增「保持登录」开关：默认 Token 仅会话级存储（`sessionStorage`），勾选后持久化到 `localStorage`，关闭浏览器后仍保持连接。
 - 同步连接、上传与下载增加 Token 失效（401/403）前置检查与统一的面向用户错误提示。
+- 桌面页切换改为 iOS 风格横向滑动动画：滑动手势实时跟手、松手按位移翻页或回弹；指示器点击、边缘拖拽翻页、锁隐私等入口统一 320ms 平滑过渡（纯 transform 驱动，无新依赖）。
 ### Removed
 - 移除仓库内 AI 开发工具链残留：`.skills/`、`.rules/`、`sgconfig.yml`、`historical_context.txt`、`tasks/` 截图与 `.env`。
 - 移除未使用的页面（`src/pages/`）与约 66 个未引用的 shadcn UI 组件，仅保留 button / input / sonner / tooltip。

@@ -793,6 +793,21 @@ const Desktop: React.FC = () => {
 
   // swipe 翻页容器 ref（与 containerRef 区分）
   const swipeContainerRef = useRef<HTMLDivElement>(null);
+  // 横向滑轨：所有页面（隐私页在最左）并排，translateX 驱动翻页动画
+  const pageTrackRef = useRef<HTMLDivElement>(null);
+  // 跟手滑动起始偏移（逻辑页序：隐私页=0，普通页 i 对应 i+1）
+  const startOffsetRef = useRef(0);
+  const horizontalLockRef = useRef(false);
+
+  // 翻页动画统一入口：currentPage 变化（指示器点击 / 边缘拖拽 / 手势 / 锁隐私 / 拖拽收尾）
+  // 均由本 effect 将滑轨平滑移动到目标位置，无需在各调用点重复动画逻辑。
+  // 首次挂载时 React 内联 style 已含正确 transform（见滑轨 style），此处设置相同值不会产生入场动画。
+  useEffect(() => {
+    const track = pageTrackRef.current;
+    if (!track) return;
+    track.style.transition = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
+    track.style.transform = `translateX(${-(currentPage + 1) * 100}%)`;
+  }, [currentPage]);
   // 用 ref 避免 native touch 回调中的 stale closure
   const currentPageRef = useRef(currentPage);
   const pageCountRef = useRef(data.pages.length);
@@ -801,11 +816,27 @@ const Desktop: React.FC = () => {
   useEffect(() => { pageCountRef.current = data.pages.length; }, [data.pages.length]);
   useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
 
-  // 原生 touch 翻页：touchmove 非 passive 以便 preventDefault 阻止水平滑动时的滚动取消
+  // 原生 touch 翻页（跟手）：touchmove 非 passive 以便 preventDefault 阻止水平滑动时的滚动取消；
+  // 滑动期间实时驱动滑轨 translateX，松手后按位移决定翻页或回弹（与 iOS 主屏一致）
   useEffect(() => {
     const el = swipeContainerRef.current;
     if (!el) return;
     let startX = 0, startY = 0, tracking = false;
+
+    // 跟手：关闭 transition，按手指位移实时移动滑轨（逻辑偏移 = 起始偏移 - dx/宽度）
+    const applyTrack = (offset: number) => {
+      const track = pageTrackRef.current;
+      if (!track) return;
+      track.style.transition = 'none';
+      track.style.transform = `translateX(${-offset * 100}%)`;
+    };
+    // 回弹/到位：开启 transition，平滑移动到目标偏移
+    const settleTrack = (offset: number) => {
+      const track = pageTrackRef.current;
+      if (!track) return;
+      track.style.transition = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
+      track.style.transform = `translateX(${-offset * 100}%)`;
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       if (isDraggingRef.current || ghostRef.current) return;
@@ -816,6 +847,8 @@ const Desktop: React.FC = () => {
       if (target.closest('[data-search-overlay="true"]')) return;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
+      startOffsetRef.current = currentPageRef.current + 1;
+      horizontalLockRef.current = false;
       tracking = true;
     };
 
@@ -823,11 +856,20 @@ const Desktop: React.FC = () => {
       if (!tracking) return;
       // 拖拽已开始（ghostRef 同步设置）→ 立即退出翻页追踪，避免 preventDefault 取消指针事件
       if (ghostRef.current) { tracking = false; return; }
-      const dx = Math.abs(e.touches[0].clientX - startX);
-      const dy = Math.abs(e.touches[0].clientY - startY);
+      const absDx = Math.abs(e.touches[0].clientX - startX);
+      const absDy = Math.abs(e.touches[0].clientY - startY);
       // 明确水平滑动：阻止浏览器默认行为（防止 pointercancel / scroll 覆盖）
       // cancelable=false 时浏览器已提交原生滚动，跳过以避免控制台警告
-      if (dx > dy && dx > 10 && e.cancelable) e.preventDefault();
+      if (!horizontalLockRef.current && absDx > absDy && absDx > 10) horizontalLockRef.current = true;
+      if (horizontalLockRef.current && e.cancelable) e.preventDefault();
+      if (horizontalLockRef.current) {
+        // 跟手：滑轨随手指移动，并夹取在 [隐私页(0), 最后一页] 范围内
+        const track = pageTrackRef.current;
+        const width = track?.clientWidth || 1;
+        const raw = startOffsetRef.current - (e.touches[0].clientX - startX) / width;
+        const clamped = Math.max(0, Math.min(pageCountRef.current, raw));
+        applyTrack(clamped);
+      }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -835,24 +877,36 @@ const Desktop: React.FC = () => {
       tracking = false;
       const dx = e.changedTouches[0].clientX - startX;
       const dy = Math.abs(e.changedTouches[0].clientY - startY);
-      if (dy > SWIPE_MAX_Y) return;
-      if (dx < -SWIPE_MIN_X && currentPageRef.current < pageCountRef.current - 1) {
-        setCurrentPage(currentPageRef.current + 1);
-      } else if (dx > SWIPE_MIN_X && currentPageRef.current > 0) {
-        setCurrentPage(currentPageRef.current - 1);
-      } else if (dx > SWIPE_MIN_X && currentPageRef.current === 0) {
+      const cur = currentPageRef.current;
+      if (dy > SWIPE_MAX_Y || Math.abs(dx) < SWIPE_MIN_X) {
+        // 纵向滚动或位移不足：回弹到原页
+        settleTrack(startOffsetRef.current);
+        return;
+      }
+      if (dx < -SWIPE_MIN_X && cur < pageCountRef.current - 1) {
+        settleTrack(cur + 2); // 目标页逻辑偏移 = page + 1
+        setCurrentPage(cur + 1);
+      } else if (dx > SWIPE_MIN_X && cur > 0) {
+        settleTrack(cur);
+        setCurrentPage(cur - 1);
+      } else if (dx > SWIPE_MIN_X && cur === 0) {
         // 第一页右滑 → 进入隐私桌面（currentPage=-1），不重置解锁状态
+        settleTrack(0);
         setCurrentPage(-1);
-      } else if (dx < -SWIPE_MIN_X && currentPageRef.current === -1) {
+      } else if (dx < -SWIPE_MIN_X && cur === -1) {
         // 隐私页左滑 → 返回第一页
+        settleTrack(1);
         setCurrentPage(0);
+      } else {
+        // 已在边界：回弹
+        settleTrack(startOffsetRef.current);
       }
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false }); // non-passive 以支持 preventDefault
     el.addEventListener('touchend', onTouchEnd, { passive: true });
-    el.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+    el.addEventListener('touchcancel', () => { tracking = false; settleTrack(startOffsetRef.current); }, { passive: true });
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart);
@@ -1028,31 +1082,42 @@ const Desktop: React.FC = () => {
         {/* 统一网格：widget 行 + 应用图标行全在同一个 grid 中；监听 swipe 手势翻页 */}
         <div
           ref={swipeContainerRef}
-          className="flex-1 flex items-start justify-center px-4 md:px-8 pt-2 pb-2 overflow-y-auto min-h-0"
+          className="flex-1 overflow-x-hidden overflow-y-auto min-h-0"
         >
-          <div className="w-full max-w-2xl">
-            {loading ? (
-              /* 加载骨架屏：只在初次加载时显示 */
-              <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
-                {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
-                  <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
-                ))}
+          {loading ? (
+            /* 加载骨架屏：只在初次加载时显示 */
+            <div className="px-4 md:px-8 pt-2 pb-2 flex justify-center">
+              <div className="w-full max-w-2xl">
+                <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
+                  {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
+                    <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
+                  ))}
+                </div>
               </div>
-            ) : (
-              /* 所有页（含隐私页）同时挂载，非当前页用 display:none 隐藏，AppIcon 不卸载 */
-              <>
-                {/* 隐私页：常驻 DOM，currentPage !== -1 时隐藏，保证拖拽跨页时格子始终可命中 */}
-                <div className={currentPage === -1 ? undefined : 'hidden'}>
+            </div>
+          ) : (
+            /* 横向滑轨：所有页（含隐私页）并排常驻，AppIcon 不卸载；
+               transform 由页面切换 effect / 跟手手势直接驱动（不走 React 渲染，保证流畅） */
+            <div
+              ref={pageTrackRef}
+              className="flex items-start will-change-transform"
+              style={{ transform: `translateX(${-(currentPage + 1) * 100}%)` }}
+            >
+              {/* 隐私页：滑轨最左侧（逻辑偏移 0），currentPage=-1 时可见 */}
+              <div className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                <div className="w-full max-w-2xl mx-auto">
                   {renderPageGrid(-1, privacyPageItems)}
                 </div>
-                {data.pages.map((pageData, i) => (
-                  <div key={`page-layer-${i}`} className={i === currentPage ? undefined : 'hidden'}>
+              </div>
+              {data.pages.map((pageData, i) => (
+                <div key={`page-layer-${i}`} className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                  <div className="w-full max-w-2xl mx-auto">
                     {renderPageGrid(i, pageData)}
                   </div>
-                ))}
-              </>
-            )}
-          </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 页面指示器：隐私页 + 普通页 */}
