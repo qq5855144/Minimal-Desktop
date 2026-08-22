@@ -1,11 +1,10 @@
+import { FolderMinus, FolderOpen, Pencil, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef } from 'react';
-import { Pencil, Trash2, FolderOpen, FolderMinus } from 'lucide-react';
 
 export interface ContextMenuPosition {
   x: number;
   y: number;
   itemId: string;
-  isSystem: boolean;
   isFolder?: boolean;
 }
 
@@ -32,14 +31,17 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   const top  = Math.min(Math.max(pos.y, 8), vh - menuH - 8);
 
   useEffect(() => {
-    const handle = (e: MouseEvent | TouchEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
     };
-    document.addEventListener('mousedown', handle);
-    document.addEventListener('touchstart', handle);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handle);
-      document.removeEventListener('touchstart', handle);
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
 
@@ -51,6 +53,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       <div className="fixed inset-0 z-[60]" onClick={onClose} />
       <div
         ref={menuRef}
+        role="menu"
+        aria-label="项目操作"
         className="fixed z-[70] rounded-2xl overflow-hidden shadow-2xl animate-scale-in"
         style={{
           left, top, width: MENU_W,

@@ -5,9 +5,10 @@
  * - 有输入时拉取搜索建议（扩展后台代理 / 可选 Web JSON API）
  * - 与主页搜索框使用相同的引擎 & 跳转逻辑
  */
+
+import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpLeft, Clock, Search, X } from 'lucide-react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { openExternalUrl } from '@/lib/openExternal';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
@@ -147,7 +148,8 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     setHistory(loadHistory());
     setQuery(initialQuery);
     setSuggests([]);
-    setTimeout(() => inputRef.current?.focus(), 80);
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 80);
+    return () => clearTimeout(focusTimer);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 原生 touch 事件拦截（防御性）：经 Portal 渲染后覆盖层已脱离 swipeContainerRef
@@ -172,21 +174,24 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   // 实时拉取建议（防抖 150ms + AbortController 取消旧请求）
   useEffect(() => {
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (!open) return;
     const trimmed = query.trim();
     if (!trimmed) { setSuggests([]); return; }
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     suggestTimer.current = setTimeout(() => {
-      // 取消上一次未完成的请求
-      abortRef.current?.abort();
-      abortRef.current = new AbortController();
-      const ctrl = abortRef.current;
       fetchBaiduSuggest(trimmed, ctrl.signal).then((list) => {
         if (!ctrl.signal.aborted) setSuggests(list);
       });
     }, 150);
     return () => {
       if (suggestTimer.current) clearTimeout(suggestTimer.current);
+      ctrl.abort();
+      if (abortRef.current === ctrl) abortRef.current = null;
     };
-  }, [query]);
+  }, [open, query]);
 
   // 执行搜索
   const doSearch = useCallback((term: string) => {
@@ -254,7 +259,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   // 判定为「点击」→ 触发建议项 onClick → doSearch → onClose →「返回桌面」。
   // 渲染到 body 后脱离 touch-none 祖先，原生滚动恢复。
   // 同时拦截 pointer 事件冒泡：React 合成事件即使经 Portal 仍按 React 树冒泡，
-  // 不拦截会触发 WidgetGridCell 的 setPointerCapture / 拖拽逻辑（>8px 即起 ghost）。
+  // 不拦截会让 Portal 内事件回到 WidgetGridCell 的长按意图识别器。
   return createPortal(
     <div
       ref={overlayRef}

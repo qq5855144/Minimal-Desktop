@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { useMinuteClock } from '@/hooks/use-minute-clock';
 import { CLOCK_VISUAL_MIN_HEIGHT_PX } from '@/lib/widgetConfig';
 
 const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -31,15 +32,10 @@ async function getLunarInfo(date: Date): Promise<string> {
 }
 
 const ClockWidget: React.FC = () => {
-  const [now, setNow] = useState(new Date());
+  const now = useMinuteClock();
   const [lunarLabel, setLunarLabel] = useState('');
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const dateKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
   useEffect(() => {

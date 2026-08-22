@@ -1,20 +1,20 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useDesktop } from '@/contexts/DesktopContext';
-import { deepClone } from '@/lib/utils/deepClone';
-import type { DesktopStyle } from '@/types';
 import {
-  Image, Video, LayoutGrid, Palette, ChevronRight, ChevronLeft,
-  RotateCcw, FilePlus, X, Check, Clock, Search, Layers,
-  Loader2,
+  Check, ChevronLeft, ChevronRight, Clock, FilePlus,
+  Image, Layers, LayoutGrid, Loader2, Palette,
+  RotateCcw, Search, Video, X,
 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { defaultDesktopData, WIDGET_ITEMS, DEFAULT_BG_IMAGE } from '@/lib/storage';
-import { getPanelTheme } from '@/lib/panelTheme';
-import { saveVideoDB, clearVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
-import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
-import { normalizeHttpUrl } from '@/lib/urlSafety';
+import { useDesktop } from '@/contexts/DesktopContext';
 import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
+import { getPanelTheme } from '@/lib/panelTheme';
+import { DEFAULT_BG_IMAGE, defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
+import { normalizeHttpUrl } from '@/lib/urlSafety';
+import { deepClone } from '@/lib/utils/deepClone';
+import { clearVideoDB, saveVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
+import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
 import { getWidgetConfig } from '@/lib/widgetConfig';
+import type { DesktopSettings, DesktopStyle } from '@/types';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
@@ -115,6 +115,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
+  const updateBackground = useCallback((
+    next: Pick<DesktopSettings, 'bgImage' | 'bgVideo' | 'bgType'>,
+  ) => {
+    const retained = new Set([next.bgImage, next.bgVideo]);
+    const disposableUrls = [settings.bgImage, settings.bgVideo].filter(
+      (currentUrl): currentUrl is string => Boolean(
+        currentUrl?.startsWith('blob:') && !retained.has(currentUrl),
+      ),
+    );
+    updateSettings(next);
+    // 等 React 把旧媒体节点替换掉再释放，避免同一帧出现空白背景。
+    if (disposableUrls.length > 0) {
+      setTimeout(() => disposableUrls.forEach((url) => URL.revokeObjectURL(url)), 0);
+    }
+  }, [settings.bgImage, settings.bgVideo, updateSettings]);
+
   const handleClose = () => { setPanel('main'); onClose(); };
 
   // ── 必应壁纸 fetch ──
@@ -174,11 +190,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   }, [panel, bgCat, catPage, fetchCategoryImages]);
 
   const applyWallpaper = useCallback((url: string, label: string) => {
-    updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+    updateBackground({ bgImage: url, bgVideo: undefined, bgType: 'image' });
     void clearWallpaperDB();
     void clearVideoDB();
     toast.success(`「${label}」已应用`);
-  }, [updateSettings]);
+  }, [updateBackground]);
 
   // ── 背景 ──
   const handleBgFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,14 +208,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
     try {
       await saveWallpaperDB(file);
       const blobUrl = URL.createObjectURL(file);
-      updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+      updateBackground({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
       void clearVideoDB();
       toast.success('壁纸已更新');
     } catch {
       toast.error('壁纸保存失败，请重试');
     }
     e.target.value = '';
-  }, [updateSettings]);
+  }, [updateBackground]);
 
   const handleVideoFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -211,26 +227,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
       return;
     }
     try {
-      // 先创建 blob URL 供即时预览
-      const blobUrl = URL.createObjectURL(file);
       // 异步写入 IndexedDB 持久化
       await saveVideoDB(file);
+      const blobUrl = URL.createObjectURL(file);
       // 更新设置：内存中用 blobUrl 播放，localStorage 存标记 '__idb__'
-      updateSettings({ bgVideo: blobUrl, bgImage: undefined, bgType: 'video' });
+      updateBackground({ bgVideo: blobUrl, bgImage: undefined, bgType: 'video' });
       void clearWallpaperDB();
       toast.success('视频壁纸已应用并持久化保存');
     } catch {
       toast.error('视频保存失败，请重试');
     }
     e.target.value = '';
-  }, [updateSettings]);
+  }, [updateBackground]);
 
   const handleClearBg = useCallback(() => {
-    updateSettings({ bgImage: DEFAULT_BG_IMAGE, bgVideo: undefined, bgType: 'image' });
+    updateBackground({ bgImage: DEFAULT_BG_IMAGE, bgVideo: undefined, bgType: 'image' });
     clearVideoDB(); // 同步清除 IndexedDB 中的视频
     clearWallpaperDB();
     toast.success('已恢复默认壁纸');
-  }, [updateSettings]);
+  }, [updateBackground]);
 
   // ── 通过 URL 应用壁纸 ──
   // 先用 <img> 预加载验证（img 加载受 img-src 约束，不受 connect-src 限制），
@@ -279,7 +294,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     toast.error('壁纸链接无法加载，请确认是有效图片地址（部分图床链接带防盗链或需登录）');
     return false;
   }
-  updateSettings({ bgImage: url, bgVideo: undefined, bgType: 'image' });
+  updateBackground({ bgImage: url, bgVideo: undefined, bgType: 'image' });
   void clearVideoDB();
   void clearWallpaperDB();
   toast.success('图片壁纸已应用');
@@ -287,6 +302,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // 成功则切换为 blob URL（刷新后从 IndexedDB 恢复，不依赖图床可用性）；失败静默忽略，
   // 不影响已应用的原 URL（图床防盗链/CORS 不支持时保持直接引用即可）。
   void (async () => {
+    let temporaryBlobUrl: string | null = null;
     try {
       const res = await fetch(url, { credentials: 'omit', referrer: '', signal: AbortSignal.timeout(8000) });
       if (!res.ok) return;
@@ -296,6 +312,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
       const blob = new Blob([buf], { type });
       if (blob.size > WALLPAPER_MAX_BYTES) return;
       const blobUrl = URL.createObjectURL(blob);
+      temporaryBlobUrl = blobUrl;
       const decodable = await new Promise<boolean>((resolve) => {
         const img = new window.Image();
         const timer = setTimeout(() => { img.src = ''; resolve(false); }, 10000);
@@ -303,22 +320,28 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         img.onerror = () => { clearTimeout(timer); resolve(false); };
         img.src = blobUrl;
       });
-      if (!decodable) return;
+      if (!decodable) {
+        URL.revokeObjectURL(blobUrl);
+        temporaryBlobUrl = null;
+        return;
+      }
       await saveWallpaperDB(new File([blob], `wallpaper.${type.split('/')[1] || 'img'}`, { type }));
-      updateSettings({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+      updateBackground({ bgImage: blobUrl, bgVideo: undefined, bgType: 'image' });
+      temporaryBlobUrl = null;
     } catch {
+      if (temporaryBlobUrl) URL.revokeObjectURL(temporaryBlobUrl);
       // 静默：图床防盗链/网络异常时保持原 URL 引用
     }
   })();
   return true;
-}, [preloadImage, updateSettings]);
+}, [preloadImage, updateBackground]);
 
   const handleBgUrl = useCallback(async () => {
     const url = normalizeHttpUrl(urlInput);
     if (!url) { toast.error('请输入有效的 http/https 地址'); return; }
     const isVideo = /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
     if (isVideo) {
-      updateSettings({ bgVideo: url, bgImage: undefined, bgType: 'video' });
+      updateBackground({ bgVideo: url, bgImage: undefined, bgType: 'video' });
       void clearVideoDB();
       void clearWallpaperDB();
       toast.success('视频壁纸已应用');
@@ -327,7 +350,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     }
     await applyRemoteImage(url);
     setUrlInput('');
-  }, [urlInput, applyRemoteImage]);
+  }, [urlInput, applyRemoteImage, updateBackground]);
 
   // ── 数据 ──
   const handleAddPage = useCallback(() => {

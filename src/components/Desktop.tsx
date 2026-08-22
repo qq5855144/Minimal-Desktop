@@ -1,18 +1,18 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { useDesktop, MAX_ROWS, MAX_COLS, MAX_FOLDER_APPS } from '@/contexts/DesktopContext';
-import type { DesktopItem, DragSource, BgOverlayScheme } from '@/types';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
+import { uploadToGithub } from '@/lib/github';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
-import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
+import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { getWidgetConfig, isRowCoveredByWidget, wouldWidgetOverlap } from '@/lib/widgetConfig';
-import { getWidgetComponent } from './widgetRenderer';
+import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
+import type { ContextMenuPosition } from './ContextMenu';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
-import type { ContextMenuPosition } from './ContextMenu';
-import { toast } from 'sonner';
-import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
-import { uploadToGithub } from '@/lib/github';
-import { buildSyncSnapshot } from '@/lib/syncSnapshot';
+import { getWidgetComponent } from './widgetRenderer';
 
 const FolderView = React.lazy(() => import('./FolderView'));
 const AddEditDialog = React.lazy(() => import('./AddEditDialog'));
@@ -44,6 +44,7 @@ const MERGE_DELAY = 800;
 interface GhostState {
   item: DesktopItem;
   source: DragSource;
+  pointerId: number;
   x: number;
   y: number;
 }
@@ -92,7 +93,6 @@ const Desktop: React.FC = () => {
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
   // 剪藏预填数据（扩展工具栏点击后传入）
   const [clipPrefill, setClipPrefill] = useState<{ name: string; url: string; iconUrl?: string } | null>(null);
-  const [dragSource, setDragSource] = useState<DragSource | null>(null);
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
@@ -106,6 +106,7 @@ const Desktop: React.FC = () => {
   // 数据持久化不受影响：解锁期间 privacyPageItems 变更仍会加密写入 vault（见 DesktopContext）。
 
   const edgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const edgeTargetPageRef = useRef<number | null>(null);
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const ghostLayerRef = useRef<HTMLDivElement>(null);
@@ -198,14 +199,12 @@ const Desktop: React.FC = () => {
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
-  // ghost 出现时通过直接 DOM 操作设置初始位置，避免 React style prop 在 re-render 时重置坐标
+  // ghost 出现时只更新 transform，避免 left/top 引发布局并防止 React re-render 重置坐标。
   useEffect(() => {
     if (!ghost) return;
     const el = ghostLayerRef.current;
     if (!el) return;
-    el.style.left = `${ghost.x}px`;
-    el.style.top = `${ghost.y}px`;
-    el.style.transform = 'translate(-50%, -50%)';
+    el.style.transform = `translate3d(${ghost.x}px, ${ghost.y}px, 0) translate(-50%, -50%)`;
   }, [ghost]);
 
   // ── 全局 contextmenu 捕获（capture 阶段）─────────────────────────────────
@@ -260,6 +259,7 @@ const Desktop: React.FC = () => {
 
   const clearEdgeTimer = useCallback(() => {
     if (edgeTimerRef.current) { clearTimeout(edgeTimerRef.current); edgeTimerRef.current = null; }
+    edgeTargetPageRef.current = null;
   }, []);
   const clearMergeTimer = useCallback(() => {
     if (mergeTimerRef.current) { clearTimeout(mergeTimerRef.current); mergeTimerRef.current = null; }
@@ -276,55 +276,58 @@ const Desktop: React.FC = () => {
     const { currentPage: page, data: d, setCurrentPage: nav } = latestRef.current;
     const rect = containerRef.current.getBoundingClientRect();
     const relX = clientX - rect.left;
+    let targetPage: number | null = null;
     if (relX < EDGE_THRESHOLD && page >= 0) {
       // 拖着隐私页图标时，不允许往左切回隐私页（会导致松手时找不到普通页格子）
       const isPrivacyDrag = ghostRef.current?.source.type === 'privacy';
       if (isPrivacyDrag) { clearEdgeTimer(); return; }
       // page=0 时向左滑入隐私页（page=-1），page>0 向左翻页
-      const prevPage = page > 0 ? page - 1 : -1;
-      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(prevPage); clearEdgeTimer(); }, EDGE_DELAY);
+      targetPage = page > 0 ? page - 1 : -1;
     } else if (relX > rect.width - EDGE_THRESHOLD && (page < d.pages.length - 1 || page === -1)) {
       // page=-1（隐私页）右边缘 → 回到 page=0
-      const nextPage = page === -1 ? 0 : page + 1;
-      if (!edgeTimerRef.current) edgeTimerRef.current = setTimeout(() => { nav(nextPage); clearEdgeTimer(); }, EDGE_DELAY);
-    } else if (relX < EDGE_THRESHOLD && page === -1) {
-      clearEdgeTimer(); // 隐私页已是最左，不再往左
-    } else {
-      clearEdgeTimer();
+      targetPage = page === -1 ? 0 : page + 1;
     }
+
+    if (targetPage === null) {
+      clearEdgeTimer();
+      return;
+    }
+
+    // 指针从左边缘直接移到右边缘时必须更换目标；旧实现会保留第一侧的计时器，
+    // 最终向相反方向翻页。
+    if (edgeTargetPageRef.current === targetPage && edgeTimerRef.current) return;
+    clearEdgeTimer();
+    edgeTargetPageRef.current = targetPage;
+    edgeTimerRef.current = setTimeout(() => {
+      if (edgeTargetPageRef.current !== targetPage) return;
+      nav(targetPage);
+      clearEdgeTimer();
+    }, EDGE_DELAY);
   }, [clearEdgeTimer]);
 
   // 全局 pointer 监听
   useEffect(() => {
     const processMove = (e: PointerEvent) => {
       const g = ghostRef.current;
-      if (!g) return;
+      if (!g || g.pointerId !== e.pointerId) return;
       g.x = e.clientX;
       g.y = e.clientY;
       if (ghostLayerRef.current) {
-        const el = ghostLayerRef.current;
-        el.style.left = `${e.clientX}px`;
-        el.style.top = `${e.clientY}px`;
-        el.style.transform = 'translate(-50%, -50%)';
+        ghostLayerRef.current.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0) translate(-50%, -50%)`;
       }
       handleEdgeHover(e.clientX);
 
-      // 用几何矩形检测穿透 ghost：遍历所有带 data-itemid 的格子，判断指针是否在其内
-      // 比 elementsFromPoint 更可靠，不受 z-index / pointer-events 影响
-      let hoverId: string | null = null;
-      const itemCells = document.querySelectorAll<HTMLElement>('[data-cell][data-itemid]');
-      for (const cellEl of itemCells) {
-        const r = cellEl.getBoundingClientRect();
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          hoverId = cellEl.dataset.itemid!;
-          break;
-        }
-      }
+      // ghost 已禁用 pointer-events，常规命中可直接走浏览器命中树，避免每帧遍历全部页面
+      // 并读取大量 getBoundingClientRect（后者会强制同步布局）。
+      const hitElement = document.elementFromPoint(e.clientX, e.clientY);
+      const hoverCell = hitElement?.closest<HTMLElement>('[data-cell]') ?? null;
+      const hoverId = hoverCell?.dataset.itemid ?? null;
 
       // 提前查询悬停目标项类型：用于判断是否可合并、是否高亮
       const { data: dataNow } = latestRef.current;
-      const hoverItem = hoverId !== null
-        ? dataNow.pages.flat().find(it => it.id === hoverId) ?? null
+      const hoverPage = Number(hoverCell?.dataset.page);
+      const hoverItem = hoverId !== null && Number.isInteger(hoverPage) && hoverPage >= 0
+        ? dataNow.pages[hoverPage]?.find(it => it.id === hoverId) ?? null
         : null;
       const isHoverWidget = hoverItem?.type === 'widget';
 
@@ -340,6 +343,7 @@ const Desktop: React.FC = () => {
       // 提前排除 widget/system 目标，避免启动 800ms 计时器后才发现无法合并
       const isDesktopDrag = g.source.type === 'desktop' || g.source.type === 'folder';
       const isValidMergeTarget =
+        edgeTargetPageRef.current === null &&
         hoverId !== null &&
         hoverId !== g.source.itemId &&
         isDesktopDrag &&
@@ -388,7 +392,6 @@ const Desktop: React.FC = () => {
             ghostRef.current = null;
             setGhost(null);
             setIsDragging(false);
-            setDragSource(null);
             setDragOverItem(null);
             dragOverItemRef.current = null;
             mergeHoverIdRef.current = null;
@@ -410,6 +413,8 @@ const Desktop: React.FC = () => {
     let moveFrame: number | null = null;
     let latestMoveEvent: PointerEvent | null = null;
     const onMove = (e: PointerEvent) => {
+      const active = ghostRef.current;
+      if (!active || active.pointerId !== e.pointerId) return;
       latestMoveEvent = e;
       if (moveFrame !== null) return;
       moveFrame = requestAnimationFrame(() => {
@@ -422,15 +427,14 @@ const Desktop: React.FC = () => {
 
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
+      if (!g || g.pointerId !== e.pointerId) return;
       dragOverItemRef.current = null;
       ghostRef.current = null;
       setGhost(null);
       setIsDragging(false);
-      setDragSource(null);
       setDragOverItem(null);
       clearEdgeTimer();
       clearMergeTimer(); // 若 800ms 计时器还未触发，取消它（快速松手走交换分支）
-      if (!g) return;
 
       // 文件夹拖出：无论是否命中有效格子都关闭文件夹
       if (g.source.type === 'folder') {
@@ -445,42 +449,40 @@ const Desktop: React.FC = () => {
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
 
-      // 几何矩形检测落点格子（含空格子），不受 z-index/pointer-events 影响
-      let cell: HTMLElement | null = null;
-      const allCells = document.querySelectorAll<HTMLElement>('[data-cell]');
-      for (const cellEl of allCells) {
-        const r = cellEl.getBoundingClientRect();
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          cell = cellEl; break;
-        }
-      }
-      // 落在行/列间隙时（gap 区域无命中），改为找中心点最近的格子，
-      // 避免触发 findFirstEmpty 把图标甩到第一行
+      // 常规位置使用浏览器命中树；只有落在 grid gap 时才读取当前页格子几何。
+      // 释放在桌面之外会取消本次移动，避免旧版兜底把图标意外甩到第一空位。
+      const hitElement = document.elementFromPoint(e.clientX, e.clientY);
+      let cell = hitElement?.closest<HTMLElement>('[data-cell]') ?? null;
+      if (cell && !containerRef.current?.contains(cell)) cell = null;
+
       if (!cell) {
-        let minDist = Infinity;
-        for (const cellEl of allCells) {
-          const r = cellEl.getBoundingClientRect();
-          const cx = (r.left + r.right) / 2;
-          const cy = (r.top + r.bottom) / 2;
-          const dist = Math.hypot(e.clientX - cx, e.clientY - cy);
-          if (dist < minDist) { minDist = dist; cell = cellEl; }
+        const pageGrid = containerRef.current?.querySelector<HTMLElement>(
+          `[data-page-grid="${cp}"]`,
+        );
+        const gridRect = pageGrid?.getBoundingClientRect();
+        const insideGrid = gridRect
+          && e.clientX >= gridRect.left
+          && e.clientX <= gridRect.right
+          && e.clientY >= gridRect.top
+          && e.clientY <= gridRect.bottom;
+        if (!insideGrid) return;
+
+        const currentPageCells = containerRef.current?.querySelectorAll<HTMLElement>(
+          `[data-cell][data-page="${cp}"]`,
+        ) ?? [];
+        let minDistanceSquared = Number.POSITIVE_INFINITY;
+        for (const cellEl of currentPageCells) {
+          const rect = cellEl.getBoundingClientRect();
+          const dx = e.clientX - (rect.left + rect.right) / 2;
+          const dy = e.clientY - (rect.top + rect.bottom) / 2;
+          const distanceSquared = dx * dx + dy * dy;
+          if (distanceSquared < minDistanceSquared) {
+            minDistanceSquared = distanceSquared;
+            cell = cellEl;
+          }
         }
       }
-      // 极端情况（指针完全飞出屏幕外）：findFirstEmpty 兜底
-      if (!cell) {
-        const { data: d2, currentPage: cp2, gridCols: gc2, gridRows: gr } = latestRef.current;
-        const slot = findFirstEmpty(d2.pages, cp2, g.source.itemId, gc2, gr);
-        if (!slot) return;
-        if (g.source.type === 'folder' && g.source.folderId) {
-          const { moveFromFolderToDesktop: moveOut2 } = latestRef.current;
-          moveOut2(g.source.folderId, g.source.itemId, slot.page, slot.row, slot.col);
-        } else if (g.source.type === 'desktop') {
-          const { moveItemTo: moveTo2 } = latestRef.current;
-          const src2 = findItem(d2.pages, g.source.itemId);
-          if (src2) moveTo2(g.source.itemId, src2.page, slot.page, slot.row, slot.col);
-        }
-        return;
-      }
+      if (!cell) return;
 
       const targetRow = Number(cell.dataset.row);
       const rawPage = Number(cell.dataset.page);
@@ -545,17 +547,18 @@ const Desktop: React.FC = () => {
 
         if (isWidget) {
           // ── 组件拖拽落点 ──
-          // 问题：widget 是跨行节点（rowSpan > 1），DOM 中 allCells 只渲染起始行的 cell，
+          // 问题：widget 是跨行节点（rowSpan > 1），DOM 中只渲染起始行的 cell，
           // 中间逻辑行（如 clock row=0 span=2，row=1 没有 DOM cell）无法被直接命中。
           // 解决：在 rowBounds 中为每个 widget 的 rowSpan 补全虚拟逻辑行，
           // 把 widget 的视觉高度均分为 rowSpan 份，每份对应一个逻辑行的 Y 范围。
           type RowBound = { top: number; bottom: number };
           const rowBounds = new Map<number, RowBound>();
+          const targetPageCells = containerRef.current?.querySelectorAll<HTMLElement>(
+            `[data-cell][data-page="${targetPage}"]`,
+          ) ?? [];
 
           // 1. 从真实 DOM cell 收集各行的 Y 范围
-          for (const cellEl of allCells) {
-            const rPage = Number(cellEl.dataset.page);
-            if (rPage !== targetPage) continue;
+          for (const cellEl of targetPageCells) {
             const rNum = Number(cellEl.dataset.row);
             const rect = cellEl.getBoundingClientRect();
             const prev = rowBounds.get(rNum);
@@ -704,15 +707,20 @@ const Desktop: React.FC = () => {
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     // pointercancel：浏览器取消指针序列时（如系统手势介入）清理拖拽状态，防止 ghost 残留
-    const onCancel = () => {
-      if (!ghostRef.current) return;
+    const onCancel = (event: PointerEvent) => {
+      const active = ghostRef.current;
+      if (!active || active.pointerId !== event.pointerId) return;
       ghostRef.current = null;
+      dragOverItemRef.current = null;
       setGhost(null);
       setIsDragging(false);
-      setDragSource(null);
       setDragOverItem(null);
       clearEdgeTimer();
       clearMergeTimer();
+      if (active.source.type === 'folder') {
+        setOpenFolderId(null);
+        setFolderRenameId(null);
+      }
     };
     document.addEventListener('pointercancel', onCancel);
     return () => {
@@ -723,35 +731,62 @@ const Desktop: React.FC = () => {
     };
   }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer]);
 
-  const handleDragBegin = useCallback((item: DesktopItem, srcType: 'desktop' | 'privacy', x: number, y: number) => {
+  const handleDragBegin = useCallback((
+    item: DesktopItem,
+    srcType: 'desktop' | 'privacy',
+    x: number,
+    y: number,
+    pointerId: number,
+  ) => {
     if (ghostRef.current) return;
+    setContextMenu(null);
     let source: DragSource;
     if (srcType === 'privacy') {
       source = { type: 'privacy', itemId: item.id };
     } else {
       source = { type: 'desktop', itemId: item.id, page: latestRef.current.currentPage };
     }
-    const g: GhostState = { item, source, x, y };
+    const g: GhostState = { item, source, pointerId, x, y };
     ghostRef.current = g;
     setGhost(g);
-    setDragSource(source);
     setIsDragging(true);
   }, []);
 
+  const handleDesktopDragBegin = useCallback((
+    item: DesktopItem,
+    x: number,
+    y: number,
+    pointerId: number,
+  ) => handleDragBegin(item, 'desktop', x, y, pointerId), [handleDragBegin]);
+
+  const handlePrivacyDragBegin = useCallback((
+    item: DesktopItem,
+    x: number,
+    y: number,
+    pointerId: number,
+  ) => handleDragBegin(item, 'privacy', x, y, pointerId), [handleDragBegin]);
+
   // 从文件夹内拖出到桌面
-  const handleDragFromFolder = useCallback((child: DesktopItem, folderId: string, x: number, y: number) => {
+  const handleDragFromFolder = useCallback((
+    child: DesktopItem,
+    folderId: string,
+    x: number,
+    y: number,
+    pointerId: number,
+  ) => {
+    if (ghostRef.current) return;
+    setContextMenu(null);
     const source: DragSource = { type: 'folder', itemId: child.id, folderId };
-    const g: GhostState = { item: child, source, x, y };
+    const g: GhostState = { item: child, source, pointerId, x, y };
     ghostRef.current = g;
     setGhost(g);
-    setDragSource(source);
     setIsDragging(true);
   }, []);
 
   const handleLongPress = useCallback((item: DesktopItem, x: number, y: number) => {
-    // widget 暂不支持上下文菜单
-    if (item.type === 'widget') return;
-    setContextMenu({ x, y, itemId: item.id, isSystem: item.type === 'system', isFolder: item.type === 'folder' });
+    // widget / system 仅进入拖拽待命，不显示编辑菜单。
+    if (item.type === 'widget' || item.type === 'system') return;
+    setContextMenu({ x, y, itemId: item.id, isFolder: item.type === 'folder' });
   }, []);
 
   const handleSystemClick = useCallback((item: DesktopItem) => {
@@ -763,6 +798,11 @@ const Desktop: React.FC = () => {
   const handleFolderClick = useCallback((folder: DesktopItem) => {
     setOpenFolderId(folder.id);
   }, []);
+
+  const handleItemClick = useCallback((item: DesktopItem) => {
+    if (item.type === 'folder') handleFolderClick(item);
+    else if (item.type === 'system') handleSystemClick(item);
+  }, [handleFolderClick, handleSystemClick]);
 
   const handleAddApp = useCallback(
     (app: { name: string; url: string; iconUrl?: string; iconCrop?: import('@/types').IconCrop }) => {
@@ -901,15 +941,22 @@ const Desktop: React.FC = () => {
       }
     };
 
+    const onTouchCancel = () => {
+      tracking = false;
+      horizontalLockRef.current = false;
+      settleTrack(startOffsetRef.current);
+    };
+
     el.addEventListener('touchstart', onTouchStart, { passive: true });
     el.addEventListener('touchmove', onTouchMove, { passive: false }); // non-passive 以支持 preventDefault
     el.addEventListener('touchend', onTouchEnd, { passive: true });
-    el.addEventListener('touchcancel', () => { tracking = false; settleTrack(startOffsetRef.current); }, { passive: true });
+    el.addEventListener('touchcancel', onTouchCancel, { passive: true });
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchCancel);
     };
   }, [setCurrentPage]); // setCurrentPage 是稳定引用
 
@@ -920,16 +967,18 @@ const Desktop: React.FC = () => {
    */
   /**
    * 渲染单页网格（pageIndex + items 参数化）
-   * 所有页同时挂载，非当前页用 display:none 隐藏，
-   * 保证 AppIcon 不随翻页卸载，避免图标重新加载。
+   * 所有页同时挂载在横向滑轨中，保证 AppIcon 不随翻页卸载，避免图标重新加载。
    */
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
     const renderRows = settings.rows ?? 8;
     const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize, settings.iconRadiusPct);
+    const itemsByCell = new Map(items.map((item) => [`${item.row}:${item.col}`, item] as const));
+    const dragBegin = pageIndex === -1 ? handlePrivacyDragBegin : handleDesktopDragBegin;
 
     for (let r = 0; r < renderRows; r++) {
-      const widgetItem = items.find((it) => it.row === r && it.col === 0 && it.type === 'widget');
+      const firstCellItem = itemsByCell.get(`${r}:0`);
+      const widgetItem = firstCellItem?.type === 'widget' ? firstCellItem : undefined;
 
       if (widgetItem) {
         const isGhost = ghost?.source.itemId === widgetItem.id;
@@ -948,8 +997,8 @@ const Desktop: React.FC = () => {
             <WidgetGridCell
               item={widgetItem}
               ghost={isGhost}
-              onDragBegin={(it, x, y) => handleDragBegin(it, 'desktop', x, y)}
-              onLongPress={(x, y) => handleLongPress(widgetItem, x, y)}
+              onDragBegin={dragBegin}
+              onLongPress={handleLongPress}
             />
           </div>,
         );
@@ -960,7 +1009,7 @@ const Desktop: React.FC = () => {
       }
 
       for (let c = 0; c < gridCols; c++) {
-        const item = items.find((it) => it.row === r && it.col === c);
+        const item = itemsByCell.get(`${r}:${c}`);
         if (item) {
           cells.push(
             <div
@@ -975,13 +1024,10 @@ const Desktop: React.FC = () => {
               <AppIcon
                 item={item}
                 ghost={ghost?.source.itemId === item.id}
-                onClick={() => {
-                  if (item.type === 'folder') handleFolderClick(item);
-                  else if (item.type === 'system') handleSystemClick(item);
-                }}
-                onLongPress={(x, y) => handleLongPress(item, x, y)}
-                onDragBegin={(it, x, y) => handleDragBegin(it, pageIndex === -1 ? 'privacy' : 'desktop', x, y)}
-                onDeleteInEditMode={(id) => handleDeleteApp(id)}
+                onClick={handleItemClick}
+                onLongPress={handleLongPress}
+                onDragBegin={dragBegin}
+                onDeleteInEditMode={handleDeleteApp}
               />
             </div>,
           );
@@ -1005,6 +1051,7 @@ const Desktop: React.FC = () => {
 
     return (
       <div
+        data-page-grid={pageIndex}
         className="grid gap-x-3 gap-y-3"
         style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, justifyItems: 'center' }}
       >
@@ -1042,7 +1089,6 @@ const Desktop: React.FC = () => {
       ) : settings.bgType === 'video' && settings.bgVideo ? (
         <video
           className="absolute inset-0 w-full h-full object-cover"
-          style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           data-desktop-layer="true"
           src={settings.bgVideo}
           autoPlay loop muted playsInline
@@ -1169,12 +1215,13 @@ const Desktop: React.FC = () => {
           <FolderView
             folder={openFolder}
             onClose={() => { setOpenFolderId(null); setFolderRenameId(null); }}
-            onLongPress={(item, x, y) => handleLongPress(item, x, y)}
+            onLongPress={handleLongPress}
             triggerRenameId={folderRenameId}
             onRenameDone={() => setFolderRenameId(null)}
-            onDragOutBegin={(child, folderId, x, y) => {
+            onDragIntentStart={() => setContextMenu(null)}
+            onDragOutBegin={(child, folderId, x, y, pointerId) => {
               // 不在此处关闭文件夹：遮罩已 pointer-events:none，onUp 落点后再关
-              handleDragFromFolder(child, folderId, x, y);
+              handleDragFromFolder(child, folderId, x, y, pointerId);
             }}
           />
         </React.Suspense>
@@ -1206,7 +1253,7 @@ const Desktop: React.FC = () => {
       )}
 
       {/* ContextMenu */}
-      {contextMenu && !contextMenu.isSystem && (
+      {contextMenu && !isDragging && (
         <React.Suspense fallback={null}><ContextMenu
           pos={contextMenu}
           onEdit={(id) => {
@@ -1265,7 +1312,15 @@ const Desktop: React.FC = () => {
       {ghost && (
         <div
           ref={ghostLayerRef}
+          data-drag-ghost="true"
           className="fixed pointer-events-none z-[300] opacity-80 transition-none"
+          style={{
+            left: 0,
+            top: 0,
+            transform: 'translate3d(0, 0, 0) translate(-50%, -50%)',
+            willChange: 'transform',
+            contain: 'layout paint style',
+          }}
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
@@ -1300,31 +1355,6 @@ function findItem(
   for (let p = 0; p < pages.length; p++) {
     const item = pages[p].find((it) => it.id === id);
     if (item) return { page: p, row: item.row, col: item.col };
-  }
-  return null;
-}
-
-// 辅助：在 preferPage 上找第一个空格（跳过被拖拽项自身），用于边缘松手时的回退落点
-function findFirstEmpty(
-  pages: DesktopItem[][],
-  preferPage: number,
-  excludeId?: string,
-  maxCols: number = MAX_COLS,
-  maxRows: number = MAX_ROWS,
-): { page: number; row: number; col: number } | null {
-  const allPages = Array.from({ length: pages.length }, (_, i) => i);
-  const order = preferPage >= 0 && preferPage < pages.length
-    ? [preferPage, ...allPages.filter((i) => i !== preferPage)]
-    : allPages;
-  for (const p of order) {
-    for (let r = 0; r < maxRows; r++) {
-      // 跳过被任意 widget rowSpan 视觉覆盖的行（不只是起始行）
-      if (isRowCoveredByWidget(pages[p], r)) continue;
-      for (let c = 0; c < maxCols; c++) {
-        const occupied = pages[p].some((it) => it.row === r && it.col === c && it.id !== excludeId);
-        if (!occupied) return { page: p, row: r, col: c };
-      }
-    }
   }
   return null;
 }

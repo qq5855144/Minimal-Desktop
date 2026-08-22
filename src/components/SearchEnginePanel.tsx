@@ -3,14 +3,15 @@
  * 搜索引擎选择面板 + 添加自定义引擎对话框
  * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+
 import { Plus, X } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
+  type AnyEngine,
   BUILTIN_ENGINES,
   getEngineById,
   getEngineIconSrc,
-  type AnyEngine,
 } from '@/lib/searchEngines';
 import type { CustomSearchEngine } from '@/types';
 
@@ -136,6 +137,8 @@ const MultiSourceImg: React.FC<{
   className?: string;
 }> = ({ candidates, alt, size, fallbackColor, fallbackLetter, className }) => {
   const [idx, setIdx] = useState(0);
+  const candidateKey = candidates.join('\n');
+  useEffect(() => setIdx(0), [candidateKey]);
   const src = candidates[idx] ?? null;
   if (src) {
     return (
@@ -145,6 +148,7 @@ const MultiSourceImg: React.FC<{
         alt={alt}
         width={size}
         height={size}
+        referrerPolicy="no-referrer"
         className={`object-contain ${className ?? ''}`}
         onError={() => setIdx((i) => i + 1)}
       />
@@ -171,6 +175,7 @@ function pickFirstLoadableIcon(candidates: string[]): Promise<string | null> {
     if (url.startsWith('data:')) return Promise.resolve(url);
     return new Promise<string | null>((resolve) => {
       const img = new Image();
+      img.referrerPolicy = 'no-referrer';
       const timer = setTimeout(() => {
         img.onload = img.onerror = null;
         resolve(tryNext(i + 1));
@@ -375,16 +380,14 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
 
   // 点击面板外部关闭
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = (e: PointerEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener('mousedown', handler, true);
-    document.addEventListener('touchstart', handler, true);
+    document.addEventListener('pointerdown', handler, true);
     return () => {
-      document.removeEventListener('mousedown', handler, true);
-      document.removeEventListener('touchstart', handler, true);
+      document.removeEventListener('pointerdown', handler, true);
     };
   }, [onClose]);
 

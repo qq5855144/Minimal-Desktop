@@ -1,6 +1,6 @@
-import type { DesktopData, DesktopItem, DesktopSettings } from '@/types';
 import { deepClone } from '@/lib/utils/deepClone';
 import { getWidgetConfig, isRowCoveredByWidget, wouldWidgetOverlap } from '@/lib/widgetConfig';
+import type { DesktopData, DesktopItem, DesktopSettings } from '@/types';
 
 /**
  * 桌面布局的唯一规则源。
@@ -40,6 +40,35 @@ export interface LayoutIssue {
   message: string;
   itemId?: string;
   page?: number;
+}
+
+/**
+ * 文件夹保持紧凑数组；拖到尚未填充的槽位等价于移到末尾。
+ * 返回 null 表示索引无效或顺序未变化，调用方无需产生历史记录。
+ */
+export function reorderFolderChildren(
+  children: DesktopItem[],
+  fromIdx: number,
+  toSlotIdx: number,
+  maxItems = LAYOUT_LIMITS.maxFolderApps,
+): DesktopItem[] | null {
+  if (
+    !Number.isInteger(fromIdx)
+    || !Number.isInteger(toSlotIdx)
+    || fromIdx < 0
+    || fromIdx >= children.length
+    || toSlotIdx < 0
+    || toSlotIdx >= maxItems
+    || fromIdx === toSlotIdx
+  ) {
+    return null;
+  }
+  const effectiveTargetIdx = Math.min(toSlotIdx, children.length - 1);
+  if (fromIdx === effectiveTargetIdx) return null;
+  const next = children.map((child) => ({ ...child }));
+  const [moved] = next.splice(fromIdx, 1);
+  next.splice(effectiveTargetIdx, 0, moved);
+  return next;
 }
 
 function isIntegerInRange(value: number, min: number, maxExclusive: number): boolean {

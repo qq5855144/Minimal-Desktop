@@ -1,26 +1,27 @@
 // @refresh reset
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { DesktopData, DesktopItem, IconColor, ItemType, DesktopSettings } from '@/types';
-import { loadDesktopData, saveDesktopData, loadSettings, saveSettings, savePrivacyVault, loadPrivacyVault } from '@/lib/storage';
-import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
-import { deepClone } from '@/lib/utils/deepClone';
-import { pruneIconCaches } from '@/lib/iconCache';
-import { loadVideoDB, IDB_VIDEO_MARKER } from '@/lib/videoStorage';
-import { isRowCoveredByWidget } from '@/lib/widgetConfig';
-import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
 import { HistoryBuffer } from '@/lib/historyBuffer';
+import { pruneIconCaches } from '@/lib/iconCache';
 import {
-  LAYOUT_LIMITS,
   findFirstAvailableSlot,
   findFirstAvailableSlotAcrossPages,
+  LAYOUT_LIMITS,
   minimumRowsForEnabledWidgets,
   moveDesktopItem,
   reflowDesktopData,
+  reorderFolderChildren as reorderFolderChildrenLayout,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   validateDesktopLayout,
 } from '@/lib/layoutEngine';
+import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
+import { loadDesktopData, loadPrivacyVault, loadSettings, saveDesktopData, savePrivacyVault, saveSettings } from '@/lib/storage';
+import { deepClone } from '@/lib/utils/deepClone';
+import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
+import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
+import { isRowCoveredByWidget } from '@/lib/widgetConfig';
+import type { DesktopData, DesktopItem, DesktopSettings, IconColor, ItemType } from '@/types';
 
 const MAX_ROWS = LAYOUT_LIMITS.maxRows;
 const MAX_COLS = LAYOUT_LIMITS.maxCols;
@@ -256,12 +257,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
   useEffect(() => {
     const s = loadSettings();
+    let cancelled = false;
+    const restoredUrls = new Set<string>();
     if (s.bgType === 'video' && s.bgVideo === IDB_VIDEO_MARKER) {
       loadVideoDB().then((file) => {
         if (file) {
           const url = URL.createObjectURL(file);
+          if (cancelled) { URL.revokeObjectURL(url); return; }
+          restoredUrls.add(url);
           setSettings((prev) => ({ ...prev, bgVideo: url }));
-        } else {
+        } else if (!cancelled) {
           setSettings((prev) => ({ ...prev, bgVideo: undefined, bgType: 'default' }));
           saveSettings({ ...s, bgVideo: undefined, bgType: 'default' });
         }
@@ -270,13 +275,20 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (s.bgType === 'image' && s.bgImage === IDB_WALLPAPER_MARKER) {
       loadWallpaperDB().then((file) => {
         if (file) {
-          setSettings((prev) => ({ ...prev, bgImage: URL.createObjectURL(file) }));
-        } else {
+          const url = URL.createObjectURL(file);
+          if (cancelled) { URL.revokeObjectURL(url); return; }
+          restoredUrls.add(url);
+          setSettings((prev) => ({ ...prev, bgImage: url }));
+        } else if (!cancelled) {
           setSettings((prev) => ({ ...prev, bgImage: undefined, bgType: 'default' }));
           saveSettings({ ...s, bgImage: undefined, bgType: 'default' });
         }
       });
     }
+    return () => {
+      cancelled = true;
+      restoredUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
   }, []);
 
   // data 变更时持久化（跳过首次挂载）
@@ -519,10 +531,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     for (const page of next.pages) {
       const folder = page.find((it) => it.id === folderId);
       if (folder?.children) {
-        if (fromIdx < 0 || fromIdx >= folder.children.length || toIdx < 0 || toIdx >= folder.children.length) return;
-        if (fromIdx === toIdx) return;
-        const [moved] = folder.children.splice(fromIdx, 1);
-        folder.children.splice(toIdx, 0, moved);
+        const reordered = reorderFolderChildrenLayout(folder.children, fromIdx, toIdx);
+        if (!reordered) return;
+        folder.children = reordered;
         commitDesktopData(next);
         return;
       }

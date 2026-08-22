@@ -1,30 +1,25 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { DesktopItem } from '@/types';
+import { Folder, Globe, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useDesktop } from '@/contexts/DesktopContext';
+import { useLongPressIntent } from '@/hooks/use-long-press-intent';
 import { getColorStyle } from '@/lib/colors';
+import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
+import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { openExternalUrl } from '@/lib/openExternal';
-import { useDesktop } from '@/contexts/DesktopContext';
-import { Folder, Settings, RefreshCw, Globe, Plus, X } from 'lucide-react';
-import { getIconCache, fetchAndCacheIcon } from '@/lib/iconCache';
-import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
-
-
+import type { DesktopItem } from '@/types';
 
 interface AppIconProps {
   item: DesktopItem;
-  onClick?: () => void;
-  onLongPress?: (x: number, y: number) => void;
-  onDragBegin?: (item: DesktopItem, x: number, y: number) => void;
+  onClick?: (item: DesktopItem) => void;
+  onLongPress?: (item: DesktopItem, x: number, y: number) => void;
+  onDragBegin?: (item: DesktopItem, x: number, y: number, pointerId: number) => void;
   onDeleteInEditMode?: (id: string) => void;
   size?: 'normal' | 'small';
   ghost?: boolean;
   /** 覆盖图标尺寸（px），不传则使用 settings.iconSize */
   iconPx?: number;
 }
-
-const LONG_PRESS_MS = 500;
-// 手机端手指轻微抖动约 5-10px，阈值设为 14px 以避免误触取消长按
-const DRAG_THRESHOLD = 14;
 
 /** 文件夹缩略图内的子图标 */
 const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
@@ -104,79 +99,30 @@ const AppIcon: React.FC<AppIconProps> = ({
     return () => { cancelled = true; };
   }, [item.iconUrl]);
 
-  const longTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longFiredRef  = useRef(false);
-  const startXRef     = useRef(0);
-  const startYRef     = useRef(0);
-  const dragStartedRef = useRef(false);
-  // 只有本元素收到过 pointerdown 才允许处理 pointermove，
-  // 防止释放指针捕获后路过的其他图标误触发 onDragBegin
-  const pointerDownActiveRef = useRef(false);
-
   const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize, settings.iconRadiusPct);
   const px = metrics.iconPx;
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
 
-  const cancelLongPress = useCallback(() => {
-    if (longTimerRef.current) { clearTimeout(longTimerRef.current); longTimerRef.current = null; }
-  }, []);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // 阻止默认行为，防止浏览器 context-menu / text-select / callout 干扰长按
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    startXRef.current = e.clientX;
-    startYRef.current = e.clientY;
-    longFiredRef.current = false;
-    dragStartedRef.current = false;
-    pointerDownActiveRef.current = true;
-    longTimerRef.current = setTimeout(() => {
-      longFiredRef.current = true;
-      onLongPress?.(e.clientX, e.clientY);
-    }, LONG_PRESS_MS);
-  }, [onLongPress]);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    // 未收到本元素的 pointerdown 时忽略：防止释放捕获后路过的图标误触发拖拽
-    if (!pointerDownActiveRef.current) return;
-    if (dragStartedRef.current) return;
-    const dx = e.clientX - startXRef.current;
-    const dy = e.clientY - startYRef.current;
-    if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-      dragStartedRef.current = true;
-      pointerDownActiveRef.current = false;
-      cancelLongPress();
-      // 拖拽正式开始时立即释放指针捕获：
-      // 若保留捕获，换页时 AppIcon 会从 DOM 卸载，浏览器因此触发 pointercancel 清除拖拽状态
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-      onDragBegin?.(item, e.clientX, e.clientY);
-    }
-  }, [item, onDragBegin, cancelLongPress]);
-
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    dragStartedRef.current = false;
-    pointerDownActiveRef.current = false;
-    cancelLongPress();
-    // 确保释放捕获（未达到拖拽阈值时）
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  }, [cancelLongPress]);
+  const pressIntent = useLongPressIntent<HTMLButtonElement>({
+    onLongPress: (x, y) => onLongPress?.(item, x, y),
+    onDragStart: (x, y, pointerId) => onDragBegin?.(item, x, y, pointerId),
+  });
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    if (longFiredRef.current || dragStartedRef.current) return;
+    if (pressIntent.consumeClick()) {
+      e.preventDefault();
+      return;
+    }
     if (editMode && item.type !== 'system') return;
     if (item.type === 'app' && item.url) {
       e.currentTarget.blur();
       openExternalUrl(item.url);
       return;
     }
-    onClick?.();
-  }, [editMode, item, onClick]);
+    onClick?.(item);
+  }, [editMode, item, onClick, pressIntent]);
 
   const iconStyle: React.CSSProperties = {
     width: px, height: px,
@@ -302,10 +248,10 @@ const AppIcon: React.FC<AppIconProps> = ({
       <button
         type="button"
         onClick={handleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onPointerDown={pressIntent.onPointerDown}
+        onPointerMove={pressIntent.onPointerMove}
+        onPointerUp={pressIntent.onPointerUp}
+        onPointerCancel={pressIntent.onPointerCancel}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
         className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
@@ -332,4 +278,4 @@ const AppIcon: React.FC<AppIconProps> = ({
   );
 };
 
-export default AppIcon;
+export default React.memo(AppIcon);

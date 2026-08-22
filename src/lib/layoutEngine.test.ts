@@ -4,6 +4,7 @@ import {
   canPlaceItem,
   moveDesktopItem,
   reflowDesktopData,
+  reorderFolderChildren,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   validateDesktopLayout,
@@ -96,5 +97,20 @@ describe('layoutEngine', () => {
       if (result.ok) current = result.data;
       expect(validateDesktopLayout(current, { cols: 4, rows: 8 })).toEqual([]);
     }
+  });
+
+  it('文件夹项目可拖到空槽并稳定追加到末尾', () => {
+    const children = [app('a', 0, 0, 0), app('b', 0, 0, 0), app('c', 0, 0, 0)];
+    const reordered = reorderFolderChildren(children, 0, 8);
+    expect(reordered?.map((item) => item.id)).toEqual(['b', 'c', 'a']);
+    expect(children.map((item) => item.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('文件夹排序拒绝越界和无变化操作', () => {
+    const children = [app('a', 0, 0, 0), app('b', 0, 0, 0)];
+    expect(reorderFolderChildren(children, -1, 0)).toBeNull();
+    expect(reorderFolderChildren(children, 0, 9)).toBeNull();
+    expect(reorderFolderChildren(children, 1, 1)).toBeNull();
+    expect(reorderFolderChildren(children, 1, 8)).toBeNull();
   });
 });

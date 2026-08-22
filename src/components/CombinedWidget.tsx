@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mic, Camera } from 'lucide-react';
+import { Camera, Mic } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { useMinuteClock } from '@/hooks/use-minute-clock';
 import { openExternalUrl } from '@/lib/openExternal';
-import { getEngineById, buildSearchUrl, getEngineIconSrc } from '@/lib/searchEngines';
+import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
 
 // ── 农历工具 ──────────────────────────────────────────────────────────────────
@@ -36,18 +37,13 @@ function getLunarDate(date: Date): string {
 // ── 合并组件：时钟 + 搜索框 ──────────────────────────────────────────────────
 const CombinedWidget: React.FC = () => {
   const { settings } = useDesktop();
-  const [now, setNow] = useState(new Date());
+  const now = useMinuteClock();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const engineBtnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
 
   const hours   = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
