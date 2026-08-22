@@ -16,6 +16,7 @@
 - 移除未使用的依赖（axios、ky、streamdown、recharts、motion、cmdk、vaul、video-react、@sentry/react、miaoda 等 50 个）。
 - 默认壁纸由外部 CDN 改为本地 SVG 资源。
 ### Changed
+- 修复搜索栏组件被 `role="button"` 误判为不可拖拽交互区的问题；组件网格改用与当前图标尺寸一致的显式行高，并以统一几何规则换算落点，确保 `rowSpan` 占位与拖拽位置一致。
 - 长按菜单与拖拽共用同一触发时机：保持不动显示菜单，长按后继续移动切换为拖拽并自动关闭菜单；文件夹内部排序与拖出也使用相同规则。
 - 拖拽热路径改为每帧一次 RAF + `elementFromPoint` 命中，幽灵仅通过 `translate3d` 移动；空闲状态不再调度拖拽 RAF，也不再每帧扫描所有页面格子。
 - 多个时钟组件共享一个分钟级定时器，后台标签页停止唤醒；移除桌面静态层长期 `will-change`，降低移动端合成层和 GPU 内存压力。

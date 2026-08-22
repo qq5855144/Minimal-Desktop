@@ -16,6 +16,24 @@ const INTERACTIVE_SELECTOR = [
   '[data-press-intent-ignore="true"]',
 ].join(',');
 
+const PRESS_INTENT_SURFACE_ATTRIBUTE = 'data-press-intent-surface';
+
+/**
+ * 交互控件默认保留点击/输入行为；显式标记的控件外壳则可同时作为长按拖拽面。
+ * 例如搜索栏整体是 role=button，但中央区域仍需要能够长按移动组件。
+ */
+export function shouldIgnorePressIntentTarget(
+  target: Element,
+  currentTarget: Element,
+): boolean {
+  const interactive = target.closest(INTERACTIVE_SELECTOR);
+  return Boolean(
+    interactive
+    && interactive !== currentTarget
+    && interactive.getAttribute(PRESS_INTENT_SURFACE_ATTRIBUTE) !== 'true',
+  );
+}
+
 interface LongPressIntentOptions {
   enabled?: boolean;
   longPressMs?: number;
@@ -59,17 +77,18 @@ export function useLongPressIntent<T extends HTMLElement>(options: LongPressInte
     if (current.enabled === false || !event.isPrimary) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 
+    clearTimer();
+    suppressClickRef.current = false;
+    stateRef.current = createIdlePressIntentState();
+
     if (current.ignoreInteractiveDescendants) {
       const target = event.target as Element;
-      const interactive = target.closest(INTERACTIVE_SELECTOR);
-      if (interactive && interactive !== event.currentTarget) return;
+      if (shouldIgnorePressIntentTarget(target, event.currentTarget)) return;
     }
 
     event.preventDefault();
-    clearTimer();
-    suppressClickRef.current = false;
     stateRef.current = transitionPressIntent(
-      createIdlePressIntentState(),
+      stateRef.current,
       { type: 'start', pointerId: event.pointerId, x: event.clientX, y: event.clientY },
     ).state;
 

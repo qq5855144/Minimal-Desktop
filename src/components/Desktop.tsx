@@ -5,8 +5,13 @@ import { uploadToGithub } from '@/lib/github';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
-import { getWidgetConfig, isRowCoveredByWidget, wouldWidgetOverlap } from '@/lib/widgetConfig';
-import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
+import {
+  getWidgetConfig,
+  getWidgetGridRowGapPx,
+  isRowCoveredByWidget,
+  wouldWidgetOverlap,
+} from '@/lib/widgetConfig';
+import { getWidgetLayoutMetrics, resolveGridRowAtY } from '@/lib/widgetLayout';
 import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
 import type { ContextMenuPosition } from './ContextMenu';
@@ -130,6 +135,12 @@ const Desktop: React.FC = () => {
 
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
+  const desktopIconMetrics = getIconLayoutMetrics(
+    'normal',
+    settings.iconSize,
+    settings.iconRadiusPct,
+  );
+  const gridRowGapPx = getWidgetGridRowGapPx();
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
@@ -245,6 +256,7 @@ const Desktop: React.FC = () => {
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
+    gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
     setCurrentPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
@@ -252,6 +264,7 @@ const Desktop: React.FC = () => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
+      gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
       setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
     };
@@ -547,121 +560,27 @@ const Desktop: React.FC = () => {
 
         if (isWidget) {
           // ── 组件拖拽落点 ──
-          // 问题：widget 是跨行节点（rowSpan > 1），DOM 中只渲染起始行的 cell，
-          // 中间逻辑行（如 clock row=0 span=2，row=1 没有 DOM cell）无法被直接命中。
-          // 解决：在 rowBounds 中为每个 widget 的 rowSpan 补全虚拟逻辑行，
-          // 把 widget 的视觉高度均分为 rowSpan 份，每份对应一个逻辑行的 Y 范围。
-          type RowBound = { top: number; bottom: number };
-          const rowBounds = new Map<number, RowBound>();
-          const targetPageCells = containerRef.current?.querySelectorAll<HTMLElement>(
-            `[data-cell][data-page="${targetPage}"]`,
-          ) ?? [];
-
-          // 1. 从真实 DOM cell 收集各行的 Y 范围
-          for (const cellEl of targetPageCells) {
-            const rNum = Number(cellEl.dataset.row);
-            const rect = cellEl.getBoundingClientRect();
-            const prev = rowBounds.get(rNum);
-            if (!prev) {
-              rowBounds.set(rNum, { top: rect.top, bottom: rect.bottom });
-            } else {
-              rowBounds.set(rNum, {
-                top: Math.min(prev.top, rect.top),
-                bottom: Math.max(prev.bottom, rect.bottom),
-              });
-            }
-          }
-
-          // 2. 为 widget 的 rowSpan 覆盖范围补全虚拟逻辑行
-          // widget DOM 节点的 cell 高度 = rowSpan 个 grid track（视觉全高），
-          // 必须将其均分为 rowSpan 份，每份对应一个逻辑行。
-          // 关键：被拖拽的 widget 自身的 row=w.row 已被步骤1收集（全高），
-          // 必须强制覆盖（不能用 !has() 跳过），否则 row=0 永远等于全高，
-          // 导致落在 clock 下半时命中 row=0 → 触发 stayInPlace → 无法下移。
-          const pageWidgets = (d.pages[targetPage] ?? []).filter(it => it.type === 'widget');
-          for (const w of pageWidgets) {
-            const span = getWidgetConfig(w.widgetType).rowSpan;
-            if (span <= 1) continue;
-            const startBound = rowBounds.get(w.row);
-            if (!startBound) continue;
-            const totalH = startBound.bottom - startBound.top;
-            const rowH = totalH / span;
-            for (let s = 0; s < span; s++) {
-              const logicalRow = w.row + s;
-              // 强制写入（覆盖步骤1收集的全高 bound），确保每个子行仅占 1/span 高度
-              rowBounds.set(logicalRow, {
-                top: startBound.top + s * rowH,
-                bottom: startBound.top + (s + 1) * rowH,
-              });
-            }
-          }
-
-          // 3. 补全"空行"的 Y 范围：空行没有 DOM cell 也不被 widget 覆盖，
-          // 通过相邻行的 bottom/top 插值，保证落点计算不会跳过空行直接命中下方的行。
-          // 策略：找出 rowBounds 中已有的最大行号，再往下补若干行（按行高估算）
-          {
-            const knownRows = Array.from(rowBounds.keys()).sort((a, b) => a - b);
-            if (knownRows.length >= 2) {
-              // 估算行高：取相邻两行 top 差的中位数
-              const gaps: number[] = [];
-              for (let i = 1; i < knownRows.length; i++) {
-                const prev2 = rowBounds.get(knownRows[i - 1])!;
-                const curr2 = rowBounds.get(knownRows[i])!;
-                gaps.push(curr2.top - prev2.top);
-              }
-              gaps.sort((a, b) => a - b);
-              const medianRowH = gaps[Math.floor(gaps.length / 2)];
-              const maxKnownRow = knownRows[knownRows.length - 1];
-              const maxKnownBound = rowBounds.get(maxKnownRow)!;
-              // 向后补全至 maxRow+4 行（覆盖所有可能落点）
-              for (let r = maxKnownRow + 1; r <= maxKnownRow + 4; r++) {
-                if (!rowBounds.has(r)) {
-                  const offset2 = r - maxKnownRow;
-                  rowBounds.set(r, {
-                    top: maxKnownBound.top + offset2 * medianRowH,
-                    bottom: maxKnownBound.top + (offset2 + 1) * medianRowH,
-                  });
-                }
-              }
-              // 向前补全 row=0 以上（若最小行不是 0）
-              const minKnownRow = knownRows[0];
-              const minKnownBound = rowBounds.get(minKnownRow)!;
-              for (let r = minKnownRow - 1; r >= 0; r--) {
-                if (!rowBounds.has(r)) {
-                  const offset2 = minKnownRow - r;
-                  rowBounds.set(r, {
-                    top: minKnownBound.top - offset2 * medianRowH,
-                    bottom: minKnownBound.top - (offset2 - 1) * medianRowH,
-                  });
-                }
-              }
-            }
-          }
-
-          let widgetTargetRow = targetRow;
-          let hit = false;
-          // 第一步：直接命中
-          rowBounds.forEach((b, rowIdx) => {
-            if (!hit && e.clientY >= b.top && e.clientY <= b.bottom) {
-              widgetTargetRow = rowIdx; hit = true;
-            }
-          });
-          // 第二步：在行间隙时 → 比较到各行最近边缘距离（避免中心距偏向高行）
-          if (!hit) {
-            let minEdgeDist = Infinity;
-            rowBounds.forEach((b, rowIdx) => {
-              const dist = e.clientY < b.top ? b.top - e.clientY : e.clientY - b.bottom;
-              if (dist < minEdgeDist) { minEdgeDist = dist; widgetTargetRow = rowIdx; }
-            });
-          }
+          // 网格显式使用统一逻辑行高；直接按 grid top + row height + gap 换算，
+          // 不再从跨行组件 DOM 高度反推 rowSpan，避免搜索栏与时钟混排时落点漂移。
+          const widgetGrid = containerRef.current?.querySelector<HTMLElement>(
+            `[data-page-grid="${targetPage}"]`,
+          );
+          const widgetGridRect = widgetGrid?.getBoundingClientRect();
+          const widgetTargetRow = widgetGridRect
+            ? resolveGridRowAtY(
+              e.clientY,
+              widgetGridRect.top,
+              latestRef.current.gridRowHeightPx,
+              getWidgetGridRowGapPx(),
+              latestRef.current.gridRows,
+            )
+            : null;
+          if (widgetTargetRow === null) return;
 
           // ── widget 拖拽落点判定 ──
           // 规则：
           //   1. 落点与自身起始行重叠（未移动）→ 忽略
-          //   2. 落点恰好是另一个 widget 的 row（精确匹配）→ 互换，但需要：
-          //        a. 各自新位置的 rowSpan 范围内无第三方 widget 重叠
-          //        b. 各自新位置的 rowSpan 范围内无普通应用（不强制推移普通应用）
-          //   3. 落点是空行 → 移动（新 span 内的普通应用 reflow 到腾出的旧行）
+          //   2. 目标 rowSpan 范围必须完整为空，避免组件覆盖其他组件或普通项目
           const targetPageItems = d.pages[targetPage] ?? [];
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
           const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
@@ -972,7 +891,6 @@ const Desktop: React.FC = () => {
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
     const renderRows = settings.rows ?? 8;
-    const iconMetrics = getIconLayoutMetrics('normal', settings.iconSize, settings.iconRadiusPct);
     const itemsByCell = new Map(items.map((item) => [`${item.row}:${item.col}`, item] as const));
     const dragBegin = pageIndex === -1 ? handlePrivacyDragBegin : handleDesktopDragBegin;
 
@@ -991,12 +909,14 @@ const Desktop: React.FC = () => {
             data-col={0}
             data-page={pageIndex}
             data-itemid={widgetItem.id}
+            data-row-span={span}
             style={{ gridColumn: `1 / -1`, gridRow: `span ${span}` }}
             className={`w-full transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
           >
             <WidgetGridCell
               item={widgetItem}
               ghost={isGhost}
+              iconPx={settings.iconSize}
               onDragBegin={dragBegin}
               onLongPress={handleLongPress}
             />
@@ -1040,7 +960,7 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={pageIndex}
               className="flex items-center justify-center rounded-xl"
-              style={{ minHeight: iconMetrics.cellMinHeightPx }}
+              style={{ minHeight: desktopIconMetrics.cellMinHeightPx }}
             >
               {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
             </div>,
@@ -1052,8 +972,13 @@ const Desktop: React.FC = () => {
     return (
       <div
         data-page-grid={pageIndex}
-        className="grid gap-x-3 gap-y-3"
-        style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, justifyItems: 'center' }}
+        className="grid gap-x-3"
+        style={{
+          gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+          gridAutoRows: `${desktopIconMetrics.cellMinHeightPx}px`,
+          rowGap: gridRowGapPx,
+          justifyItems: 'center',
+        }}
       >
         {cells}
       </div>

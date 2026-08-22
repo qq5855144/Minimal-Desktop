@@ -1,5 +1,5 @@
-import React, { useRef, useState, useCallback } from 'react';
 import { Mic, ScanLine } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
 import SearchEnginePanel from './SearchEnginePanel';
@@ -41,6 +41,7 @@ const SearchBar: React.FC = () => {
         style={formStyle}
         onClick={() => setSearchScreenOpen(true)}
         role="button"
+        data-press-intent-surface="true"
         tabIndex={0}
         aria-label="打开搜索"
         onKeyDown={(e) => e.key === 'Enter' && setSearchScreenOpen(true)}
