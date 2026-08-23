@@ -14,6 +14,7 @@ describe('iconLayout', () => {
     const twoRowHeight = icon.cellMinHeightPx * 2 + DESKTOP_GRID_GAP_PX;
 
     expect(folder.sidePx).toBe(126);
+    expect(folder.radius).toBe('12%');
     expect(folder.totalHeightPx).toBe(twoRowHeight);
     expect(folder.sidePx + icon.labelGapPx + icon.labelHeightPx).toBe(twoRowHeight);
   });
@@ -23,8 +24,8 @@ describe('iconLayout', () => {
     const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
     const folder = getLargeFolderLayoutMetrics(icon, grid.columnWidthPx);
 
-    // 两侧 1px 边框 + 3 个缩略图 + 左右及两个内部间隔，精确还原正方形边长。
-    expect(2 + folder.previewCellPx * 3 + folder.spacingPx * 4)
+    // 无边线：3 个缩略图 + 左右及两个内部间隔，精确还原正方形边长。
+    expect(folder.previewCellPx * 3 + folder.spacingPx * 4)
       .toBeCloseTo(folder.sidePx, 8);
     expect(folder.previewCellPx).toBe(folder.spacingPx * 4);
     expect(folder.previewCellPx).toBeGreaterThan(icon.folderPreviewCellPx);
@@ -45,6 +46,8 @@ describe('iconLayout', () => {
 
     expect(largeIcon.iconRadius).toBe('40%');
     expect(smallIcon.iconRadius).toBe('10%');
+    expect(fourColumnFolder.radius).toBe('12%');
+    expect(fiveColumnFolder.radius).toBe('12%');
     expect(fourColumnFolder.sidePx).toBeGreaterThan(smallFolder.sidePx);
     expect(fiveColumns.iconPx).toBeLessThan(fourColumns.iconPx);
     expect(fiveColumnFolder.sidePx).toBeLessThan(fourColumnFolder.sidePx);

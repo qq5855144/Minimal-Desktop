@@ -199,6 +199,7 @@ const AppIcon: React.FC<AppIconProps> = ({
             ...(isLargeFolder ? {
               width: resolvedLargeFolderLayout!.sidePx,
               height: resolvedLargeFolderLayout!.sidePx,
+              borderRadius: resolvedLargeFolderLayout!.radius,
               boxSizing: 'border-box',
               flex: '0 0 auto',
               padding: preview.length > 0 ? previewGapPx : 0,
@@ -209,9 +210,6 @@ const AppIcon: React.FC<AppIconProps> = ({
               gridTemplateRows: preview.length > 0
                 ? `repeat(3, ${cellPx}px)`
                 : undefined,
-              border: isNeu
-                ? '1px solid rgba(148,163,184,0.22)'
-                : '1px solid rgba(255,255,255,0.2)',
             } : {}),
             background: isNeu ? 'rgba(232,237,245,0.55)' : 'rgba(255,255,255,0.18)',
             backdropFilter: 'blur(16px)',

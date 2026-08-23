@@ -7,7 +7,7 @@ const ICON_LABEL_GAP_PX = 4;
 const ICON_LABEL_PADDING_X_PX = 8;
 const FOLDER_PREVIEW_SCALE = 0.78;
 const FOLDER_PREVIEW_GAP_PX = 3;
-const LARGE_FOLDER_BORDER_PX = 1;
+const LARGE_FOLDER_RADIUS = '12%';
 
 /** 桌面行、列统一间隔；组件、普通图标和大文件夹共用同一几何基准。 */
 export const DESKTOP_GRID_GAP_PX = 12;
@@ -51,6 +51,8 @@ export interface DesktopGridLayoutMetrics {
 export interface LargeFolderLayoutMetrics {
   /** 文件夹可视外框边长，不包含下方名称。 */
   sidePx: number;
+  /** 2×2 外框使用固定圆角，不受应用图标圆角设置影响。 */
+  radius: string;
   /** 外框内边距与缩略图行、列间距共用此值。 */
   spacingPx: number;
   /** 3×3 缩略图单格边长。 */
@@ -144,12 +146,13 @@ export function getLargeFolderLayoutMetrics(
     - iconMetrics.labelHeightPx;
   const horizontalSidePx = Math.max(0, columnWidthPx * 2 + DESKTOP_GRID_GAP_PX);
   const sidePx = Math.max(0, Math.min(verticalSidePx, horizontalSidePx));
-  const innerSidePx = Math.max(0, sidePx - LARGE_FOLDER_BORDER_PX * 2);
-  const spacingPx = innerSidePx / 16;
-  const previewCellPx = innerSidePx / 4;
+  // 无边线：整个正方形直接按 16 份分配，3 个缩略图各 4 份、四段间距各 1 份。
+  const spacingPx = sidePx / 16;
+  const previewCellPx = sidePx / 4;
 
   return {
     sidePx,
+    radius: LARGE_FOLDER_RADIUS,
     spacingPx,
     previewCellPx,
     previewFontPx: previewCellPx * 0.35,
