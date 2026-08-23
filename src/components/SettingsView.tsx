@@ -713,6 +713,11 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
             />
           </div>
         ))}
+
+        <p className={`px-1 text-[11px] leading-4 ${t.textDim}`}>
+          2×2 文件夹会随图标大小、圆角和 4/5 列布局实时缩放；窄屏下将按实际列宽等比收缩，
+          保持正方形外框、3×3 等距缩略图和名称间距一致。
+        </p>
       </div>
     );
   };

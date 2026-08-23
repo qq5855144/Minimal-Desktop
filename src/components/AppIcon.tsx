@@ -5,7 +5,11 @@ import { useLongPressIntent } from '@/hooks/use-long-press-intent';
 import { getColorStyle } from '@/lib/colors';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
-import { getIconLayoutMetrics } from '@/lib/iconLayout';
+import {
+  getIconLayoutMetrics,
+  getLargeFolderLayoutMetrics,
+  type LargeFolderLayoutMetrics,
+} from '@/lib/iconLayout';
 import { openExternalUrl } from '@/lib/openExternal';
 import type { DesktopItem } from '@/types';
 
@@ -19,6 +23,8 @@ interface AppIconProps {
   ghost?: boolean;
   /** 覆盖图标尺寸（px），不传则使用 settings.iconSize */
   iconPx?: number;
+  /** 由桌面真实列宽计算的 2×2 文件夹几何尺寸。 */
+  largeFolderLayout?: LargeFolderLayoutMetrics;
 }
 
 const SYSTEM_ICON_MAP: Record<string, React.ElementType> = {
@@ -28,8 +34,13 @@ const SYSTEM_ICON_MAP: Record<string, React.ElementType> = {
 };
 
 /** 文件夹缩略图内的子图标 */
-const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
-  child, cellPx, iconFontPx,
+const FolderChildIcon: React.FC<{
+  child: DesktopItem;
+  cellPx: number;
+  iconFontPx: number;
+  radius: string;
+}> = ({
+  child, cellPx, iconFontPx, radius,
 }) => {
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
   const crop = child.iconCrop;
@@ -52,10 +63,11 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
 
   return (
     <div
-      className="rounded-[25%] overflow-hidden relative flex items-center justify-center"
+      className="overflow-hidden relative flex items-center justify-center"
       style={{
         width: cellPx,
         height: cellPx,
+        borderRadius: radius,
         flexShrink: 0,
         background: src ? '#fff' : getColorStyle(child.color),
       }}
@@ -85,7 +97,7 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
 
 const AppIcon: React.FC<AppIconProps> = ({
   item, onClick, onLongPress, onDragBegin,
-  onDeleteInEditMode, size = 'normal', ghost = false, iconPx,
+  onDeleteInEditMode, size = 'normal', ghost = false, iconPx, largeFolderLayout,
 }) => {
   const { editMode, settings } = useDesktop();
   const [imgError, setImgError] = useState(false);
@@ -120,6 +132,9 @@ const AppIcon: React.FC<AppIconProps> = ({
   const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize, settings.iconRadiusPct);
   const px = metrics.iconPx;
   const isLargeFolder = item.type === 'folder' && item.folderLayout === '2x2';
+  const resolvedLargeFolderLayout = isLargeFolder
+    ? (largeFolderLayout ?? getLargeFolderLayoutMetrics(metrics, Number.POSITIVE_INFINITY))
+    : null;
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
@@ -168,22 +183,32 @@ const AppIcon: React.FC<AppIconProps> = ({
       const preview = (item.children || []).slice(0, previewColumns ** 2);
       const isNeu = settings.style === 'neumorphism';
       const cellPx = isLargeFolder
-        ? metrics.largeFolderPreviewCellPx
+        ? resolvedLargeFolderLayout!.previewCellPx
         : metrics.folderPreviewCellPx;
       const previewGapPx = isLargeFolder
-        ? metrics.largeFolderPreviewGapPx
+        ? resolvedLargeFolderLayout!.spacingPx
         : metrics.folderPreviewGapPx;
       return (
         <div
-          className="ios-icon-shadow overflow-hidden flex items-center justify-center"
+          data-folder-surface={isLargeFolder ? '2x2' : '1x1'}
+          className={`ios-icon-shadow overflow-hidden ${
+            isLargeFolder && preview.length > 0 ? 'grid' : 'flex items-center justify-center'
+          }`}
           style={{
             ...iconStyle,
             ...(isLargeFolder ? {
-              width: '100%',
-              height: 'auto',
-              minHeight: 0,
-              flex: '1 1 0%',
-              borderRadius: 'clamp(20px, 12%, 32px)',
+              width: resolvedLargeFolderLayout!.sidePx,
+              height: resolvedLargeFolderLayout!.sidePx,
+              boxSizing: 'border-box',
+              flex: '0 0 auto',
+              padding: preview.length > 0 ? previewGapPx : 0,
+              gap: preview.length > 0 ? previewGapPx : 0,
+              gridTemplateColumns: preview.length > 0
+                ? `repeat(3, ${cellPx}px)`
+                : undefined,
+              gridTemplateRows: preview.length > 0
+                ? `repeat(3, ${cellPx}px)`
+                : undefined,
               border: isNeu
                 ? '1px solid rgba(148,163,184,0.22)'
                 : '1px solid rgba(255,255,255,0.2)',
@@ -194,20 +219,44 @@ const AppIcon: React.FC<AppIconProps> = ({
           }}
         >
           {preview.length > 0 ? (
-            <div
-              className="grid"
-              style={{
-                gap: previewGapPx,
-                gridTemplateColumns: `repeat(${previewColumns}, ${cellPx}px)`,
-                gridTemplateRows: `repeat(${previewColumns}, ${cellPx}px)`,
-              }}
-            >
-              {preview.map((child) => (
-                <FolderChildIcon key={child.id} child={child} cellPx={cellPx} iconFontPx={px * 0.16} />
-              ))}
-            </div>
+            isLargeFolder ? (
+              preview.map((child) => (
+                <FolderChildIcon
+                  key={child.id}
+                  child={child}
+                  cellPx={cellPx}
+                  iconFontPx={resolvedLargeFolderLayout!.previewFontPx}
+                  radius={metrics.iconRadius}
+                />
+              ))
+            ) : (
+              <div
+                className="grid"
+                style={{
+                  gap: previewGapPx,
+                  gridTemplateColumns: `repeat(${previewColumns}, ${cellPx}px)`,
+                  gridTemplateRows: `repeat(${previewColumns}, ${cellPx}px)`,
+                }}
+              >
+                {preview.map((child) => (
+                  <FolderChildIcon
+                    key={child.id}
+                    child={child}
+                    cellPx={cellPx}
+                    iconFontPx={px * 0.16}
+                    radius={metrics.iconRadius}
+                  />
+                ))}
+              </div>
+            )
           ) : (
-            <Folder style={{ width: metrics.glyphPx, height: metrics.glyphPx }} className="text-white drop-shadow" />
+            <Folder
+              style={{
+                width: isLargeFolder ? cellPx * 1.4 : metrics.glyphPx,
+                height: isLargeFolder ? cellPx * 1.4 : metrics.glyphPx,
+              }}
+              className="text-white drop-shadow"
+            />
           )}
         </div>
       );
@@ -276,7 +325,14 @@ const AppIcon: React.FC<AppIconProps> = ({
       : 'transition-transform active:scale-95';
 
   return (
-    <div className={`relative ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${ghost ? 'opacity-40' : ''}`}>
+    <div
+      className={`relative ${isLargeFolder ? 'h-full min-h-0' : ''} ${ghost ? 'opacity-40' : ''}`}
+      style={isLargeFolder ? {
+        width: resolvedLargeFolderLayout!.sidePx,
+        maxWidth: '100%',
+        marginInline: 'auto',
+      } : undefined}
+    >
       <button
         type="button"
         onClick={handleClick}
@@ -286,12 +342,13 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={pressIntent.onPointerCancel}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
+        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
+        style={{ gap: metrics.labelGapPx }}
       >
         {renderIconContent()}
         <span
           className={`app-icon-label ${metrics.textClass} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
-          style={{ maxWidth: isLargeFolder ? '100%' : metrics.labelMaxWidthPx }}
+          style={{ maxWidth: isLargeFolder ? resolvedLargeFolderLayout!.sidePx : metrics.labelMaxWidthPx }}
         >
           {item.name}
         </span>

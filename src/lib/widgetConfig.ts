@@ -1,7 +1,7 @@
 import type { DesktopItem, IconColor, WidgetType } from '@/types';
+import { DESKTOP_GRID_GAP_PX } from './iconLayout';
 
 const DEFAULT_WIDGET_TYPE: WidgetType = 'search';
-const WIDGET_GRID_ROW_GAP_PX = 12;
 const WIDGET_GHOST_WIDTH_PX = {
   compact: 320,
   wide: 480,
@@ -118,5 +118,5 @@ export function getWidgetGhostWidthPx(wide = false): number {
 }
 
 export function getWidgetGridRowGapPx(): number {
-  return WIDGET_GRID_ROW_GAP_PX;
+  return DESKTOP_GRID_GAP_PX;
 }

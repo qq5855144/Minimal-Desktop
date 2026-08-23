@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { uploadToGithub } from '@/lib/github';
-import { getIconLayoutMetrics } from '@/lib/iconLayout';
+import {
+  getDesktopGridLayoutMetrics,
+  getIconLayoutMetrics,
+  getLargeFolderLayoutMetrics,
+} from '@/lib/iconLayout';
 import {
   canPlaceItem,
   folderContainsSystemItem,
@@ -168,19 +172,35 @@ const Desktop: React.FC = () => {
   const [screenMd, setScreenMd] = useState<boolean>(
     () => window.matchMedia('(min-width: 768px)').matches,
   );
+  const [desktopViewportWidth, setDesktopViewportWidth] = useState(
+    () => document.documentElement.clientWidth || window.innerWidth,
+  );
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)');
-    const handler = (e: MediaQueryListEvent) => setScreenMd(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    const updateViewport = () => {
+      setScreenMd(mq.matches);
+      setDesktopViewportWidth(document.documentElement.clientWidth || window.innerWidth);
+    };
+    updateViewport();
+    window.addEventListener('resize', updateViewport, { passive: true });
+    return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
+  const desktopGridMetrics = getDesktopGridLayoutMetrics(
+    desktopViewportWidth,
+    gridCols,
+    settings.iconSize,
+  );
   const desktopIconMetrics = getIconLayoutMetrics(
     'normal',
-    settings.iconSize,
+    desktopGridMetrics.iconPx,
     settings.iconRadiusPct,
+  );
+  const largeFolderLayout = getLargeFolderLayoutMetrics(
+    desktopIconMetrics,
+    desktopGridMetrics.columnWidthPx,
   );
   const gridRowGapPx = getWidgetGridRowGapPx();
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
@@ -1155,7 +1175,7 @@ const Desktop: React.FC = () => {
                 <WidgetGridCell
                   item={item}
                   ghost={ghost?.source.itemId === item.id}
-                  iconPx={settings.iconSize}
+                  iconPx={desktopIconMetrics.iconPx}
                   onDragBegin={dragBegin}
                   onLongPress={handleLongPress}
                 />
@@ -1186,6 +1206,8 @@ const Desktop: React.FC = () => {
               <AppIcon
                 item={item}
                 ghost={ghost?.source.itemId === item.id}
+                iconPx={desktopIconMetrics.iconPx}
+                largeFolderLayout={largeFolderLayout}
                 onClick={handleItemClick}
                 onLongPress={handleLongPress}
                 onDragBegin={dragBegin}
@@ -1208,7 +1230,7 @@ const Desktop: React.FC = () => {
                 minHeight: desktopIconMetrics.cellMinHeightPx,
               }}
             >
-              {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
+              {isDragging && <SkeletonIcon iconPx={desktopIconMetrics.iconPx} />}
             </div>,
           );
         }
@@ -1233,14 +1255,17 @@ const Desktop: React.FC = () => {
   };
 
   const ghostWidgetLayout = ghost?.item.type === 'widget'
-    ? getWidgetLayoutMetrics(ghost.item.widgetType, settings.iconSize, screenMd)
+    ? getWidgetLayoutMetrics(ghost.item.widgetType, desktopIconMetrics.iconPx, screenMd)
     : null;
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
     : null;
-  const ghostLargeFolderSizePx = ghost?.item.type === 'folder'
+  const ghostLargeFolderWidthPx = ghost?.item.type === 'folder'
     && ghost.item.folderLayout === '2x2'
-    ? desktopIconMetrics.cellMinHeightPx * 2 + gridRowGapPx
+    ? largeFolderLayout.sidePx
+    : null;
+  const ghostLargeFolderHeightPx = ghostLargeFolderWidthPx !== null
+    ? largeFolderLayout.totalHeightPx
     : null;
 
   return (
@@ -1325,7 +1350,7 @@ const Desktop: React.FC = () => {
               <div className="w-full max-w-2xl">
                 <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
                   {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
-                    <SkeletonIcon key={`sk-${i}`} iconPx={settings.iconSize} />
+                    <SkeletonIcon key={`sk-${i}`} iconPx={desktopIconMetrics.iconPx} />
                   ))}
                 </div>
               </div>
@@ -1570,8 +1595,8 @@ const Desktop: React.FC = () => {
             transform: 'translate3d(0, 0, 0) translate(-50%, -50%)',
             willChange: 'transform',
             contain: 'layout paint style',
-            width: ghostLargeFolderSizePx ?? undefined,
-            height: ghostLargeFolderSizePx ?? undefined,
+            width: ghostLargeFolderWidthPx ?? undefined,
+            height: ghostLargeFolderHeightPx ?? undefined,
           }}
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
@@ -1591,7 +1616,12 @@ const Desktop: React.FC = () => {
               </div>
             </div>
           ) : (
-            <AppIcon item={ghost.item} size="normal" />
+            <AppIcon
+              item={ghost.item}
+              size="normal"
+              iconPx={desktopIconMetrics.iconPx}
+              largeFolderLayout={largeFolderLayout}
+            />
           )}
         </div>
       )}
