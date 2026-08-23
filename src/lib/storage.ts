@@ -1,7 +1,7 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
-import { LAYOUT_LIMITS } from './layoutEngine';
+import { findFirstAvailableSlot } from './layoutEngine';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
@@ -82,17 +82,8 @@ export const defaultDesktopData: DesktopData = {
   version: CURRENT_DESKTOP_VERSION,
 };
 
-/** 判断某行是否完全空闲（页面中没有任何 item 占据该行的任意列） */
-function isRowEmpty(page: import('@/types').DesktopItem[], row: number): boolean {
-  return !page.some((it) => it.row === row);
-}
-
-/** 找第一个完全空闲的行 */
-function findEmptyRow(page: import('@/types').DesktopItem[], maxRows = LAYOUT_LIMITS.maxRows): number {
-  for (let r = 0; r < maxRows; r++) {
-    if (isRowEmpty(page, r)) return r;
-  }
-  return -1;
+function containsItemId(items: import('@/types').DesktopItem[], id: string): boolean {
+  return items.some((item) => item.id === id || containsItemId(item.children ?? [], id));
 }
 
 export function loadDesktopData(): DesktopData {
@@ -102,23 +93,23 @@ export function loadDesktopData(): DesktopData {
       const validated = parseDesktopData(JSON.parse(raw));
       if (validated.ok) {
         const ensured = JSON.parse(JSON.stringify(validated.data)) as DesktopData;
-        const allItems = ensured.pages.flat();
-
-        // ── 迁移 1：确保三个系统应用始终存在 ──
+        // ── 迁移 1：确保三个系统应用始终存在（允许位于文件夹内）──
+        const layoutSettings = loadSettings();
         for (const sysApp of SYSTEM_APPS) {
-          const exists = allItems.some((it) => it.id === sysApp.id);
+          const exists = ensured.pages.some((page) => containsItemId(page, sysApp.id));
           if (!exists) {
             let placed = false;
-            outer: for (let p = 0; p < ensured.pages.length; p++) {
-              for (let r = 0; r < LAYOUT_LIMITS.maxRows; r++) {
-                for (let c = 0; c < LAYOUT_LIMITS.maxCols; c++) {
-                  if (!ensured.pages[p].some((it) => it.row === r && it.col === c)) {
-                    ensured.pages[p].push({ ...sysApp, page: p, row: r, col: c });
-                    placed = true;
-                    break outer;
-                  }
-                }
-              }
+            for (let p = 0; p < ensured.pages.length; p++) {
+              const slot = findFirstAvailableSlot(
+                ensured.pages[p],
+                sysApp,
+                layoutSettings.cols,
+                layoutSettings.rows,
+              );
+              if (!slot) continue;
+              ensured.pages[p].push({ ...sysApp, page: p, ...slot });
+              placed = true;
+              break;
             }
             if (!placed) {
               ensured.pages.push([{ ...sysApp, page: ensured.pages.length, row: 0, col: 0 }]);
@@ -135,9 +126,18 @@ export function loadDesktopData(): DesktopData {
         for (const w of WIDGET_ITEMS) {
           const exists = ensured.pages.flat().some((it) => it.id === w.id);
           if (!exists) {
-            const emptyRow = findEmptyRow(ensured.pages[0]);
-            if (emptyRow >= 0) {
-              ensured.pages[0].push({ ...w, page: 0, row: emptyRow, col: 0 });
+            const migrationRows = Math.max(
+              layoutSettings.rows,
+              getWidgetConfig(w.widgetType).rowSpan,
+            );
+            const slot = findFirstAvailableSlot(
+              ensured.pages[0],
+              w,
+              layoutSettings.cols,
+              migrationRows,
+            );
+            if (slot) {
+              ensured.pages[0].push({ ...w, page: 0, ...slot });
             } else {
               const newPage = ensured.pages.length;
               ensured.pages.push([{ ...w, page: newPage, row: 0, col: 0 }]);

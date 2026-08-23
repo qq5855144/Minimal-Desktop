@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SyncConfig } from '@/types';
-import { loadSyncConfig, saveSyncConfig } from './storage';
+import { CURRENT_DESKTOP_VERSION } from './desktopSchema';
+import {
+  loadDesktopData,
+  loadSyncConfig,
+  saveSyncConfig,
+  WIDGET_ITEMS,
+} from './storage';
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -36,5 +42,44 @@ describe('sync credential storage', () => {
     localStorage.setItem('ios_sync_config', JSON.stringify(config));
     expect(loadSyncConfig()?.token).toBe(config.token);
     expect(localStorage.getItem('ios_sync_config')).not.toContain(config.token);
+  });
+
+  it('recognizes system entries inside a folder instead of recreating duplicates', () => {
+    localStorage.setItem('ios_desktop_data', JSON.stringify({
+      version: CURRENT_DESKTOP_VERSION,
+      pages: [[
+        ...WIDGET_ITEMS,
+        {
+          id: 'tools',
+          type: 'folder',
+          name: '工具',
+          color: 'gray',
+          page: 0,
+          row: 3,
+          col: 0,
+          folderLayout: '2x2',
+          children: [
+            { id: 'sys-add', type: 'system', name: '添加应用', color: 'blue', page: 0, row: 3, col: 0 },
+            { id: 'sys-settings', type: 'system', name: '设置', color: 'gray', page: 0, row: 3, col: 0 },
+            { id: 'sys-sync', type: 'system', name: '同步', color: 'indigo', page: 0, row: 3, col: 0 },
+          ],
+        },
+      ]],
+    }));
+
+    const restored = loadDesktopData();
+    const ids: string[] = [];
+    const visit = (items: typeof restored.pages[number]) => {
+      for (const item of items) {
+        ids.push(item.id);
+        if (item.children) visit(item.children);
+      }
+    };
+    restored.pages.forEach(visit);
+
+    expect(ids.filter((id) => id === 'sys-add')).toHaveLength(1);
+    expect(ids.filter((id) => id === 'sys-settings')).toHaveLength(1);
+    expect(ids.filter((id) => id === 'sys-sync')).toHaveLength(1);
+    expect(restored.pages.flat().find((item) => item.id === 'tools')?.folderLayout).toBe('2x2');
   });
 });

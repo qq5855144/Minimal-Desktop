@@ -1,6 +1,6 @@
 import { deepClone } from '@/lib/utils/deepClone';
-import { getWidgetConfig, isRowCoveredByWidget, wouldWidgetOverlap } from '@/lib/widgetConfig';
-import type { DesktopData, DesktopItem, DesktopSettings } from '@/types';
+import { getWidgetConfig } from '@/lib/widgetConfig';
+import type { DesktopData, DesktopItem, DesktopSettings, FolderLayout } from '@/types';
 
 /**
  * 桌面布局的唯一规则源。
@@ -89,7 +89,98 @@ function isIntegerInRange(value: number, min: number, maxExclusive: number): boo
 }
 
 export function getItemRowSpan(item: DesktopItem): number {
-  return item.type === 'widget' ? getWidgetConfig(item.widgetType).rowSpan : 1;
+  if (item.type === 'widget') return getWidgetConfig(item.widgetType).rowSpan;
+  return item.type === 'folder' && item.folderLayout === '2x2' ? 2 : 1;
+}
+
+export function getItemColumnSpan(item: DesktopItem, cols: number): number {
+  if (item.type === 'widget') return cols;
+  return item.type === 'folder' && item.folderLayout === '2x2' ? 2 : 1;
+}
+
+export function getItemGridSpan(item: DesktopItem, cols: number): {
+  rowSpan: number;
+  colSpan: number;
+} {
+  return {
+    rowSpan: getItemRowSpan(item),
+    colSpan: getItemColumnSpan(item, cols),
+  };
+}
+
+interface GridRect {
+  rowStart: number;
+  rowEnd: number;
+  colStart: number;
+  colEnd: number;
+}
+
+function getItemGridRect(
+  item: DesktopItem,
+  row: number,
+  col: number,
+  cols: number,
+): GridRect {
+  const { rowSpan, colSpan } = getItemGridSpan(item, cols);
+  const colStart = item.type === 'widget' ? 0 : col;
+  return {
+    rowStart: row,
+    rowEnd: row + rowSpan,
+    colStart,
+    colEnd: colStart + colSpan,
+  };
+}
+
+function gridRectsOverlap(a: GridRect, b: GridRect): boolean {
+  return a.rowStart < b.rowEnd
+    && b.rowStart < a.rowEnd
+    && a.colStart < b.colEnd
+    && b.colStart < a.colEnd;
+}
+
+export function itemsOverlapAt(
+  itemA: DesktopItem,
+  rowA: number,
+  colA: number,
+  itemB: DesktopItem,
+  rowB: number,
+  colB: number,
+  cols: number,
+): boolean {
+  return gridRectsOverlap(
+    getItemGridRect(itemA, rowA, colA, cols),
+    getItemGridRect(itemB, rowB, colB, cols),
+  );
+}
+
+export function itemCoversCell(
+  item: DesktopItem,
+  row: number,
+  col: number,
+  cols: number,
+): boolean {
+  const rect = getItemGridRect(item, item.row, item.col, cols);
+  return row >= rect.rowStart && row < rect.rowEnd
+    && col >= rect.colStart && col < rect.colEnd;
+}
+
+export function findItemCoveringCell(
+  pageItems: DesktopItem[],
+  row: number,
+  col: number,
+  cols: number,
+  excludeIds: string[] = [],
+): DesktopItem | undefined {
+  const excluded = new Set(excludeIds);
+  return pageItems.find((item) => !excluded.has(item.id) && itemCoversCell(item, row, col, cols));
+}
+
+export function isFolderChildCandidate(item: DesktopItem): boolean {
+  return item.type === 'app' || item.type === 'system';
+}
+
+export function folderContainsSystemItem(item: DesktopItem): boolean {
+  return item.type === 'system' || Boolean(item.children?.some(folderContainsSystemItem));
 }
 
 export function isItemWithinBounds(
@@ -100,10 +191,10 @@ export function isItemWithinBounds(
   rows: number,
 ): boolean {
   if (!isIntegerInRange(row, 0, rows)) return false;
-  if (item.type === 'widget') {
-    return col === 0 && row + getItemRowSpan(item) <= rows;
-  }
-  return isIntegerInRange(col, 0, cols);
+  if (item.type === 'widget' && col !== 0) return false;
+  if (!isIntegerInRange(col, 0, cols)) return false;
+  const { rowSpan, colSpan } = getItemGridSpan(item, cols);
+  return row + rowSpan <= rows && col + colSpan <= cols;
 }
 
 export function canPlaceItem(
@@ -119,16 +210,15 @@ export function canPlaceItem(
   const excluded = new Set([...excludeIds, item.id]);
   const others = pageItems.filter((candidate) => !excluded.has(candidate.id));
 
-  if (item.type === 'widget') {
-    const span = getItemRowSpan(item);
-    if (wouldWidgetOverlap(others, row, span)) return false;
-    return !others.some((candidate) => (
-      candidate.type !== 'widget' && candidate.row >= row && candidate.row < row + span
-    ));
-  }
-
-  if (isRowCoveredByWidget(others, row)) return false;
-  return !others.some((candidate) => candidate.row === row && candidate.col === col);
+  return !others.some((candidate) => itemsOverlapAt(
+    item,
+    row,
+    item.type === 'widget' ? 0 : col,
+    candidate,
+    candidate.row,
+    candidate.col,
+    cols,
+  ));
 }
 
 export function findFirstAvailableSlot(
@@ -342,13 +432,45 @@ export function movePrivacyItem(
     return { ok: true, privacyItems };
   }
 
+  const destinationItems = privacyItems.filter((item) => item.page === toPage);
+  const overlappingTargets = destinationItems.filter((candidate) => (
+    candidate.id !== source.id
+    && itemsOverlapAt(source, row, col, candidate, candidate.row, candidate.col, cols)
+  ));
+  if (overlappingTargets.length > 1) {
+    return { ok: false, privacyItems, reason: 'occupied' };
+  }
+  const target = overlappingTargets[0];
+  if (!canPlaceItem(destinationItems, source, row, col, cols, rows, [source.id, target?.id ?? ''])) {
+    return { ok: false, privacyItems, reason: 'occupied' };
+  }
+  if (target) {
+    const sourcePageItems = privacyItems.filter((item) => item.page === source.page);
+    if (
+      target.type === 'widget'
+      || target.type === 'system'
+      || !canPlaceItem(
+        sourcePageItems,
+        target,
+        source.row,
+        source.col,
+        cols,
+        rows,
+        [source.id, target.id],
+      )
+      || (
+        source.page === toPage
+        && itemsOverlapAt(source, row, col, target, source.row, source.col, cols)
+      )
+    ) {
+      return { ok: false, privacyItems, reason: 'occupied' };
+    }
+  }
+
   const next = deepClone(privacyItems);
   const sourceIndex = next.findIndex((item) => item.id === itemId);
-  const targetIndex = next.findIndex((item) => (
-    item.id !== itemId && item.page === toPage && item.row === row && item.col === col
-  ));
-  if (targetIndex >= 0) {
-    const target = next[targetIndex];
+  if (target) {
+    const targetIndex = next.findIndex((item) => item.id === target.id);
     next[targetIndex] = moveToPosition(target, source.page, source.row, source.col);
   }
   next[sourceIndex] = moveToPosition(source, toPage, row, col);
@@ -403,38 +525,68 @@ export function moveDesktopItem(
   }
 
   const destination = data.pages[toPage];
-  if (source.type === 'widget') {
-    if (!canPlaceItem(destination, source, row, 0, cols, rows, [source.id])) {
+  const overlappingTargets = destination.filter((candidate) => (
+    candidate.id !== source.id
+    && itemsOverlapAt(source, row, targetCol, candidate, candidate.row, candidate.col, cols)
+  ));
+  if (overlappingTargets.length > 1) {
+    return { ok: false, data, reason: 'occupied' };
+  }
+  const target = overlappingTargets[0];
+  if (!canPlaceItem(
+    destination,
+    source,
+    row,
+    targetCol,
+    cols,
+    rows,
+    [source.id, target?.id ?? ''],
+  )) {
+    return {
+      ok: false,
+      data,
+      reason: source.type === 'widget' || target?.type === 'widget' ? 'widget-overlap' : 'occupied',
+    };
+  }
+  if (target) {
+    if (source.type === 'widget' || target.type === 'widget') {
       return { ok: false, data, reason: 'widget-overlap' };
     }
-  } else {
-    if (isRowCoveredByWidget(destination.filter((item) => item.id !== source.id), row)) {
-      return { ok: false, data, reason: 'widget-overlap' };
-    }
-    const exactTarget = destination.find((item) => (
-      item.id !== source.id && item.row === row && item.col === targetCol
-    ));
-    if (exactTarget?.type === 'widget') {
-      return { ok: false, data, reason: 'widget-overlap' };
+    const sourcePageItems = data.pages[fromPage];
+    if (
+      !canPlaceItem(
+        sourcePageItems,
+        target,
+        source.row,
+        source.col,
+        cols,
+        rows,
+        [source.id, target.id],
+      )
+      || (
+        fromPage === toPage
+        && itemsOverlapAt(source, row, targetCol, target, source.row, source.col, cols)
+      )
+    ) {
+      return { ok: false, data, reason: 'occupied' };
     }
   }
 
   const next = deepClone(data);
-  const sourceIndex = next.pages[fromPage].findIndex((item) => item.id === itemId);
-  const [moved] = next.pages[fromPage].splice(sourceIndex, 1);
-  const targetIndex = next.pages[toPage].findIndex((item) => (
-    item.row === row && item.col === targetCol
-  ));
-
-  if (targetIndex >= 0) {
-    const [target] = next.pages[toPage].splice(targetIndex, 1);
-    if (moved.type === 'widget' || target.type === 'widget') {
-      return { ok: false, data, reason: 'widget-overlap' };
+  if (fromPage === toPage) {
+    next.pages[fromPage] = next.pages[fromPage].filter((item) => (
+      item.id !== source.id && item.id !== target?.id
+    ));
+  } else {
+    next.pages[fromPage] = next.pages[fromPage].filter((item) => item.id !== source.id);
+    if (target) {
+      next.pages[toPage] = next.pages[toPage].filter((item) => item.id !== target.id);
     }
-    next.pages[fromPage].push(moveToPosition(target, fromPage, moved.row, moved.col));
   }
-
-  next.pages[toPage].push(moveToPosition(moved, toPage, row, targetCol));
+  if (target) {
+    next.pages[fromPage].push(moveToPosition(target, fromPage, source.row, source.col));
+  }
+  next.pages[toPage].push(moveToPosition(source, toPage, row, targetCol));
   return { ok: true, data: next };
 }
 
@@ -470,12 +622,18 @@ export function transferDesktopToPrivacy(
     if (source) { sourcePage = page; break; }
   }
   if (!source) return { ok: false, data, privacyItems, reason: 'item-not-found' };
-  if (source.type === 'system' || source.type === 'widget') {
+  if (
+    source.type === 'system'
+    || source.type === 'widget'
+    || folderContainsSystemItem(source)
+  ) {
     return { ok: false, data, privacyItems, reason: 'protected-item' };
   }
-  if (privacyItems.some((item) => (
-    item.page === toPage && item.row === row && item.col === col && item.id !== itemId
-  ))) {
+  if (!isItemWithinBounds(source, row, col, cols, rows)) {
+    return { ok: false, data, privacyItems, reason: 'invalid-position' };
+  }
+  const destinationItems = privacyItems.filter((item) => item.page === toPage);
+  if (!canPlaceItem(destinationItems, source, row, col, cols, rows, [source.id])) {
     return { ok: false, data, privacyItems, reason: 'occupied' };
   }
 
@@ -507,7 +665,10 @@ export function transferPrivacyToDesktop(
     return { ok: false, data, privacyItems, reason: 'invalid-position' };
   }
   if (!canPlaceItem(data.pages[toPage], source, row, col, cols, rows)) {
-    const widgetBlocked = isRowCoveredByWidget(data.pages[toPage], row);
+    const widgetBlocked = data.pages[toPage].some((candidate) => (
+      candidate.type === 'widget'
+      && itemsOverlapAt(source, row, col, candidate, candidate.row, candidate.col, cols)
+    ));
     return { ok: false, data, privacyItems, reason: widgetBlocked ? 'widget-overlap' : 'occupied' };
   }
 
@@ -517,6 +678,96 @@ export function transferPrivacyToDesktop(
     privacyItems.filter((item) => item.id !== itemId).map((item) => ({ ...item })),
   ).items;
   return { ok: true, data: nextData, privacyItems: nextPrivacy };
+}
+
+/**
+ * 切换普通桌面文件夹占位。优先原地扩展；空间不足时只移动该文件夹到最近可用页，
+ * 不挤压或覆盖已有项目。
+ */
+export function updateDesktopFolderLayout(
+  data: DesktopData,
+  folderId: string,
+  folderLayout: FolderLayout,
+  cols: number,
+  rows: number,
+): LayoutMutationResult {
+  let folderPage = -1;
+  let folder: DesktopItem | undefined;
+  for (let page = 0; page < data.pages.length; page++) {
+    folder = data.pages[page].find((item) => item.id === folderId);
+    if (folder) { folderPage = page; break; }
+  }
+  if (!folder || folder.type !== 'folder') {
+    return { ok: false, data, reason: 'item-not-found' };
+  }
+  if ((folder.folderLayout ?? '1x1') === folderLayout) return { ok: true, data };
+
+  const next = deepClone(data);
+  const current = next.pages[folderPage].find((item) => item.id === folderId)!;
+  next.pages[folderPage] = next.pages[folderPage].filter((item) => item.id !== folderId);
+  const resized = { ...current, folderLayout };
+
+  let slot = canPlaceItem(
+    next.pages[folderPage],
+    resized,
+    current.row,
+    current.col,
+    cols,
+    rows,
+  )
+    ? { page: folderPage, row: current.row, col: current.col }
+    : findFirstAvailableSlotAcrossPages(next.pages, resized, cols, rows, folderPage);
+
+  if (!slot && next.pages.length < LAYOUT_LIMITS.maxPages) {
+    const page = next.pages.length;
+    next.pages.push([]);
+    const position = findFirstAvailableSlot(next.pages[page], resized, cols, rows);
+    if (position) slot = { page, ...position };
+  }
+  if (!slot) return { ok: false, data, reason: 'occupied' };
+
+  next.pages[slot.page].push(moveToPosition(resized, slot.page, slot.row, slot.col));
+  return { ok: true, data: next };
+}
+
+/** 隐私桌面文件夹布局切换；沿用负页自动创建与空页压缩规则。 */
+export function updatePrivacyFolderLayout(
+  privacyItems: DesktopItem[],
+  folderId: string,
+  folderLayout: FolderLayout,
+  cols: number,
+  rows: number,
+): PrivacyLayoutMutationResult {
+  const folder = privacyItems.find((item) => item.id === folderId);
+  if (!folder || folder.type !== 'folder') {
+    return { ok: false, privacyItems, reason: 'item-not-found' };
+  }
+  if ((folder.folderLayout ?? '1x1') === folderLayout) {
+    return { ok: true, privacyItems };
+  }
+
+  const next = deepClone(privacyItems).filter((item) => item.id !== folderId);
+  const resized = { ...folder, folderLayout };
+  const currentPageItems = next.filter((item) => item.page === folder.page);
+  const slot = canPlaceItem(
+    currentPageItems,
+    resized,
+    folder.row,
+    folder.col,
+    cols,
+    rows,
+  )
+    ? { page: folder.page, row: folder.row, col: folder.col }
+    : findFirstAvailablePrivacySlot(next, resized, cols, rows, folder.page);
+  if (!slot) return { ok: false, privacyItems, reason: 'occupied' };
+
+  next.push(moveToPosition(resized, slot.page, slot.row, slot.col));
+  const compacted = compactPrivacyPages(next);
+  return {
+    ok: true,
+    privacyItems: compacted.items,
+    pageMap: compacted.pageMap,
+  };
 }
 
 /** 根据新的网格尺寸稳定重排，保证任何项目都不会被放到不可见区域。 */
@@ -555,7 +806,7 @@ export function reflowDesktopData(data: DesktopData, cols: number, rows: number)
 export function minimumRowsForEnabledWidgets(data: DesktopData): number {
   let minimum: number = LAYOUT_LIMITS.minRows;
   for (const item of data.pages.flat()) {
-    if (item.type === 'widget') minimum = Math.max(minimum, getItemRowSpan(item));
+    minimum = Math.max(minimum, getItemRowSpan(item));
   }
   return minimum;
 }
@@ -588,28 +839,26 @@ export function validateDesktopLayout(
       if (item.type === 'folder' && (item.children?.length ?? 0) > LAYOUT_LIMITS.maxFolderApps) {
         issues.push({ code: 'folder-overflow', message: `${item.id} 超出文件夹容量`, itemId: item.id, page });
       }
-      if (item.type === 'widget') {
-        const span = getItemRowSpan(item);
-        if (wouldWidgetOverlap(pageItems, item.row, span, [item.id])) {
-          issues.push({ code: 'widget-overlap', message: `${item.id} 与其他 widget 重叠`, itemId: item.id, page });
-        }
-        if (pageItems.some((candidate) => (
-          candidate.id !== item.id && candidate.type !== 'widget'
-          && candidate.row >= item.row && candidate.row < item.row + span
-        ))) {
-          issues.push({ code: 'widget-covers-item', message: `${item.id} 覆盖普通项目`, itemId: item.id, page });
-        }
-      } else {
-        const collision = pageItems.find((candidate) => (
-          candidate.id !== item.id && candidate.type !== 'widget'
-          && candidate.row === item.row && candidate.col === item.col
-        ));
-        if (collision) {
-          issues.push({ code: 'cell-collision', message: `${item.id} 与 ${collision.id} 占用同一格`, itemId: item.id, page });
-        }
-        if (isRowCoveredByWidget(pageItems.filter((candidate) => candidate.id !== item.id), item.row)) {
-          issues.push({ code: 'widget-covers-item', message: `${item.id} 位于 widget 覆盖行`, itemId: item.id, page });
-        }
+      const collision = pageItems.find((candidate) => (
+        candidate.id !== item.id
+        && itemsOverlapAt(
+          item,
+          item.row,
+          item.col,
+          candidate,
+          candidate.row,
+          candidate.col,
+          cols,
+        )
+      ));
+      if (collision) {
+        const involvesWidget = item.type === 'widget' || collision.type === 'widget';
+        issues.push({
+          code: involvesWidget ? 'widget-overlap' : 'cell-collision',
+          message: `${item.id} 与 ${collision.id} 的网格占位重叠`,
+          itemId: item.id,
+          page,
+        });
       }
     }
   });

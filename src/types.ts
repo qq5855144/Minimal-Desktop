@@ -14,6 +14,7 @@ export type IconColor =
 // 桌面项类型（widget = 全宽组件，占满一整行）
 export type ItemType = 'app' | 'folder' | 'system' | 'widget';
 export type WidgetType = 'clock' | 'search' | 'combined';
+export type FolderLayout = '1x1' | '2x2';
 
 /**
  * 图标裁剪参数（相对值，单位 %，范围 0~100）
@@ -47,6 +48,8 @@ export interface DesktopItem {
   col: number;
   // 文件夹内应用列表
   children?: DesktopItem[];
+  // 文件夹在桌面网格中的占位；旧数据未声明时按 1x1 处理
+  folderLayout?: FolderLayout;
   // 组件类型（仅 type='widget' 时有效）
   widgetType?: WidgetType;
 }

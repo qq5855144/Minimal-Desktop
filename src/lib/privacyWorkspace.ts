@@ -1,9 +1,12 @@
 import { deepClone } from '@/lib/utils/deepClone';
 import type { DesktopItem } from '@/types';
 import {
+  canPlaceItem,
   compactPrivacyPages,
+  findItemCoveringCell,
   findFirstAvailablePrivacySlot,
   getPrivacyPageCount,
+  isItemWithinBounds,
   LAYOUT_LIMITS,
 } from './layoutEngine';
 
@@ -127,11 +130,7 @@ export function movePrivacyFolderChild(
     || toPage < -LAYOUT_LIMITS.maxPages
     || toPage < -(pageCount + 1)
     || !Number.isInteger(row)
-    || row < 0
-    || row >= rows
     || !Number.isInteger(col)
-    || col < 0
-    || col >= cols
   ) return { ok: false, items: privacyItems };
 
   const next = deepClone(privacyItems);
@@ -139,9 +138,17 @@ export function movePrivacyFolderChild(
   if (!folder?.children) return { ok: false, items: privacyItems };
   const childIndex = folder.children.findIndex((child) => child.id === childId);
   if (childIndex < 0) return { ok: false, items: privacyItems };
-  const targetIndex = next.findIndex((item) => (
-    item.page === toPage && item.row === row && item.col === col
-  ));
+  const child = folder.children[childIndex];
+  if (!isItemWithinBounds(child, row, col, cols, rows)) {
+    return { ok: false, items: privacyItems };
+  }
+  const target = findItemCoveringCell(
+    next.filter((item) => item.page === toPage),
+    row,
+    col,
+    cols,
+  );
+  const targetIndex = target ? next.findIndex((item) => item.id === target.id) : -1;
   if (targetIndex >= 0 && next[targetIndex].id === folderId) {
     return { ok: false, items: privacyItems };
   }
@@ -150,8 +157,19 @@ export function movePrivacyFolderChild(
     && next[targetIndex].type === 'folder'
     && (next[targetIndex].children?.length ?? 0) >= LAYOUT_LIMITS.maxFolderApps
   ) return { ok: false, items: privacyItems };
+  if (
+    targetIndex < 0
+    && !canPlaceItem(
+      next.filter((item) => item.page === toPage),
+      child,
+      row,
+      col,
+      cols,
+      rows,
+    )
+  ) return { ok: false, items: privacyItems };
 
-  const [child] = folder.children.splice(childIndex, 1);
+  folder.children.splice(childIndex, 1);
   if (targetIndex >= 0) {
     const target = next[targetIndex];
     if (target.type === 'folder' && target.children) {

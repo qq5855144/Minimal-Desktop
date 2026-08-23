@@ -1,11 +1,22 @@
-import { FolderMinus, FolderOpen, Pencil, Trash2 } from 'lucide-react';
-import React, { useEffect, useRef } from 'react';
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FolderMinus,
+  FolderOpen,
+  LayoutGrid,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import type { FolderLayout } from '@/types';
 
 export interface ContextMenuPosition {
   x: number;
   y: number;
   itemId: string;
   isFolder?: boolean;
+  folderLayout?: FolderLayout;
 }
 
 interface ContextMenuProps {
@@ -14,19 +25,27 @@ interface ContextMenuProps {
   onDelete: (id: string) => void;
   onRenameFolder?: (id: string) => void;
   onDissolveFolder?: (id: string) => void;
+  onFolderLayoutChange?: (id: string, layout: FolderLayout) => void;
   onClose: () => void;
 }
 
 const MENU_W = 160;
 
 const ContextMenu: React.FC<ContextMenuProps> = ({
-  pos, onEdit, onDelete, onRenameFolder, onDissolveFolder, onClose,
+  pos,
+  onEdit,
+  onDelete,
+  onRenameFolder,
+  onDissolveFolder,
+  onFolderLayoutChange,
+  onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [showFolderLayouts, setShowFolderLayouts] = useState(false);
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const menuH = pos.isFolder ? 120 : 96;
+  const menuH = pos.isFolder ? (showFolderLayouts ? 142 : 168) : 96;
   const left = Math.min(Math.max(pos.x, 8), vw - MENU_W - 8);
   const top  = Math.min(Math.max(pos.y, 8), vh - menuH - 8);
 
@@ -44,6 +63,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
+
+  useEffect(() => { setShowFolderLayouts(false); }, [pos.itemId]);
 
   const btn = 'flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-white/90 hover:bg-white/15 transition-colors rounded-lg text-left';
   const divider = <div className="h-px bg-white/10 my-0.5" />;
@@ -66,19 +87,59 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       >
         <div className="p-1.5 flex flex-col gap-0.5">
           {pos.isFolder ? (
-            <>
-              <button type="button" className={btn}
-                onClick={() => { onRenameFolder?.(pos.itemId); onClose(); }}>
-                <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-                重命名
-              </button>
-              {divider}
-              <button type="button" className={`${btn} text-orange-400`}
-                onClick={() => { onDissolveFolder?.(pos.itemId); onClose(); }}>
-                <FolderMinus className="w-4 h-4 shrink-0" />
-                解散文件夹
-              </button>
-            </>
+            showFolderLayouts ? (
+              <>
+                <button type="button" className={btn} onClick={() => setShowFolderLayouts(false)}>
+                  <ChevronLeft className="w-4 h-4 text-white/70 shrink-0" />
+                  布局
+                </button>
+                {divider}
+                {(['1x1', '2x2'] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={(pos.folderLayout ?? '1x1') === layout}
+                    className={btn}
+                    onClick={() => {
+                      onFolderLayoutChange?.(pos.itemId, layout);
+                      onClose();
+                    }}
+                  >
+                    <span className="w-4 text-center text-xs font-semibold text-primary">
+                      {layout === '2x2' ? '▦' : '□'}
+                    </span>
+                    <span className="flex-1">{layout === '2x2' ? '2×2' : '1×1'}</span>
+                    {(pos.folderLayout ?? '1x1') === layout && (
+                      <Check className="w-4 h-4 text-primary shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                <button type="button" className={btn}
+                  onClick={() => { onRenameFolder?.(pos.itemId); onClose(); }}>
+                  <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                  重命名
+                </button>
+                {divider}
+                <button type="button" className={btn} onClick={() => setShowFolderLayouts(true)}>
+                  <LayoutGrid className="w-4 h-4 text-primary shrink-0" />
+                  <span className="flex-1">布局</span>
+                  <span className="text-xs text-white/55">
+                    {(pos.folderLayout ?? '1x1') === '2x2' ? '2×2' : '1×1'}
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-white/45 shrink-0" />
+                </button>
+                {divider}
+                <button type="button" className={`${btn} text-orange-400`}
+                  onClick={() => { onDissolveFolder?.(pos.itemId); onClose(); }}>
+                  <FolderMinus className="w-4 h-4 shrink-0" />
+                  解散文件夹
+                </button>
+              </>
+            )
           ) : (
             <>
               <button type="button" className={btn}

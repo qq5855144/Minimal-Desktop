@@ -36,4 +36,22 @@ describe('summarizeDesktopDiff', () => {
 
     expect(summarizeDesktopDiff(current, incoming).moved).toBe(2);
   });
+
+  it('reports a folder layout change as content modification', () => {
+    const folder = (folderLayout: DesktopItem['folderLayout']): DesktopItem => ({
+      id: 'folder',
+      type: 'folder',
+      name: 'Folder',
+      color: 'gray',
+      page: 0,
+      row: 0,
+      col: 0,
+      folderLayout,
+      children: [app('a'), app('b')],
+    });
+    const current: DesktopData = { version: 5, pages: [[folder('1x1')]] };
+    const incoming: DesktopData = { version: 5, pages: [[folder('2x2')]] };
+
+    expect(summarizeDesktopDiff(current, incoming)).toMatchObject({ changed: 1, moved: 0 });
+  });
 });

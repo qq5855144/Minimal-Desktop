@@ -33,4 +33,26 @@ describe('desktop backup schema', () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  it('validates persisted folder layout values', () => {
+    const folderBackup = {
+      version: CURRENT_DESKTOP_VERSION,
+      pages: [[{
+        id: 'folder',
+        type: 'folder',
+        name: 'Folder',
+        color: 'gray',
+        page: 0,
+        row: 0,
+        col: 0,
+        folderLayout: '2x2',
+        children: [],
+      }]],
+    };
+    expect(parseDesktopData(folderBackup).ok).toBe(true);
+    expect(parseDesktopData({
+      ...folderBackup,
+      pages: [[{ ...folderBackup.pages[0][0], folderLayout: '3x3' }]],
+    }).ok).toBe(false);
+  });
 });

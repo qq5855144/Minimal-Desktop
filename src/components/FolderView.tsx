@@ -9,6 +9,7 @@ interface FolderViewProps {
   folder: DesktopItem;
   onClose: () => void;
   onLongPress?: (item: DesktopItem, x: number, y: number) => void;
+  onItemClick?: (item: DesktopItem) => void;
   triggerRenameId?: string | null;
   onRenameDone?: () => void;
   onDragIntentStart?: () => void;
@@ -24,7 +25,7 @@ interface FolderViewProps {
 const DRAG_OUT_THRESHOLD = 32; // 超出 grid 边界多少 px 触发拖出
 
 const FolderView: React.FC<FolderViewProps> = ({
-  folder, onClose, onLongPress, triggerRenameId, onRenameDone,
+  folder, onClose, onLongPress, onItemClick, triggerRenameId, onRenameDone,
   onDragIntentStart, onDragOutBegin,
 }) => {
   const { loading, renameFolder, reorderFolderChildren } = useDesktop();
@@ -279,6 +280,7 @@ const FolderView: React.FC<FolderViewProps> = ({
                           <AppIcon
                             item={child}
                             size="small"
+                            onClick={onItemClick}
                             onLongPress={onLongPress}
                             onDragBegin={(_, x, y, pointerId) => {
                               handleChildDragBegin(slotIdx, x, y, pointerId);

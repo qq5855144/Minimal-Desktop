@@ -4,12 +4,16 @@ import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
 import { HistoryBuffer } from '@/lib/historyBuffer';
 import { pruneIconCaches } from '@/lib/iconCache';
 import {
+  canPlaceItem,
   compactDesktopPages,
   compactPrivacyPages,
+  findItemCoveringCell,
   findFirstAvailablePrivacySlot,
   findFirstAvailableSlot,
   findFirstAvailableSlotAcrossPages,
+  folderContainsSystemItem,
   getPrivacyPageCount,
+  isFolderChildCandidate,
   LAYOUT_LIMITS,
   minimumRowsForEnabledWidgets,
   moveDesktopItem,
@@ -21,6 +25,8 @@ import {
   resolvePrivacyPageAfterCompaction,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
+  updateDesktopFolderLayout,
+  updatePrivacyFolderLayout,
   validateDesktopLayout,
 } from '@/lib/layoutEngine';
 import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
@@ -33,8 +39,14 @@ import { loadDesktopData, loadPrivacyVault, loadSettings, saveDesktopData, saveP
 import { deepClone } from '@/lib/utils/deepClone';
 import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
-import { isRowCoveredByWidget } from '@/lib/widgetConfig';
-import type { DesktopData, DesktopItem, DesktopSettings, IconColor, ItemType } from '@/types';
+import type {
+  DesktopData,
+  DesktopItem,
+  DesktopSettings,
+  FolderLayout,
+  IconColor,
+  ItemType,
+} from '@/types';
 
 const MAX_ROWS = LAYOUT_LIMITS.maxRows;
 const MAX_COLS = LAYOUT_LIMITS.maxCols;
@@ -78,6 +90,7 @@ interface DesktopContextType {
   setPrivacyUnlockData: (items: DesktopItem[], key: CryptoKey) => void;
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   renameFolder: (folderId: string, name: string) => void;
+  setFolderLayout: (folderId: string, layout: FolderLayout) => boolean;
   dissolveFolder: (folderId: string) => void;
   importData: (data: unknown, options?: { recordHistory?: boolean }) => boolean;
   undo: () => boolean;
@@ -454,6 +467,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const removeItem = useCallback((id: string) => {
+    const protectedSystemItem = dataRef.current.pages.some((page) => page.some((item) => (
+      (item.id === id && folderContainsSystemItem(item))
+      || item.children?.some((child) => child.id === id && child.type === 'system')
+    )));
+    if (protectedSystemItem) return;
     const next = deepClone(dataRef.current);
     for (let p = 0; p < next.pages.length; p++) {
       const idx = next.pages[p].findIndex((it) => it.id === id);
@@ -562,7 +580,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!folder?.children) return false;
     const childIndex = folder.children.findIndex((child) => child.id === childId);
     if (childIndex < 0) return false;
+    const child = folder.children[childIndex];
     const targetIsPrivacy = page < 0;
+    if (sourceIsPrivacy !== targetIsPrivacy && child.type === 'system') return false;
 
     if (targetIsPrivacy) {
       const pageCount = getPrivacyPageCount(nextPrivacy);
@@ -571,16 +591,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (page === nextData.pages.length && nextData.pages.length < LAYOUT_LIMITS.maxPages) {
         nextData.pages.push([]);
       }
-      if (!nextData.pages[page] || isRowCoveredByWidget(nextData.pages[page], row)) return false;
+      if (!nextData.pages[page]) return false;
     }
 
     // 跨隐私边界时目标必须为空，避免一次操作同时搬运无关项目。
     if (sourceIsPrivacy !== targetIsPrivacy) {
-      const occupied = targetIsPrivacy
-        ? nextPrivacy.some((item) => item.page === page && item.row === row && item.col === col)
-        : nextData.pages[page].some((item) => item.row === row && item.col === col);
-      if (occupied) return false;
-      const [child] = folder.children.splice(childIndex, 1);
+      const destinationItems = targetIsPrivacy
+        ? nextPrivacy.filter((item) => item.page === page)
+        : nextData.pages[page];
+      if (!canPlaceItem(destinationItems, child, row, col, cols, rows)) return false;
+      folder.children.splice(childIndex, 1);
       clearDesktopHistory();
       if (sourceIsPrivacy) {
         collapsePrivacyFolderAfterChildRemoval(nextPrivacy, folderId);
@@ -610,14 +630,18 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return true;
     }
 
-    const [child] = folder.children.splice(childIndex, 1);
-    const targetIndex = nextData.pages[page].findIndex((item) => item.row === row && item.col === col);
-    if (targetIndex >= 0) {
-      const target = nextData.pages[page][targetIndex];
-      if (target.type === 'widget' || target.type === 'system' || target.id === folderId) return false;
+    const target = findItemCoveringCell(nextData.pages[page], row, col, cols);
+    if (target?.type === 'widget' || target?.id === folderId) return false;
+    if (target?.type === 'folder' && (
+      !target.children || target.children.length >= MAX_FOLDER_APPS
+    )) return false;
+    if (target && target.type !== 'folder' && !isFolderChildCandidate(target)) return false;
+    if (!target && !canPlaceItem(nextData.pages[page], child, row, col, cols, rows)) return false;
+
+    folder.children.splice(childIndex, 1);
+    if (target) {
       if (target.type === 'folder') {
-        if (!target.children || target.children.length >= MAX_FOLDER_APPS) return false;
-        target.children.push({ ...child, page, row, col });
+        target.children!.push({ ...child, page: target.page, row: target.row, col: target.col });
         collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
         return commitDesktopData(nextData);
       }
@@ -627,6 +651,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         row: folder.row,
         col: folder.col,
       });
+      const targetIndex = nextData.pages[page].findIndex((item) => item.id === target.id);
       nextData.pages[page].splice(targetIndex, 1);
     }
     nextData.pages[page].push({ ...child, page, row, col });
@@ -679,7 +704,13 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         itemIdx = sourceIndex;
       }
     }
-    if (!folder || folder.type !== 'folder' || !folder.children || !item || item.type !== 'app') return false;
+    if (
+      !folder
+      || folder.type !== 'folder'
+      || !folder.children
+      || !item
+      || !isFolderChildCandidate(item)
+    ) return false;
     if (folder.children.length >= MAX_FOLDER_APPS) return false;
     folder.children.push({ ...item, page: folder.page, row: folder.row, col: folder.col });
     next.pages[itemPage].splice(itemIdx, 1);
@@ -764,8 +795,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
       if (!source || !target) return false;
-      if (source.type !== 'app') return false;
-      if (target.type === 'system' || target.type === 'widget') return false;
+      if (!isFolderChildCandidate(source)) return false;
+      if (target.type !== 'folder' && !isFolderChildCandidate(target)) return false;
       if (sourceFolderId && target.id === sourceFolderId) return false;
 
       if (sourceFolder && sourceChildIdx >= 0) {
@@ -799,7 +830,13 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         page: targetPage,
         row: target.row,
         col: target.col,
-        children: [target, source],
+        folderLayout: '1x1',
+        children: [target, source].map((child) => ({
+          ...child,
+          page: targetPage,
+          row: target.row,
+          col: target.col,
+        })),
       };
       next.pages[targetPage][targetIdx] = folder;
       if (!sourceFolderId) {
@@ -827,6 +864,33 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!folder || folder.type !== 'folder' || folder.name === name) return;
     folder.name = name;
     applyCompactedPrivacyItems(nextPrivacy);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
+
+  const setFolderLayout = useCallback((folderId: string, layout: FolderLayout): boolean => {
+    const isDesktopFolder = dataRef.current.pages.some((page) => (
+      page.some((item) => item.id === folderId && item.type === 'folder')
+    ));
+    const cols = settingsRef.current.cols ?? 4;
+    const rows = settingsRef.current.rows ?? 8;
+    if (isDesktopFolder) {
+      const result = updateDesktopFolderLayout(dataRef.current, folderId, layout, cols, rows);
+      if (!result.ok) return false;
+      if (result.data !== dataRef.current) commitDesktopData(result.data);
+      return true;
+    }
+
+    const result = updatePrivacyFolderLayout(
+      privacyPageItemsRef.current,
+      folderId,
+      layout,
+      cols,
+      rows,
+    );
+    if (!result.ok) return false;
+    if (result.privacyItems !== privacyPageItemsRef.current) {
+      applyCompactedPrivacyItems(result.privacyItems);
+    }
+    return true;
   }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const dissolveFolder = useCallback((folderId: string) => {
@@ -1051,6 +1115,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         reorderFolderChildren,
         mergeToFolder,
         renameFolder,
+        setFolderLayout,
         dissolveFolder,
         importData,
         undo,

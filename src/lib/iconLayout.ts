@@ -7,6 +7,8 @@ const ICON_LABEL_GAP_PX = 4;
 const ICON_LABEL_PADDING_X_PX = 8;
 const FOLDER_PREVIEW_SCALE = 0.78;
 const FOLDER_PREVIEW_GAP_PX = 3;
+const LARGE_FOLDER_PREVIEW_SCALE = 1.9;
+const LARGE_FOLDER_PREVIEW_GAP_PX = 4;
 
 const TEXT_CLASS_MAP: Record<IconSizeVariant, string> = {
   normal: 'text-[11px] leading-[18px]',
@@ -30,6 +32,8 @@ export interface IconLayoutMetrics {
   cellMinHeightPx: number;
   folderPreviewGapPx: number;
   folderPreviewCellPx: number;
+  largeFolderPreviewGapPx: number;
+  largeFolderPreviewCellPx: number;
   glyphPx: number;
   initialFontPx: number;
 }
@@ -50,6 +54,11 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
   );
   const folderPreviewInnerPx = Math.round(resolvedIconPx * FOLDER_PREVIEW_SCALE);
   const folderPreviewCellPx = Math.max(0, (folderPreviewInnerPx - FOLDER_PREVIEW_GAP_PX) / 2);
+  const largeFolderPreviewInnerPx = Math.round(resolvedIconPx * LARGE_FOLDER_PREVIEW_SCALE);
+  const largeFolderPreviewCellPx = Math.max(
+    0,
+    (largeFolderPreviewInnerPx - LARGE_FOLDER_PREVIEW_GAP_PX * 2) / 3,
+  );
 
   return {
     iconPx: resolvedIconPx,
@@ -63,6 +72,8 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
     cellMinHeightPx: resolvedIconPx + ICON_LABEL_GAP_PX + labelHeightPx,
     folderPreviewGapPx: FOLDER_PREVIEW_GAP_PX,
     folderPreviewCellPx,
+    largeFolderPreviewGapPx: LARGE_FOLDER_PREVIEW_GAP_PX,
+    largeFolderPreviewCellPx,
     glyphPx: resolvedIconPx * 0.5,
     initialFontPx: resolvedIconPx * 0.35,
   };

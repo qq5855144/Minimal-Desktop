@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DesktopData } from '@/types';
 
-export const CURRENT_DESKTOP_VERSION = 4;
+export const CURRENT_DESKTOP_VERSION = 5;
 
 const httpUrl = z.string().max(4096).refine((value) => {
   try {
@@ -29,6 +29,7 @@ const iconColor = z.enum([
 
 const itemType = z.enum(['app', 'folder', 'system', 'widget']);
 const widgetType = z.enum(['clock', 'search', 'combined']);
+const folderLayout = z.enum(['1x1', '2x2']);
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, '必须是有效 Base64');
 
 export const desktopItemSchema: z.ZodType<import('@/types').DesktopItem> = z.lazy(() => z.object({
@@ -47,6 +48,7 @@ export const desktopItemSchema: z.ZodType<import('@/types').DesktopItem> = z.laz
   row: z.number().int().min(0).max(1000),
   col: z.number().int().min(0).max(1000),
   children: z.array(desktopItemSchema).max(9).optional(),
+  folderLayout: folderLayout.optional(),
   widgetType: widgetType.optional(),
 }));
 

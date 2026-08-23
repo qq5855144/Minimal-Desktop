@@ -3,7 +3,13 @@ import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { uploadToGithub } from '@/lib/github';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
-import { getPrivacyPageNumbers, LAYOUT_LIMITS } from '@/lib/layoutEngine';
+import {
+  canPlaceItem,
+  folderContainsSystemItem,
+  getItemGridSpan,
+  getPrivacyPageNumbers,
+  LAYOUT_LIMITS,
+} from '@/lib/layoutEngine';
 import {
   getPageTrackIndex,
   resolveDragEdgeTarget,
@@ -16,12 +22,7 @@ import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
-import {
-  getWidgetConfig,
-  getWidgetGridRowGapPx,
-  isRowCoveredByWidget,
-  wouldWidgetOverlap,
-} from '@/lib/widgetConfig';
+import { getWidgetGridRowGapPx } from '@/lib/widgetConfig';
 import { getWidgetLayoutMetrics, resolveGridRowAtY } from '@/lib/widgetLayout';
 import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
@@ -82,6 +83,7 @@ const Desktop: React.FC = () => {
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
+    setFolderLayout,
     moveItemToPrivacy,
     movePrivacyToPage,
     reorderPrivacyItems,
@@ -351,12 +353,16 @@ const Desktop: React.FC = () => {
         privacyPageCount: latestRef.current.privacyPageCount,
         edge,
         allowPrivacyPage:
-          activeDrag.item.type === 'app' || activeDrag.item.type === 'folder',
+          activeDrag.item.type === 'app'
+          || (activeDrag.item.type === 'folder' && !folderContainsSystemItem(activeDrag.item)),
         hasLeadingPrivacyPage: leadingPrivacyDropPageRef.current,
         canCreateLeadingPrivacyPage:
           latestRef.current.privacyUnlocked
           && latestRef.current.privacyPageCount < LAYOUT_LIMITS.maxPages
-          && (activeDrag.item.type === 'app' || activeDrag.item.type === 'folder'),
+          && (
+            activeDrag.item.type === 'app'
+            || (activeDrag.item.type === 'folder' && !folderContainsSystemItem(activeDrag.item))
+          ),
         hasTrailingPage: trailingDropPageRef.current,
         canCreateTrailingPage:
           d.pages.length < LAYOUT_LIMITS.maxPages && activeDrag.item.type !== 'system',
@@ -449,13 +455,17 @@ const Desktop: React.FC = () => {
         dragOverItemRef.current = effectiveHoverId;
       }
 
-      // 仅桌面图标参与悬停合并；widget/system 全部排除
-      // 提前排除 widget/system 目标，避免启动 800ms 计时器后才发现无法合并
+      // 应用与普通桌面的系统入口可参与文件夹合并；widget 和文件夹本身不能作为来源。
       const isWorkspaceDrag = g.source.type === 'desktop'
         || g.source.type === 'privacy'
         || g.source.type === 'folder';
       const sourceIsPrivacy = g.source.type === 'privacy' || (g.source.page ?? g.item.page) < 0;
       const hoverIsPrivacy = hoverPage < 0;
+      const sourceCanMerge = g.item.type === 'app'
+        || (g.item.type === 'system' && !sourceIsPrivacy);
+      const targetCanMerge = hoverItem?.type === 'app'
+        || hoverItem?.type === 'folder'
+        || (hoverItem?.type === 'system' && !hoverIsPrivacy);
       const isValidMergeTarget =
         edgeTargetPageRef.current === null &&
         hoverId !== null &&
@@ -463,8 +473,8 @@ const Desktop: React.FC = () => {
         isWorkspaceDrag &&
         sourceIsPrivacy === hoverIsPrivacy &&
         hoverItem !== null &&
-        hoverItem.type !== 'widget' &&
-        hoverItem.type !== 'system';
+        sourceCanMerge &&
+        targetCanMerge;
 
       if (isValidMergeTarget) {
         if (hoverId !== mergeHoverIdRef.current) {
@@ -490,14 +500,9 @@ const Desktop: React.FC = () => {
                 ?? privateItems.find((item) => item.id === cur.source.itemId);
             const target = d.pages.flat().find((item) => item.id === hoverIdNonNull)
               ?? privateItems.find((item) => item.id === hoverIdNonNull);
-            // widget / system 不参与合并（兜底：数据可能在 800ms 内变化）
-            if (dragItem?.type === 'widget' || target?.type === 'widget') return;
-            if (!target || target.type === 'system') return;
-            // 阻止 folder 拖入 folder（避免无限嵌套）
-            if (dragItem?.type === 'folder' && target.type === 'folder') {
-              toast.error('暂不支持文件夹嵌套');
-              return;
-            }
+            // 兜底：计时期间数据可能变化；只允许 app/system 成为子项。
+            if (!dragItem || (dragItem.type !== 'app' && dragItem.type !== 'system')) return;
+            if (!target || (target.type !== 'app' && target.type !== 'system' && target.type !== 'folder')) return;
             // 检查目标文件夹容量
             if (target.type === 'folder' && (target.children?.length ?? 0) >= MAX_FOLDER_APPS) {
               toast.error('文件夹已满，最多容纳 9 个图标');
@@ -536,7 +541,7 @@ const Desktop: React.FC = () => {
         }
         // hoverId 未变化 → 继续等待计时器，无需任何操作
       } else {
-        // 离开有效合并目标（到空白、回到自身、非桌面拖拽、widget/system）→ 清除计时器
+        // 离开有效合并目标（空白、自身、组件或不允许的隐私系统项）→ 清除计时器
         clearMergeTimer();
       }
     };
@@ -648,9 +653,11 @@ const Desktop: React.FC = () => {
         }
         if (srcItem && !moved) {
           toast.error(
-            g.item.type === 'app' || g.item.type === 'folder'
-              ? '隐私桌面目标位置已占用'
-              : '仅应用或文件夹可移入隐私桌面',
+            g.item.type === 'folder' && folderContainsSystemItem(g.item)
+              ? '包含系统入口的文件夹不能移入隐私桌面'
+              : g.item.type === 'app' || g.item.type === 'folder'
+                ? '隐私桌面目标位置已占用'
+                : '仅应用或文件夹可移入隐私桌面',
           );
         }
         return;
@@ -694,15 +701,6 @@ const Desktop: React.FC = () => {
         return;
       }
 
-      if (!isWidget) {
-        // 普通图标不允许放入被 widget 视觉区域（rowSpan）覆盖的行
-        if (isRowCoveredByWidget(d.pages[targetPage] ?? [], targetRow)) return;
-        if (targetItemId) {
-          const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
-          if (tgt?.type === 'widget') return; // widget 格子不可放置
-        }
-      }
-
       // ── 桌面图标拖拽 ──
       if (g.source.type === 'desktop') {
         const src = findItem(d.pages, g.source.itemId);
@@ -733,7 +731,8 @@ const Desktop: React.FC = () => {
           //   2. 目标 rowSpan 范围必须完整为空，避免组件覆盖其他组件或普通项目
           const targetPageItems = d.pages[targetPage] ?? [];
           const srcFull0 = d.pages[src.page]?.find(it => it.id === g.source.itemId);
-          const draggedSpan0 = getWidgetConfig(srcFull0?.widgetType).rowSpan;
+          if (!srcFull0) return;
+          const draggedSpan0 = getItemGridSpan(srcFull0, gc).rowSpan;
 
           if (widgetTargetRow < 0 || widgetTargetRow + draggedSpan0 > latestRef.current.gridRows) {
             toast.error('组件超出桌面可用行数');
@@ -743,17 +742,16 @@ const Desktop: React.FC = () => {
           // 未移动：落回自身起始行 → 忽略
           if (widgetTargetRow === src.row && src.page === targetPage) return;
 
-          // 唯一规则：目标 rowSpan 范围 [widgetTargetRow, +span) 内不能有任何其他 item
-          // 注意：widget 的数据层 row 是起始行，但视觉覆盖 [row, row+span)，
-          // 必须用区间重叠判定（wouldWidgetOverlap），而不是简单的 it.row >= start 检查。
-          // 普通应用用 it.row 判断即可（span=1）。
-          const widgetBlocked = wouldWidgetOverlap(targetPageItems, widgetTargetRow, draggedSpan0, [g.source.itemId]);
-          const appBlocked = targetPageItems.some(
-            it => it.id !== g.source.itemId && it.type !== 'widget'
-              && it.row >= widgetTargetRow
-              && it.row < widgetTargetRow + draggedSpan0,
-          );
-          if (widgetBlocked || appBlocked) {
+          // 与数据层共用矩形占位规则，同时识别 widget 跨行和 2×2 文件夹跨行跨列。
+          if (!canPlaceItem(
+            targetPageItems,
+            srcFull0,
+            widgetTargetRow,
+            0,
+            gc,
+            latestRef.current.gridRows,
+            [g.source.itemId],
+          )) {
             toast.error('空间不足');
             return;
           }
@@ -898,7 +896,13 @@ const Desktop: React.FC = () => {
   const handleLongPress = useCallback((item: DesktopItem, x: number, y: number) => {
     // widget / system 仅进入拖拽待命，不显示编辑菜单。
     if (item.type === 'widget' || item.type === 'system') return;
-    setContextMenu({ x, y, itemId: item.id, isFolder: item.type === 'folder' });
+    setContextMenu({
+      x,
+      y,
+      itemId: item.id,
+      isFolder: item.type === 'folder',
+      folderLayout: item.type === 'folder' ? (item.folderLayout ?? '1x1') : undefined,
+    });
   }, []);
 
   const handleSystemClick = useCallback((item: DesktopItem) => {
@@ -915,6 +919,14 @@ const Desktop: React.FC = () => {
     if (item.type === 'folder') handleFolderClick(item);
     else if (item.type === 'system') handleSystemClick(item);
   }, [handleFolderClick, handleSystemClick]);
+
+  const handleFolderItemClick = useCallback((item: DesktopItem) => {
+    if (item.type === 'system') {
+      setOpenFolderId(null);
+      setFolderRenameId(null);
+    }
+    handleItemClick(item);
+  }, [handleItemClick]);
 
   const handleAddApp = useCallback(
     (app: { name: string; url: string; iconUrl?: string; iconCrop?: import('@/types').IconCrop }) => {
@@ -1104,45 +1116,53 @@ const Desktop: React.FC = () => {
     const cells: React.ReactNode[] = [];
     const renderRows = settings.rows ?? 8;
     const itemsByCell = new Map(items.map((item) => [`${item.row}:${item.col}`, item] as const));
+    const coveredCells = new Set<string>();
     const dragBegin = pageIndex < 0 ? handlePrivacyDragBegin : handleDesktopDragBegin;
 
-    for (let r = 0; r < renderRows; r++) {
-      const firstCellItem = itemsByCell.get(`${r}:0`);
-      const widgetItem = firstCellItem?.type === 'widget' ? firstCellItem : undefined;
-
-      if (widgetItem) {
-        const isGhost = ghost?.source.itemId === widgetItem.id;
-        const span = getWidgetConfig(widgetItem.widgetType).rowSpan;
-        cells.push(
-          <div
-            key={widgetItem.id}
-            data-cell="1"
-            data-row={r}
-            data-col={0}
-            data-page={pageIndex}
-            data-itemid={widgetItem.id}
-            data-row-span={span}
-            style={{ gridColumn: `1 / -1`, gridRow: `span ${span}` }}
-            className={`w-full transition-all duration-150 ${dragOverItem === widgetItem.id ? 'scale-[1.01] brightness-110' : ''}`}
-          >
-            <WidgetGridCell
-              item={widgetItem}
-              ghost={isGhost}
-              iconPx={settings.iconSize}
-              onDragBegin={dragBegin}
-              onLongPress={handleLongPress}
-            />
-          </div>,
-        );
-        // widget 真实占据 span 个 grid track，数据层 row 也按 span 累计
-        // 跳过后续 span-1 个 r 值，使 r 与数据层 row 号保持一致
-        r += span - 1;
-        continue;
+    for (const item of items) {
+      const { rowSpan, colSpan } = getItemGridSpan(item, gridCols);
+      for (let row = item.row; row < item.row + rowSpan; row++) {
+        for (let col = item.col; col < item.col + colSpan; col++) {
+          coveredCells.add(`${row}:${col}`);
+        }
       }
+    }
 
+    for (let r = 0; r < renderRows; r++) {
       for (let c = 0; c < gridCols; c++) {
         const item = itemsByCell.get(`${r}:${c}`);
         if (item) {
+          const { rowSpan, colSpan } = getItemGridSpan(item, gridCols);
+          const spansMultipleCells = rowSpan > 1 || colSpan > 1;
+          if (item.type === 'widget') {
+            cells.push(
+              <div
+                key={item.id}
+                data-cell="1"
+                data-row={r}
+                data-col={0}
+                data-page={pageIndex}
+                data-itemid={item.id}
+                data-row-span={rowSpan}
+                data-col-span={colSpan}
+                style={{
+                  gridColumn: `1 / span ${colSpan}`,
+                  gridRow: `${r + 1} / span ${rowSpan}`,
+                  justifySelf: 'stretch',
+                }}
+                className={`w-full transition-all duration-150 ${dragOverItem === item.id ? 'scale-[1.01] brightness-110' : ''}`}
+              >
+                <WidgetGridCell
+                  item={item}
+                  ghost={ghost?.source.itemId === item.id}
+                  iconPx={settings.iconSize}
+                  onDragBegin={dragBegin}
+                  onLongPress={handleLongPress}
+                />
+              </div>,
+            );
+            continue;
+          }
           cells.push(
             <div
               key={item.id}
@@ -1151,7 +1171,17 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={pageIndex}
               data-itemid={item.id}
-              className={`relative transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
+              data-row-span={rowSpan}
+              data-col-span={colSpan}
+              style={{
+                gridColumn: `${c + 1} / span ${colSpan}`,
+                gridRow: `${r + 1} / span ${rowSpan}`,
+                justifySelf: spansMultipleCells ? 'stretch' : 'center',
+                alignSelf: spansMultipleCells ? 'stretch' : 'start',
+                width: spansMultipleCells ? '100%' : undefined,
+                height: spansMultipleCells ? '100%' : undefined,
+              }}
+              className={`relative min-w-0 transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
             >
               <AppIcon
                 item={item}
@@ -1163,7 +1193,7 @@ const Desktop: React.FC = () => {
               />
             </div>,
           );
-        } else {
+        } else if (!coveredCells.has(`${r}:${c}`)) {
           cells.push(
             <div
               key={`empty-${r}-${c}`}
@@ -1172,7 +1202,11 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={pageIndex}
               className="flex items-center justify-center rounded-xl"
-              style={{ minHeight: desktopIconMetrics.cellMinHeightPx }}
+              style={{
+                gridColumnStart: c + 1,
+                gridRowStart: r + 1,
+                minHeight: desktopIconMetrics.cellMinHeightPx,
+              }}
             >
               {isDragging && <SkeletonIcon iconPx={settings.iconSize} />}
             </div>,
@@ -1184,10 +1218,11 @@ const Desktop: React.FC = () => {
     return (
       <div
         data-page-grid={pageIndex}
-        className="grid gap-x-3"
+        className="grid"
         style={{
           gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-          gridAutoRows: `${desktopIconMetrics.cellMinHeightPx}px`,
+          gridTemplateRows: `repeat(${renderRows}, ${desktopIconMetrics.cellMinHeightPx}px)`,
+          columnGap: gridRowGapPx,
           rowGap: gridRowGapPx,
           justifyItems: 'center',
         }}
@@ -1202,6 +1237,10 @@ const Desktop: React.FC = () => {
     : null;
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
+    : null;
+  const ghostLargeFolderSizePx = ghost?.item.type === 'folder'
+    && ghost.item.folderLayout === '2x2'
+    ? desktopIconMetrics.cellMinHeightPx * 2 + gridRowGapPx
     : null;
 
   return (
@@ -1413,6 +1452,7 @@ const Desktop: React.FC = () => {
             folder={openFolder}
             onClose={() => { setOpenFolderId(null); setFolderRenameId(null); }}
             onLongPress={handleLongPress}
+            onItemClick={handleFolderItemClick}
             triggerRenameId={folderRenameId}
             onRenameDone={() => setFolderRenameId(null)}
             onDragIntentStart={() => setContextMenu(null)}
@@ -1487,6 +1527,13 @@ const Desktop: React.FC = () => {
             dissolveFolder(id);
             toast.success('文件夹已解散');
           }}
+          onFolderLayoutChange={(id, layout) => {
+            if (!setFolderLayout(id, layout)) {
+              toast.error('当前桌面空间不足，无法切换为该布局');
+              return;
+            }
+            toast.success(`文件夹已切换为 ${layout === '2x2' ? '2×2' : '1×1'} 布局`);
+          }}
           onClose={() => setContextMenu(null)}
         /></React.Suspense>
       )}
@@ -1523,6 +1570,8 @@ const Desktop: React.FC = () => {
             transform: 'translate3d(0, 0, 0) translate(-50%, -50%)',
             willChange: 'transform',
             contain: 'layout paint style',
+            width: ghostLargeFolderSizePx ?? undefined,
+            height: ghostLargeFolderSizePx ?? undefined,
           }}
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点

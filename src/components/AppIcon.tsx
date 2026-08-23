@@ -21,12 +21,19 @@ interface AppIconProps {
   iconPx?: number;
 }
 
+const SYSTEM_ICON_MAP: Record<string, React.ElementType> = {
+  'sys-settings': Settings,
+  'sys-sync': RefreshCw,
+  'sys-add': Plus,
+};
+
 /** 文件夹缩略图内的子图标 */
 const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx: number }> = ({
   child, cellPx, iconFontPx,
 }) => {
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
   const crop = child.iconCrop;
+  const SystemIcon = child.type === 'system' ? (SYSTEM_ICON_MAP[child.id] ?? Globe) : null;
 
   // 有裁剪参数时用 CSS transform 渲染，与 AppIcon 保持一致
   const imgStyle: React.CSSProperties = crop ? {
@@ -46,7 +53,12 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
   return (
     <div
       className="rounded-[25%] overflow-hidden relative flex items-center justify-center"
-      style={{ width: cellPx, height: cellPx, flexShrink: 0, background: '#fff' }}
+      style={{
+        width: cellPx,
+        height: cellPx,
+        flexShrink: 0,
+        background: src ? '#fff' : getColorStyle(child.color),
+      }}
     >
       {src ? (
         <img
@@ -55,6 +67,12 @@ const FolderChildIcon: React.FC<{ child: DesktopItem; cellPx: number; iconFontPx
           draggable={false}
           decoding="async"
           style={imgStyle}
+        />
+      ) : SystemIcon ? (
+        <SystemIcon
+          className="text-white drop-shadow"
+          style={{ width: cellPx * 0.52, height: cellPx * 0.52 }}
+          strokeWidth={2.2}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -101,6 +119,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize, settings.iconRadiusPct);
   const px = metrics.iconPx;
+  const isLargeFolder = item.type === 'folder' && item.folderLayout === '2x2';
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
@@ -135,10 +154,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const renderIconContent = () => {
     if (item.type === 'system') {
-      const iconMap: Record<string, React.ElementType> = {
-        'sys-settings': Settings, 'sys-sync': RefreshCw, 'sys-add': Plus,
-      };
-      const Icon = iconMap[item.id] ?? Globe;
+      const Icon = SYSTEM_ICON_MAP[item.id] ?? Globe;
       return (
         <div className="flex items-center justify-center ios-icon-shadow transition-transform duration-200"
           style={{ ...iconStyle, background: getColorStyle(item.color) }}>
@@ -147,15 +163,31 @@ const AppIcon: React.FC<AppIconProps> = ({
       );
     }
     if (item.type === 'folder') {
-      // 取前 4 个子项，以 2×2 网格展示缩略图
-      const preview = (item.children || []).slice(0, 4);
+      // 1×1 保持 2×2 缩略图；2×2 大文件夹展示完整 3×3（最多 9 项）。
+      const previewColumns = isLargeFolder ? 3 : 2;
+      const preview = (item.children || []).slice(0, previewColumns ** 2);
       const isNeu = settings.style === 'neumorphism';
-      const cellPx = metrics.folderPreviewCellPx;
+      const cellPx = isLargeFolder
+        ? metrics.largeFolderPreviewCellPx
+        : metrics.folderPreviewCellPx;
+      const previewGapPx = isLargeFolder
+        ? metrics.largeFolderPreviewGapPx
+        : metrics.folderPreviewGapPx;
       return (
         <div
           className="ios-icon-shadow overflow-hidden flex items-center justify-center"
           style={{
             ...iconStyle,
+            ...(isLargeFolder ? {
+              width: '100%',
+              height: 'auto',
+              minHeight: 0,
+              flex: '1 1 0%',
+              borderRadius: 'clamp(20px, 12%, 32px)',
+              border: isNeu
+                ? '1px solid rgba(148,163,184,0.22)'
+                : '1px solid rgba(255,255,255,0.2)',
+            } : {}),
             background: isNeu ? 'rgba(232,237,245,0.55)' : 'rgba(255,255,255,0.18)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
@@ -165,9 +197,9 @@ const AppIcon: React.FC<AppIconProps> = ({
             <div
               className="grid"
               style={{
-                gap: metrics.folderPreviewGapPx,
-                gridTemplateColumns: `repeat(2, ${cellPx}px)`,
-                gridTemplateRows: `repeat(2, ${cellPx}px)`,
+                gap: previewGapPx,
+                gridTemplateColumns: `repeat(${previewColumns}, ${cellPx}px)`,
+                gridTemplateRows: `repeat(${previewColumns}, ${cellPx}px)`,
               }}
             >
               {preview.map((child) => (
@@ -244,7 +276,7 @@ const AppIcon: React.FC<AppIconProps> = ({
       : 'transition-transform active:scale-95';
 
   return (
-    <div className={`relative ${ghost ? 'opacity-40' : ''}`}>
+    <div className={`relative ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${ghost ? 'opacity-40' : ''}`}>
       <button
         type="button"
         onClick={handleClick}
@@ -254,12 +286,12 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={pressIntent.onPointerCancel}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
+        className={`app-icon-button flex flex-col items-center gap-1 select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
       >
         {renderIconContent()}
         <span
           className={`app-icon-label ${metrics.textClass} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
-          style={{ maxWidth: metrics.labelMaxWidthPx }}
+          style={{ maxWidth: isLargeFolder ? '100%' : metrics.labelMaxWidthPx }}
         >
           {item.name}
         </span>

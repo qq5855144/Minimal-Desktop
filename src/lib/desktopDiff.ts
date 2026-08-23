@@ -10,6 +10,7 @@ interface FlatItem {
   iconCrop?: DesktopItem['iconCrop'];
   color: DesktopItem['color'];
   widgetType?: DesktopItem['widgetType'];
+  folderLayout?: DesktopItem['folderLayout'];
   childOrder: number | null;
   page: number;
   row: number;
@@ -42,6 +43,7 @@ function flatten(data: DesktopData): Map<string, FlatItem> {
       iconCrop: item.iconCrop,
       color: item.color,
       widgetType: item.widgetType,
+      folderLayout: item.folderLayout,
       childOrder,
       page: item.page,
       row: item.row,
@@ -56,7 +58,7 @@ function flatten(data: DesktopData): Map<string, FlatItem> {
 function contentKey(item: FlatItem): string {
   return JSON.stringify([
     item.type, item.name, item.url ?? '', item.iconUrl ?? '', item.iconCrop ?? null,
-    item.color, item.widgetType ?? '',
+    item.color, item.widgetType ?? '', item.folderLayout ?? '1x1',
   ]);
 }
 

@@ -6,6 +6,7 @@ import {
   compactPrivacyPages,
   getPrivacyPageCount,
   getPrivacyPageNumbers,
+  isFolderChildCandidate,
   moveDesktopItem,
   movePrivacyItem,
   reflowDesktopData,
@@ -14,6 +15,8 @@ import {
   resolvePageAfterCompaction,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
+  updateDesktopFolderLayout,
+  updatePrivacyFolderLayout,
   validateDesktopLayout,
 } from './layoutEngine';
 
@@ -23,6 +26,21 @@ const app = (id: string, page: number, row: number, col: number): DesktopItem =>
 
 const clock = (page = 0, row = 0): DesktopItem => ({
   id: 'widget-clock', type: 'widget', widgetType: 'clock', name: '时钟', color: 'blue', page, row, col: 0,
+});
+
+const system = (id: string, page: number, row: number, col: number): DesktopItem => ({
+  id, type: 'system', name: id, color: 'gray', page, row, col,
+});
+
+const folder = (
+  id: string,
+  page: number,
+  row: number,
+  col: number,
+  folderLayout: DesktopItem['folderLayout'] = '1x1',
+  children: DesktopItem[] = [app(`${id}-a`, page, row, col), app(`${id}-b`, page, row, col)],
+): DesktopItem => ({
+  id, type: 'folder', name: id, color: 'gray', page, row, col, folderLayout, children,
 });
 
 const data = (pages: DesktopItem[][]): DesktopData => ({ pages, version: 3 });
@@ -40,12 +58,97 @@ describe('layoutEngine', () => {
     expect(result.data).toBe(original);
   });
 
+  it('2×2 文件夹真实占用四格并受行列边界约束', () => {
+    const largeFolder = folder('large', 0, 0, 0, '2x2');
+    expect(canPlaceItem([largeFolder], app('right', 0, 0, 1), 0, 1, 4, 8)).toBe(false);
+    expect(canPlaceItem([largeFolder], app('below', 0, 1, 0), 1, 0, 4, 8)).toBe(false);
+    expect(canPlaceItem([largeFolder], app('diagonal', 0, 1, 1), 1, 1, 4, 8)).toBe(false);
+    expect(canPlaceItem([largeFolder], app('free', 0, 0, 2), 0, 2, 4, 8)).toBe(true);
+    expect(canPlaceItem([], largeFolder, 7, 0, 4, 8)).toBe(false);
+    expect(canPlaceItem([], largeFolder, 0, 3, 4, 8)).toBe(false);
+  });
+
+  it('文件夹放大时优先原地，否则只把文件夹迁移到可容纳的 2×2 空间', () => {
+    const original = data([[
+      folder('folder', 0, 0, 0),
+      app('blocker', 0, 0, 1),
+    ]]);
+    const resized = updateDesktopFolderLayout(original, 'folder', '2x2', 4, 4);
+    expect(resized.ok).toBe(true);
+    expect(resized.data.pages[0].find((item) => item.id === 'folder')).toMatchObject({
+      folderLayout: '2x2', row: 0, col: 2,
+    });
+    expect(validateDesktopLayout(resized.data, { cols: 4, rows: 4 })).toEqual([]);
+    expect(original.pages[0].find((item) => item.id === 'folder')?.folderLayout).toBe('1x1');
+  });
+
+  it('隐私文件夹也能切换 2×2 并保持负页紧凑规则', () => {
+    const privacy = [
+      folder('private-folder', -1, 0, 0),
+      app('blocker', -1, 0, 1),
+    ];
+    const resized = updatePrivacyFolderLayout(privacy, 'private-folder', '2x2', 4, 4);
+    expect(resized.ok).toBe(true);
+    expect(resized.privacyItems.find((item) => item.id === 'private-folder')).toMatchObject({
+      folderLayout: '2x2', page: -1, row: 0, col: 2,
+    });
+    expect(getPrivacyPageCount(resized.privacyItems)).toBe(1);
+  });
+
+  it('系统入口可以成为普通文件夹子项，但包含系统入口的文件夹不能移入隐私桌面', () => {
+    const settings = system('sys-settings', 0, 0, 0);
+    expect(isFolderChildCandidate(settings)).toBe(true);
+    const systemFolder = folder('tools', 0, 2, 0, '1x1', [
+      settings,
+      app('regular', 0, 2, 0),
+    ]);
+    const result = transferDesktopToPrivacy(data([[systemFolder]]), [], 'tools', -1, 0, 0, 4, 8);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('protected-item');
+  });
+
+  it('2×2 文件夹移动时不会覆盖多个目标项目', () => {
+    const original = data([[
+      folder('large', 0, 0, 0, '2x2'),
+      app('a', 0, 2, 0),
+      app('b', 0, 2, 1),
+    ]]);
+    const result = moveDesktopItem(original, 'large', 0, 0, 1, 0, 4, 8);
+    expect(result.ok).toBe(false);
+    expect(result.data).toBe(original);
+    expect(validateDesktopLayout(original, { cols: 4, rows: 8 })).toEqual([]);
+  });
+
   it('普通桌面项目命中普通项目时原子交换', () => {
     const original = data([[app('a', 0, 2, 0), app('b', 0, 2, 1)]]);
     const result = moveDesktopItem(original, 'a', 0, 0, 2, 1, 4, 8);
     expect(result.ok).toBe(true);
     expect(result.data.pages[0].find((item) => item.id === 'a')).toMatchObject({ row: 2, col: 1 });
     expect(result.data.pages[0].find((item) => item.id === 'b')).toMatchObject({ row: 2, col: 0 });
+  });
+
+  it('跨页相同坐标上的项目仍可原子交换', () => {
+    const original = data([
+      [app('a', 0, 2, 0)],
+      [app('b', 1, 2, 0)],
+    ]);
+    const moved = moveDesktopItem(original, 'a', 0, 1, 2, 0, 4, 8);
+    expect(moved.ok).toBe(true);
+    expect(moved.data.pages[0][0]).toMatchObject({ id: 'b', page: 0, row: 2, col: 0 });
+    expect(moved.data.pages[1][0]).toMatchObject({ id: 'a', page: 1, row: 2, col: 0 });
+
+    const privacyMoved = movePrivacyItem(
+      [app('near', -1, 2, 0), app('far', -2, 2, 0)],
+      'near',
+      -2,
+      2,
+      0,
+      4,
+      8,
+    );
+    expect(privacyMoved.ok).toBe(true);
+    expect(privacyMoved.privacyItems.find((item) => item.id === 'near')).toMatchObject({ page: -2 });
+    expect(privacyMoved.privacyItems.find((item) => item.id === 'far')).toMatchObject({ page: -1 });
   });
 
   it('隐私项目移出时绝不删除目标项目', () => {
