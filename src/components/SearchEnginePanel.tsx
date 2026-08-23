@@ -10,12 +10,14 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { useLongPressIntent } from '@/hooks/use-long-press-intent';
+import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import {
   type AnyEngine,
   getAvailableSearchEngines,
   getEngineIconSrc,
   isBuiltinSearchEngine,
 } from '@/lib/searchEngines';
+import { clampFloatingPosition } from '@/lib/viewport';
 import type { CustomSearchEngine } from '@/types';
 
 interface SearchEnginePanelProps {
@@ -439,6 +441,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
   const [engineMenu, setEngineMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const engineMenuRef = useRef<HTMLDivElement>(null);
+  const viewport = useViewportGeometry();
 
   // 面板弹出方向：'down'（默认向下）| 'up'（空间不足时向上）
   const [openDir, setOpenDir] = useState<'down' | 'up'>('down');
@@ -452,37 +455,49 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
     : allEngines[0]?.id;
 
   // 水平定位：居中对齐 anchor，边界保护
-  const PANEL_W = Math.min(340, typeof window !== 'undefined' ? window.innerWidth - 24 : 340);
+  const PANEL_W = Math.max(0, Math.min(340, viewport.visual.width - 24));
   const horizontalStyle = React.useMemo<React.CSSProperties>(() => {
     if (!anchorRect) return { display: 'none' };
-    let left = anchorRect.left + anchorRect.width / 2 - PANEL_W / 2;
-    left = Math.max(12, Math.min(left, window.innerWidth - PANEL_W - 12));
+    const desiredLeft = anchorRect.left + anchorRect.width / 2 - PANEL_W / 2;
+    const left = clampFloatingPosition(
+      desiredLeft,
+      PANEL_W,
+      viewport.visual.left,
+      viewport.visual.width,
+      12,
+    );
     return { position: 'fixed', left, width: PANEL_W };
-  }, [anchorRect, PANEL_W]);
+  }, [anchorRect, PANEL_W, viewport.visual.left, viewport.visual.width]);
 
   // 首次渲染后测量真实高度，决定向上/向下展开
   useLayoutEffect(() => {
     if (!panelRef.current || !anchorRect) return;
     const MARGIN = 10; // 面板与搜索框间距
     const panelH = panelRef.current.scrollHeight;
-    const spaceBelow = window.innerHeight - anchorRect.bottom - MARGIN;
-    const spaceAbove = anchorRect.top - MARGIN;
+    const spaceBelow = viewport.visual.bottom - anchorRect.bottom - MARGIN;
+    const spaceAbove = anchorRect.top - viewport.visual.top - MARGIN;
     // 下方放不下 且 上方空间更充裕 → 向上展开
     setOpenDir(spaceBelow < panelH && spaceAbove > spaceBelow ? 'up' : 'down');
-  }, [anchorRect, editingEngine, showAdd]);
+  }, [anchorRect, editingEngine, showAdd, viewport.visual.bottom, viewport.visual.top]);
 
   // 根据方向计算最终定位
   const positionStyle = React.useMemo<React.CSSProperties>(() => {
     if (!anchorRect) return {};
     const MARGIN = 10;
-    const MAX_H = window.innerHeight * 0.65;
+    const MAX_H = viewport.visual.height * 0.65;
     if (openDir === 'up') {
       // 底边贴紧搜索框顶部
-      return { bottom: window.innerHeight - anchorRect.top + MARGIN, maxHeight: MAX_H };
+      return {
+        bottom: viewport.layout.height - anchorRect.top + MARGIN,
+        maxHeight: Math.min(MAX_H, Math.max(80, anchorRect.top - viewport.visual.top - MARGIN)),
+      };
     }
     // 顶边贴紧搜索框底部
-    return { top: anchorRect.bottom + MARGIN, maxHeight: MAX_H };
-  }, [anchorRect, openDir]);
+    return {
+      top: anchorRect.bottom + MARGIN,
+      maxHeight: Math.min(MAX_H, Math.max(80, viewport.visual.bottom - anchorRect.bottom - MARGIN)),
+    };
+  }, [anchorRect, openDir, viewport.layout.height, viewport.visual.bottom, viewport.visual.height, viewport.visual.top]);
 
   // 动画类：向上/向下展开使用不同方向动画
   const animClass = openDir === 'up' ? 'animate-drop-up' : 'animate-drop-down';
@@ -563,7 +578,13 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
   return createPortal(
     /* 透明全屏遮罩，捕获点击关闭 */
     <div
-      className="fixed inset-x-0 top-0 h-[100dvh] z-[200]"
+      className="fixed z-[200]"
+      style={{
+        left: viewport.visual.left,
+        top: viewport.visual.top,
+        width: viewport.visual.width,
+        height: viewport.visual.height,
+      }}
       onClick={onClose}
       onPointerDown={(event) => event.stopPropagation()}
       onPointerMove={(event) => event.stopPropagation()}
@@ -650,8 +671,18 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
       {engineMenu && (() => {
         const menuWidth = 152;
         const menuHeight = 94;
-        const left = Math.min(Math.max(engineMenu.x, 8), window.innerWidth - menuWidth - 8);
-        const top = Math.min(Math.max(engineMenu.y, 8), window.innerHeight - menuHeight - 8);
+        const left = clampFloatingPosition(
+          engineMenu.x,
+          menuWidth,
+          viewport.visual.left,
+          viewport.visual.width,
+        );
+        const top = clampFloatingPosition(
+          engineMenu.y,
+          menuHeight,
+          viewport.visual.top,
+          viewport.visual.height,
+        );
         return (
           <div
             ref={engineMenuRef}

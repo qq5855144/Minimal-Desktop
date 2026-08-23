@@ -202,10 +202,13 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         onCancel={handleCropCancel}
       />
     )}
-    <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
       <div
-        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
-        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle}
+        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} flex flex-col`}
+        style={{
+          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
+          ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 拖拽把手 */}
@@ -213,7 +216,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
           <div className={`w-10 h-1 rounded-full ${t.handle}`} />
         </div>
 
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
           {/* 标题行 */}
           <div className="flex items-center gap-2">
             {isEdit && (
@@ -352,7 +355,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         </div>
 
         {/* 底部操作栏 */}
-        <div className={`flex items-center gap-2 px-5 py-3 border-t ${t.itemBorder}`}>
+        <div className={`flex items-center gap-2 px-5 py-3 border-t shrink-0 ${t.itemBorder}`}>
           {isEdit && onDelete && (
             <Button size="sm" variant="destructive" onClick={handleDelete} className="gap-1">
               <Trash2 className="w-3.5 h-3.5" />删除

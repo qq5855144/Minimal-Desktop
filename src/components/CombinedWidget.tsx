@@ -86,11 +86,11 @@ const CombinedWidget: React.FC = () => {
       <div className="flex flex-col items-center pb-2">
         <div
           className="text-white font-bold leading-none drop-shadow-lg"
-          style={{ fontSize: 'clamp(52px, 13vw, 80px)', letterSpacing: '-2px' }}
+          style={{ fontSize: 'var(--desktop-combined-clock-font-size, 52px)', letterSpacing: '-2px' }}
         >
           {hours}<span className="opacity-80">:</span>{minutes}
         </div>
-        <div className="mt-1 text-white/80 text-xs md:text-sm font-medium drop-shadow-md tracking-wide">
+        <div className="desktop-widget-combined-date mt-1 text-white/80 font-medium drop-shadow-md tracking-wide">
           {month}月{day}日&nbsp;{weekday}&nbsp;{lunar}
         </div>
       </div>
@@ -99,7 +99,7 @@ const CombinedWidget: React.FC = () => {
       <div className="mx-6 border-t border-white/15 mb-2" />
 
       {/* 搜索框区 */}
-      <div className="px-[7%] md:px-[15%]">
+      <div className="desktop-widget-search-padding">
         <form
           onSubmit={handleSubmit}
           className={`flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 ${

@@ -209,7 +209,7 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, initialCrop, onCon
       onClick={onCancel}
     >
       <div
-        className="w-[90vw] max-w-sm rounded-2xl overflow-hidden flex flex-col bg-zinc-900 shadow-2xl"
+        className="w-[90%] max-w-sm rounded-2xl overflow-hidden flex flex-col bg-zinc-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
@@ -222,7 +222,7 @@ const IconCropDialog: React.FC<IconCropDialogProps> = ({ src, initialCrop, onCon
           ref={containerRef}
           className="relative w-full select-none"
           style={{
-            height: '56vw', maxHeight: 320,
+            aspectRatio: '8 / 5', maxHeight: 320,
             backgroundImage: 'linear-gradient(45deg,#e0e0e0 25%,transparent 25%),linear-gradient(-45deg,#e0e0e0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e0e0e0 75%),linear-gradient(-45deg,transparent 75%,#e0e0e0 75%)',
             backgroundSize: '12px 12px',
             backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',

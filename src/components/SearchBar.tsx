@@ -38,7 +38,7 @@ const SearchBar: React.FC = () => {
     : 'flex-1 min-w-0 bg-transparent text-white text-sm placeholder:text-white/50 outline-none cursor-pointer';
 
   return (
-    <div className="px-[7%] md:px-[15%] pb-3">
+    <div className="desktop-widget-search-padding pb-3">
       {/* 搜索栏外壳：点击任意位置打开搜索专用屏 */}
       <div
         className={formCls}

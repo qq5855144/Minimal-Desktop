@@ -340,10 +340,13 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`w-full max-w-lg rounded-t-3xl pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} animate-slide-up`}
-        style={isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle}
+        className={`w-full max-w-lg rounded-t-3xl pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} animate-slide-up flex flex-col overflow-hidden`}
+        style={{
+          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
+          ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 拖拽条 */}
@@ -351,7 +354,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           <div className={`w-10 h-1 rounded-full ${t.handle}`} />
         </div>
 
-        <div className="px-5 py-4 space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
           {/* 头部 */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
