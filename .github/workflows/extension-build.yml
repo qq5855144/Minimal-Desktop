@@ -29,6 +29,7 @@ jobs:
     outputs:
       zip_name: ${{ steps.pkg.outputs.zip_name }}
       version:  ${{ steps.pkg.outputs.version }}
+      release_tag: ${{ steps.release-meta.outputs.release_tag }}
 
     steps:
       # ── 1. 检出代码 ─────────────────────────────────────────────────────
@@ -58,6 +59,51 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # ── 2b. 解析正式发布目标 ────────────────────────────────────────────
+      # tag push：沿用 tag；workflow_dispatch：使用输入版本；main push：
+      # 当 package/manifest 当前版本尚无正式 tag 时自动发布一次。
+      - name: Resolve formal release target
+        id: release-meta
+        shell: bash
+        env:
+          DISPATCH_RELEASE: ${{ github.event.inputs.release || '' }}
+        run: |
+          PACKAGE_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+          MANIFEST_VERSION=$(node -e "process.stdout.write(require('./public/manifest.json').version)")
+
+          if [ "$PACKAGE_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "❌ package.json 与 manifest.json 版本不一致"
+            exit 1
+          fi
+
+          RELEASE_TAG=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_RELEASE" ]; then
+            RELEASE_TAG="$DISPATCH_RELEASE"
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            CANDIDATE="v${PACKAGE_VERSION}"
+            if ! git ls-remote --exit-code --tags origin "refs/tags/${CANDIDATE}" >/dev/null 2>&1; then
+              RELEASE_TAG="$CANDIDATE"
+            fi
+          fi
+
+          if [ -n "$RELEASE_TAG" ]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+              echo "❌ 正式发布版本格式无效：$RELEASE_TAG"
+              exit 1
+            fi
+            if [ "${RELEASE_TAG#v}" != "$PACKAGE_VERSION" ]; then
+              echo "❌ 发布标签 $RELEASE_TAG 与项目版本 $PACKAGE_VERSION 不一致"
+              exit 1
+            fi
+            echo "🚀 本次将发布正式版 $RELEASE_TAG"
+          else
+            echo "ℹ️ 当前版本已有正式标签，本次仅更新 latest 构建"
+          fi
+
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       # ── 3. 生成扩展图标 ──────────────────────────────────────────────────
       - name: Install ImageMagick
@@ -158,21 +204,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 8b. 推送 tag：发布正式版 GitHub Release ──────────────────────────
-      - name: Create versioned GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # ── 8b. 新版本 / tag / 手动输入：发布正式版 GitHub Release ──────────
+      - name: Create versioned GitHub Release
+        if: steps.release-meta.outputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: "Minimal Desktop ${{ github.ref_name }}"
+          tag_name: ${{ steps.release-meta.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: "Minimal Desktop ${{ steps.release-meta.outputs.release_tag }}"
           body: |
-            ## Minimal Desktop ${{ github.ref_name }} — 浏览器扩展正式版
+            ## Minimal Desktop ${{ steps.release-meta.outputs.release_tag }} — 浏览器扩展正式版
 
             ### 从应用商店安装（推荐）
             - 🔵 [Chrome Web Store](https://chromewebstore.google.com) *(审核通过后可用)*
             - 🦊 [Firefox Add-ons](https://addons.mozilla.org) *(审核通过后可用)*
 
             ### 手动安装（开发者模式）
-            1. 下载 `minimal-desktop-extension-${{ github.ref_name }}.zip` 并解压
+            1. 下载 `minimal-desktop-extension-${{ steps.release-meta.outputs.release_tag }}.zip` 并解压
             2. Chrome：打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」
             3. Firefox：打开 `about:debugging#/runtime/this-firefox` →「临时载入附加组件」
 
@@ -182,7 +230,7 @@ jobs:
             - ✅ 最小权限：`storage` / `activeTab` / `tabs`
           files: ${{ steps.pkg.outputs.zip_name }}
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.release-meta.outputs.release_tag, '-') }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -200,7 +248,7 @@ jobs:
     name: Publish → Chrome Web Store
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.release_tag != ''
 
     steps:
       - name: Download artifact
@@ -250,7 +298,7 @@ jobs:
     name: Publish → Firefox Add-ons (AMO)
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.release_tag != ''
 
     steps:
       - name: Checkout（web-ext 需要源码目录结构）
@@ -314,4 +362,3 @@ jobs:
           name: amo-artifacts
           path: amo-artifacts/
           retention-days: 30
-
