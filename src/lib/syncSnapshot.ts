@@ -1,5 +1,5 @@
 import type { DesktopData, DesktopSettings, SyncSnapshot } from '@/types';
-import { loadPrivacyVault } from '@/lib/storage';
+import { isBuiltInDefaultWallpaper, loadPrivacyVault } from '@/lib/storage';
 import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
 
@@ -27,11 +27,9 @@ async function fileSha256(file: File): Promise<string> {
 }
 
 function normalizeSettings(settings: DesktopSettings): DesktopSettings {
-  const isDefaultWallpaper = settings.bgImage?.endsWith('/images/wallpaper-default.svg')
-    || settings.bgImage === 'images/wallpaper-default.svg';
   return {
     ...settings,
-    bgImage: isDefaultWallpaper
+    bgImage: isBuiltInDefaultWallpaper(settings.bgImage)
       ? SYNC_DEFAULT_WALLPAPER_MARKER
       : settings.bgImage?.startsWith('blob:') ? IDB_WALLPAPER_MARKER : settings.bgImage,
     bgVideo: settings.bgVideo?.startsWith('blob:') ? IDB_VIDEO_MARKER : settings.bgVideo,

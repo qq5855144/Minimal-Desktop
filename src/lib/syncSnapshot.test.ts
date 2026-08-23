@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopData, DesktopSettings } from '@/types';
 import { CURRENT_DESKTOP_VERSION } from './desktopSchema';
 
-vi.mock('@/lib/storage', () => ({ loadPrivacyVault: vi.fn(() => null) }));
+vi.mock('@/lib/storage', () => ({
+  loadPrivacyVault: vi.fn(() => null),
+  isBuiltInDefaultWallpaper: (source?: string) => Boolean(
+    source?.includes('images/wallpaper-default.webp')
+    || source?.includes('images/wallpaper-default.svg'),
+  ),
+}));
 vi.mock('@/lib/wallpaperStorage', () => ({
   IDB_WALLPAPER_MARKER: '__idb_wallpaper__',
   loadWallpaperDB: vi.fn(async () => null),
@@ -37,10 +43,13 @@ describe('cloud sync snapshot', () => {
     expect(snapshot.backgroundFile).toBeUndefined();
   });
 
-  it('normalizes the built-in wallpaper to a cross-build marker', async () => {
+  it.each([
+    './images/wallpaper-default.webp',
+    './images/wallpaper-default.svg',
+  ])('normalizes the built-in wallpaper %s to a cross-build marker', async (bgImage) => {
     const snapshot = await buildSyncSnapshot(data, {
       ...settings,
-      bgImage: './images/wallpaper-default.svg',
+      bgImage,
     });
 
     expect(snapshot.data.settings?.bgImage).toBe('__default_wallpaper__');

@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SyncConfig } from '@/types';
 import { CURRENT_DESKTOP_VERSION } from './desktopSchema';
 import {
+  DEFAULT_BG_IMAGE,
   loadDesktopData,
+  loadSettings,
   loadSyncConfig,
   saveSyncConfig,
   updateSyncConfig,
@@ -64,6 +66,17 @@ describe('sync credential storage', () => {
       lastRemoteHead: 'latest-head',
       lastBackupBlobSha: 'latest-blob',
     });
+  });
+
+  it('migrates the legacy built-in wallpaper to the current local WebP asset', () => {
+    localStorage.setItem('ios_desktop_settings', JSON.stringify({
+      style: 'glassmorphism',
+      bgType: 'image',
+      bgImage: './images/wallpaper-default.svg',
+    }));
+
+    expect(loadSettings().bgImage).toBe(DEFAULT_BG_IMAGE);
+    expect(DEFAULT_BG_IMAGE).toContain('images/wallpaper-default.webp');
   });
 
   it('recognizes system entries inside a folder instead of recreating duplicates', () => {

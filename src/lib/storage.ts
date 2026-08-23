@@ -236,7 +236,17 @@ export function clearSyncConfig(): void {
 const SETTINGS_KEY = 'ios_desktop_settings';
 
 // 内置默认壁纸（本地资源，导出供其他模块引用）
-export const DEFAULT_BG_IMAGE = `${import.meta.env.BASE_URL}images/wallpaper-default.svg`;
+export const DEFAULT_BG_IMAGE = `${import.meta.env.BASE_URL}images/wallpaper-default.webp`;
+
+/** 同时识别新版 WebP 与旧版 SVG，确保升级和云端旧设置都迁移到当前默认壁纸。 */
+export function isBuiltInDefaultWallpaper(source?: string): boolean {
+  if (!source) return false;
+  const path = source.split(/[?#]/, 1)[0];
+  return path.endsWith('/images/wallpaper-default.webp')
+    || path.endsWith('/images/wallpaper-default.svg')
+    || path === 'images/wallpaper-default.webp'
+    || path === 'images/wallpaper-default.svg';
+}
 
 const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   style: 'glassmorphism',
@@ -260,7 +270,9 @@ export function loadSettings(): import('@/types').DesktopSettings {
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       delete parsed.pixabayKey; // 已移除共享/客户端壁纸 API Key 方案
-      return { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
+      const settings = { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
+      if (isBuiltInDefaultWallpaper(settings.bgImage)) settings.bgImage = DEFAULT_BG_IMAGE;
+      return settings;
     }
   } catch { /* ignore */ }
   return { ...DEFAULT_SETTINGS };
