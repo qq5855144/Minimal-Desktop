@@ -9,6 +9,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
+import { clampFloatingPosition } from '@/lib/viewport';
 import type { FolderLayout } from '@/types';
 
 export interface ContextMenuPosition {
@@ -42,12 +44,23 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [showFolderLayouts, setShowFolderLayouts] = useState(false);
+  const viewport = useViewportGeometry();
 
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
   const menuH = pos.isFolder ? (showFolderLayouts ? 142 : 168) : 96;
-  const left = Math.min(Math.max(pos.x, 8), vw - MENU_W - 8);
-  const top  = Math.min(Math.max(pos.y, 8), vh - menuH - 8);
+  const visibleLeft = viewport.visual.left - viewport.shell.left;
+  const visibleTop = viewport.visual.top - viewport.shell.top;
+  const left = clampFloatingPosition(
+    pos.x - viewport.shell.left,
+    MENU_W,
+    visibleLeft,
+    viewport.visual.width,
+  );
+  const top = clampFloatingPosition(
+    pos.y - viewport.shell.top,
+    menuH,
+    visibleTop,
+    viewport.visual.height,
+  );
 
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {

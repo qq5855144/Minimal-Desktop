@@ -797,11 +797,11 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   };
 
   return (
-    <div className="fixed inset-x-0 top-0 h-[100dvh] z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
       <div
         className={`w-full max-w-lg rounded-t-3xl animate-slide-up flex flex-col pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
         style={{
-          maxHeight: '85dvh',
+          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
           overflow: 'hidden',
           ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : (t.sheetStyle as React.CSSProperties)),
         }}

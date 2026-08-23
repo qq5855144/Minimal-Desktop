@@ -57,10 +57,37 @@ body[data-external-launch="true"] .app-icon-button * {
 [data-desktop-shell="true"] {
   isolation: isolate;
   contain: paint;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 [data-desktop-layer="true"] {
   backface-visibility: hidden;
+}
+
+/* 浏览器“电脑模式”可把媒体查询视口伪装成 980px；组件样式跟随桌面壳的有效宽度。 */
+.desktop-widget-search-padding {
+  padding-inline: 7%;
+}
+
+.desktop-widget-clock-date {
+  font-size: 0.875rem;
+}
+
+.desktop-widget-combined-date {
+  font-size: 0.75rem;
+}
+
+[data-desktop-shell="true"][data-viewport-wide="true"] .desktop-widget-search-padding {
+  padding-inline: 15%;
+}
+
+[data-desktop-shell="true"][data-viewport-wide="true"] .desktop-widget-clock-date {
+  font-size: 1rem;
+}
+
+[data-desktop-shell="true"][data-viewport-wide="true"] .desktop-widget-combined-date {
+  font-size: 0.875rem;
 }
 
 /* ── 输入框恢复浏览器默认长按 / 文字选择 / 粘贴菜单 ── */
@@ -167,6 +194,16 @@ input, textarea, [contenteditable="true"] {
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   * {
     @apply border-border;
   }
@@ -175,6 +212,7 @@ input, textarea, [contenteditable="true"] {
     @apply bg-background text-foreground;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
   }
 
   * {

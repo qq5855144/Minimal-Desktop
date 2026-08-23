@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
+import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import {
   getDesktopGridLayoutMetrics,
   getIconLayoutMetrics,
@@ -169,28 +170,18 @@ const Desktop: React.FC = () => {
     - 1;
   isDraggingRef.current = isDragging;
 
-  // 响应式列数：始终使用用户设置，桌面端不强制扩展为 MAX_COLS（避免图标偏左不对称）
-  const [screenMd, setScreenMd] = useState<boolean>(
-    () => window.matchMedia('(min-width: 768px)').matches,
-  );
-  const [desktopViewportWidth, setDesktopViewportWidth] = useState(
-    () => document.documentElement.clientWidth || window.innerWidth,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 768px)');
-    const updateViewport = () => {
-      setScreenMd(mq.matches);
-      setDesktopViewportWidth(document.documentElement.clientWidth || window.innerWidth);
-    };
-    updateViewport();
-    window.addEventListener('resize', updateViewport, { passive: true });
-    return () => window.removeEventListener('resize', updateViewport);
-  }, []);
+  // 手机浏览器“电脑模式”可能把布局视口伪装为 980px，但实际可视区仍很窄。
+  // 网格、响应式断点、弹层和根容器统一使用已归一化的有效视口。
+  const viewport = useViewportGeometry();
+  const toShellPoint = useCallback((x: number, y: number) => ({
+    x: x - viewport.shell.left,
+    y: y - viewport.shell.top,
+  }), [viewport.shell.left, viewport.shell.top]);
 
   // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
   const gridCols = settings.cols ?? 4;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
-    desktopViewportWidth,
+    viewport.shell.width,
     gridCols,
     settings.iconSize,
   );
@@ -205,6 +196,7 @@ const Desktop: React.FC = () => {
   );
   const gridRowGapPx = getWidgetGridRowGapPx();
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
+  const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
@@ -446,10 +438,11 @@ const Desktop: React.FC = () => {
     const processMove = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g || g.pointerId !== e.pointerId) return;
-      g.x = e.clientX;
-      g.y = e.clientY;
+      const shellPoint = toShellPoint(e.clientX, e.clientY);
+      g.x = shellPoint.x;
+      g.y = shellPoint.y;
       if (ghostLayerRef.current) {
-        ghostLayerRef.current.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0) translate(-50%, -50%)`;
+        ghostLayerRef.current.style.transform = `translate3d(${shellPoint.x}px, ${shellPoint.y}px, 0) translate(-50%, -50%)`;
       }
       handleEdgeHover(e.clientX);
 
@@ -887,7 +880,7 @@ const Desktop: React.FC = () => {
       document.removeEventListener('pointercancel', onCancel);
       if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     };
-  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer]);
+  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint]);
 
   const handleDragBegin = useCallback((
     item: DesktopItem,
@@ -904,11 +897,12 @@ const Desktop: React.FC = () => {
     } else {
       source = { type: 'desktop', itemId: item.id, page: latestRef.current.currentPage };
     }
-    const g: GhostState = { item, source, pointerId, x, y };
+    const shellPoint = toShellPoint(x, y);
+    const g: GhostState = { item, source, pointerId, ...shellPoint };
     ghostRef.current = g;
     setGhost(g);
     setIsDragging(true);
-  }, []);
+  }, [toShellPoint]);
 
   const handleDesktopDragBegin = useCallback((
     item: DesktopItem,
@@ -940,11 +934,12 @@ const Desktop: React.FC = () => {
       folderId,
       page: child.page,
     };
-    const g: GhostState = { item: child, source, pointerId, x, y };
+    const shellPoint = toShellPoint(x, y);
+    const g: GhostState = { item: child, source, pointerId, ...shellPoint };
     ghostRef.current = g;
     setGhost(g);
     setIsDragging(true);
-  }, []);
+  }, [toShellPoint]);
 
   const handleLongPress = useCallback((item: DesktopItem, x: number, y: number) => {
     // widget / system 仅进入拖拽待命，不显示编辑菜单。
@@ -1158,7 +1153,7 @@ const Desktop: React.FC = () => {
 
   /**
    * 渲染网格
-   * ─ widget 行（row 中 col=0 的项为 widget 类型）：渲染一个 col-span-4 md:col-span-6 全宽单元格
+   * ─ widget 行（row 中 col=0 的项为 widget 类型）：按当前用户列数横跨整行
    * ─ 普通行：按列渲染 AppIcon / 空骨架格
    */
   /**
@@ -1288,7 +1283,7 @@ const Desktop: React.FC = () => {
   };
 
   const ghostWidgetLayout = ghost?.item.type === 'widget'
-    ? getWidgetLayoutMetrics(ghost.item.widgetType, desktopIconMetrics.iconPx, screenMd)
+    ? getWidgetLayoutMetrics(ghost.item.widgetType, desktopIconMetrics.iconPx, viewport.isWide)
     : null;
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
@@ -1300,16 +1295,25 @@ const Desktop: React.FC = () => {
   const ghostLargeFolderHeightPx = ghostLargeFolderWidthPx !== null
     ? largeFolderLayout.totalHeightPx
     : null;
+  const desktopShellStyle = {
+    left: viewport.shell.left,
+    top: viewport.shell.top,
+    width: viewport.shell.width,
+    height: viewport.shell.height,
+    WebkitTouchCallout: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    '--desktop-sheet-max-height': `${Math.max(1, viewport.shell.height * 0.85)}px`,
+    '--desktop-clock-font-size': `${Math.min(88, Math.max(56, desktopGridMetrics.contentWidthPx * 0.14))}px`,
+    '--desktop-combined-clock-font-size': `${Math.min(80, Math.max(52, desktopGridMetrics.contentWidthPx * 0.13))}px`,
+  } as React.CSSProperties;
 
   return (
     <div
-      className="relative w-full h-screen overflow-hidden select-none"
+      className="fixed overflow-hidden select-none"
       data-desktop-shell="true"
+      data-viewport-wide={viewport.isWide ? 'true' : 'false'}
       data-style={settings.style}
-      style={{
-        WebkitTouchCallout: 'none',
-        WebkitTapHighlightColor: 'transparent',
-      } as React.CSSProperties}
+      style={desktopShellStyle}
       onContextMenu={(e) => {
         // 输入框 / 文本域长按唤起系统菜单，不拦截
         const target = e.target as HTMLElement;
@@ -1379,7 +1383,7 @@ const Desktop: React.FC = () => {
         >
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
-            <div className="px-4 md:px-8 pt-2 pb-2 flex justify-center">
+            <div className={`${pagePaddingClass} pt-2 pb-2 flex justify-center`}>
               <div className="w-full max-w-2xl">
                 <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
                   {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
@@ -1403,7 +1407,7 @@ const Desktop: React.FC = () => {
               }}
             >
               {leadingPrivacyDropPage && (
-                <div key="page-layer-leading-privacy-drop" className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                <div key="page-layer-leading-privacy-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
                   <div className="relative w-full max-w-2xl mx-auto">
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
@@ -1415,7 +1419,7 @@ const Desktop: React.FC = () => {
                 </div>
               )}
               {privacyPageNumbers.map((privacyPage) => (
-                <div key={`privacy-page-layer-${privacyPage}`} className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                <div key={`privacy-page-layer-${privacyPage}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
                   <div className="w-full max-w-2xl mx-auto">
                     {renderPageGrid(
                       privacyPage,
@@ -1425,14 +1429,14 @@ const Desktop: React.FC = () => {
                 </div>
               ))}
               {data.pages.map((pageData, i) => (
-                <div key={`page-layer-${i}`} className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                <div key={`page-layer-${i}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
                   <div className="w-full max-w-2xl mx-auto">
                     {renderPageGrid(i, pageData)}
                   </div>
                 </div>
               ))}
               {trailingDropPage && (
-                <div key="page-layer-trailing-drop" className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                <div key="page-layer-trailing-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
                   <div className="relative w-full max-w-2xl mx-auto">
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
@@ -1448,7 +1452,10 @@ const Desktop: React.FC = () => {
         </div>
 
         {/* 页面指示器：隐私页 + 普通页 */}
-        <div className="flex items-center justify-center gap-1.5 pb-3">
+        <div
+          className="flex items-center justify-center gap-1.5"
+          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}
+        >
           {leadingPrivacyDropPage && (
             <span
               className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}

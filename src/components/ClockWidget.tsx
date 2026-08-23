@@ -60,11 +60,11 @@ const ClockWidget: React.FC = () => {
       <div className="translate-y-[10px]">
         <div
           className={`font-bold leading-none text-center ${isNeu ? 'text-slate-700' : 'text-white drop-shadow-lg'}`}
-          style={{ fontSize: 'clamp(56px, 14vw, 88px)', letterSpacing: '-2px' }}
+          style={{ fontSize: 'var(--desktop-clock-font-size, 56px)', letterSpacing: '-2px' }}
         >
           {hours}<span className="opacity-80">:</span>{minutes}
         </div>
-        <div className={`mt-1 text-sm md:text-base font-medium tracking-wide ${isNeu ? 'text-slate-500' : 'text-white/90 drop-shadow-md'}`}>
+        <div className={`desktop-widget-clock-date mt-1 font-medium tracking-wide ${isNeu ? 'text-slate-500' : 'text-white/90 drop-shadow-md'}`}>
           {solarMonth}月{solarDay}日 {weekday} {lunarLabel}
         </div>
       </div>
