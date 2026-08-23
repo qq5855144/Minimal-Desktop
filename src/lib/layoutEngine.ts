@@ -168,6 +168,57 @@ function moveToPosition(item: DesktopItem, page: number, row: number, col: numbe
   return moved;
 }
 
+export interface DesktopPageCompaction {
+  data: DesktopData;
+  /** 原页索引到新页索引；被删除的空页为 -1。 */
+  pageMap: number[];
+}
+
+/**
+ * 删除所有空白普通桌面页并重写 item.page；始终至少保留一个普通页。
+ * 页面生命周期统一在数据层处理，避免不同拖拽/删除入口各自遗漏空页。
+ */
+export function compactDesktopPages(data: DesktopData): DesktopPageCompaction {
+  const pageMap = data.pages.map(() => -1);
+  const nonEmptyPages = data.pages
+    .map((items, oldPage) => ({ items, oldPage }))
+    .filter(({ items }) => items.length > 0);
+
+  if (nonEmptyPages.length === 0) {
+    return { data: { ...data, pages: [[]] }, pageMap };
+  }
+
+  if (nonEmptyPages.length === data.pages.length) {
+    for (let page = 0; page < pageMap.length; page++) pageMap[page] = page;
+    return { data, pageMap };
+  }
+
+  const pages = nonEmptyPages.map(({ items, oldPage }, newPage) => {
+    pageMap[oldPage] = newPage;
+    return items.map((item) => moveToPosition(item, newPage, item.row, item.col));
+  });
+  return { data: { ...data, pages }, pageMap };
+}
+
+/** 当前页被压缩掉时优先停留在原位置右侧页；尾部空页则回到上一页。 */
+export function resolvePageAfterCompaction(
+  page: number,
+  pageMap: number[],
+  pageCount: number,
+): number {
+  if (page < 0) return page;
+  const direct = pageMap[page];
+  if (direct !== undefined && direct >= 0) return direct;
+
+  for (let oldPage = page + 1; oldPage < pageMap.length; oldPage++) {
+    if (pageMap[oldPage] >= 0) return pageMap[oldPage];
+  }
+  for (let oldPage = Math.min(page - 1, pageMap.length - 1); oldPage >= 0; oldPage--) {
+    if (pageMap[oldPage] >= 0) return pageMap[oldPage];
+  }
+  return Math.max(0, pageCount - 1);
+}
+
 /** 移动普通桌面项目。普通项目命中普通项目时交换；widget 只能进入完整空闲区域。 */
 export function moveDesktopItem(
   data: DesktopData,
@@ -323,8 +374,7 @@ export function reflowDesktopData(data: DesktopData, cols: number, rows: number)
     }
   }
 
-  while (output.length > 1 && output[output.length - 1].length === 0) output.pop();
-  return { ...source, pages: output.length ? output : [[]] };
+  return compactDesktopPages({ ...source, pages: output.length ? output : [[]] }).data;
 }
 
 export function minimumRowsForEnabledWidgets(data: DesktopData): number {

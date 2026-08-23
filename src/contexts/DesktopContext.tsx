@@ -4,6 +4,7 @@ import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
 import { HistoryBuffer } from '@/lib/historyBuffer';
 import { pruneIconCaches } from '@/lib/iconCache';
 import {
+  compactDesktopPages,
   findFirstAvailableSlot,
   findFirstAvailableSlotAcrossPages,
   LAYOUT_LIMITS,
@@ -11,6 +12,7 @@ import {
   moveDesktopItem,
   reflowDesktopData,
   reorderFolderChildren as reorderFolderChildrenLayout,
+  resolvePageAfterCompaction,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   validateDesktopLayout,
@@ -44,9 +46,9 @@ interface DesktopContextType {
   // 拖拽：交换桌面位置
   swapDesktopItems: (idA: string, pageA: number, rowA: number, colA: string, idB: string, pageB: number, rowB: number, colB: string) => void;
   // 拖拽：移动到空白位置
-  moveItemTo: (id: string, fromPage: number, toPage: number, row: number, col: number) => void;
+  moveItemTo: (id: string, fromPage: number, toPage: number, row: number, col: number) => boolean;
   // 拖拽：从文件夹移到桌面
-  moveFromFolderToDesktop: (folderId: string, childId: string, page: number, row: number, col: number) => void;
+  moveFromFolderToDesktop: (folderId: string, childId: string, page: number, row: number, col: number) => boolean;
   // 拖拽：从桌面移到文件夹
   moveDesktopToFolder: (itemId: string, folderId: string) => boolean;
   // 拖拽：文件夹内排序
@@ -65,7 +67,6 @@ interface DesktopContextType {
   mergeToFolder: (sourceId: string, targetId: string, sourceFolderId?: string) => boolean;
   renameFolder: (folderId: string, name: string) => void;
   dissolveFolder: (folderId: string) => void;
-  addPage: () => void;
   importData: (data: unknown, options?: { recordHistory?: boolean }) => boolean;
   undo: () => boolean;
   redo: () => boolean;
@@ -145,7 +146,7 @@ function collapseFolderAfterChildRemoval(
 }
 
 export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [data, setData] = useState<DesktopData>(() => loadDesktopData());
+  const [data, setData] = useState<DesktopData>(() => compactDesktopPages(loadDesktopData()).data);
   const [currentPage, setCurrentPage] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -183,17 +184,28 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     rows: settingsRef.current.rows ?? 8,
   }), []);
 
+  const applyCompactedDesktopData = useCallback((next: DesktopData): DesktopData => {
+    const compacted = compactDesktopPages(next);
+    dataRef.current = compacted.data;
+    setData(compacted.data);
+    setCurrentPage((page) => resolvePageAfterCompaction(
+      page,
+      compacted.pageMap,
+      compacted.data.pages.length,
+    ));
+    return compacted.data;
+  }, []);
+
   const commitDesktopData = useCallback((next: DesktopData, recordHistory = true): boolean => {
     if (next === dataRef.current) return false;
     if (recordHistory) historyRef.current.record(captureHistoryState());
     else historyRef.current.clear();
-    dataRef.current = next;
-    setData(next);
+    applyCompactedDesktopData(next);
     return true;
-  }, [captureHistoryState]);
+  }, [applyCompactedDesktopData, captureHistoryState]);
 
   const applyHistoryState = useCallback((state: DesktopHistoryState) => {
-    const nextData = dataForHistory(state.data);
+    const nextData = compactDesktopPages(dataForHistory(state.data)).data;
     const nextSettings: DesktopSettings = {
       ...settingsRef.current,
       cols: state.cols,
@@ -204,9 +216,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setData(nextData);
     setSettings(nextSettings);
     saveSettings(nextSettings);
-    setCurrentPage((page) => (
-      page < 0 ? page : Math.min(page, Math.max(0, nextData.pages.length - 1))
-    ));
+    setCurrentPage((page) => Math.min(page, Math.max(0, nextData.pages.length - 1)));
   }, []);
 
   const undo = useCallback(() => {
@@ -440,22 +450,29 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const moveItemTo = useCallback((id: string, fromPage: number, toPage: number, row: number, col: number) => {
+    let sourceData = dataRef.current;
+    if (toPage === sourceData.pages.length) {
+      if (sourceData.pages.length >= LAYOUT_LIMITS.maxPages) return false;
+      sourceData = deepClone(sourceData);
+      sourceData.pages.push([]);
+    }
     const result = moveDesktopItem(
-      dataRef.current, id, fromPage, toPage, row, col,
+      sourceData, id, fromPage, toPage, row, col,
       settings.cols ?? 4, settings.rows ?? 8,
     );
-    if (!result.ok || result.data === dataRef.current) return;
-    commitDesktopData(result.data);
+    if (!result.ok || result.data === dataRef.current) return false;
+    return commitDesktopData(result.data);
   }, [commitDesktopData, settings.cols, settings.rows]);
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
     const next = deepClone(dataRef.current);
     const rows = settingsRef.current.rows ?? 8;
     const cols = settingsRef.current.cols ?? 4;
+    if (page === next.pages.length && next.pages.length < LAYOUT_LIMITS.maxPages) next.pages.push([]);
     if (!next.pages[page]
       || !Number.isInteger(row) || row < 0 || row >= rows
       || !Number.isInteger(col) || col < 0 || col >= cols
-      || isRowCoveredByWidget(next.pages[page], row)) return;
+      || isRowCoveredByWidget(next.pages[page], row)) return false;
     let folder: DesktopItem | null = null;
     let folderPageIdx = -1;
     for (let p = 0; p < next.pages.length; p++) {
@@ -466,17 +483,17 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         break;
       }
     }
-    if (!folder || !folder.children) return;
+    if (!folder || !folder.children) return false;
     const ci = folder.children.findIndex((c) => c.id === childId);
-    if (ci < 0) return;
+    if (ci < 0) return false;
     const child = folder.children.splice(ci, 1)[0];
     const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
     if (targetIdx !== undefined && targetIdx >= 0) {
       const target = next.pages[page][targetIdx];
-      if (target.type === 'widget' || target.type === 'system') return;
+      if (target.type === 'widget' || target.type === 'system') return false;
 
       if (target.type === 'folder') {
-        if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) return;
+        if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) return false;
         target.children.push({
           ...child,
           page: target.page,
@@ -484,8 +501,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           col: target.col,
         });
         collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-        commitDesktopData(next);
-        return;
+        return commitDesktopData(next);
       }
 
       target.page = folderPageIdx;
@@ -499,7 +515,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     child.col = col;
     next.pages[page].push(child);
     collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-    commitDesktopData(next);
+    return commitDesktopData(next);
   }, [commitDesktopData]);
 
   const moveDesktopToFolder = useCallback((itemId: string, folderId: string): boolean => {
@@ -667,13 +683,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     commitDesktopData(next);
   }, [commitDesktopData]);
 
-  const addPage = useCallback(() => {
-    if (dataRef.current.pages.length >= LAYOUT_LIMITS.maxPages) return;
-    const next = deepClone(dataRef.current);
-    next.pages.push([]);
-    commitDesktopData(next);
-  }, [commitDesktopData]);
-
   const importData = useCallback((newData: unknown, options: { recordHistory?: boolean } = {}) => {
     const parsed = parseDesktopData(newData);
     if (!parsed.ok) return false;
@@ -766,12 +775,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!result.ok) return false;
     // 隐私数据不进入普通桌面历史；跨边界移动后清空历史，避免撤销造成数据复制。
     clearDesktopHistory();
-    dataRef.current = result.data;
+    applyCompactedDesktopData(result.data);
     privacyPageItemsRef.current = result.privacyItems;
-    setData(result.data);
     setPrivacyPageItems(result.privacyItems);
     return true;
-  }, [clearDesktopHistory]);
+  }, [applyCompactedDesktopData, clearDesktopHistory]);
 
   /** 隐私页内部图标重新排列（拖拽换位） */
   const reorderPrivacyItems = useCallback((id: string, row: number, col: number) => {
@@ -791,18 +799,23 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
+    let targetData = dataRef.current;
+    if (toPage === targetData.pages.length) {
+      if (targetData.pages.length >= LAYOUT_LIMITS.maxPages) return false;
+      targetData = deepClone(targetData);
+      targetData.pages.push([]);
+    }
     const result = transferPrivacyToDesktop(
-      dataRef.current, privacyPageItemsRef.current, id, toPage, row, col,
+      targetData, privacyPageItemsRef.current, id, toPage, row, col,
       settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
     clearDesktopHistory();
-    dataRef.current = result.data;
+    applyCompactedDesktopData(result.data);
     privacyPageItemsRef.current = result.privacyItems;
-    setData(result.data);
     setPrivacyPageItems(result.privacyItems);
     return true;
-  }, [clearDesktopHistory]);
+  }, [applyCompactedDesktopData, clearDesktopHistory]);
 
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
     const prev = settingsRef.current;
@@ -848,7 +861,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         mergeToFolder,
         renameFolder,
         dissolveFolder,
-        addPage,
         importData,
         undo,
         redo,

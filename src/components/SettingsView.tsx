@@ -1,5 +1,5 @@
 import {
-  Check, ChevronLeft, ChevronRight, Clock, FilePlus,
+  Check, ChevronLeft, ChevronRight, Clock,
   Image, Layers, LayoutGrid, Loader2, Palette,
   RotateCcw, Search, Video, X,
 } from 'lucide-react';
@@ -98,7 +98,7 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
-  const { data, addPage, setCurrentPage, importData, settings, updateSettings } = useDesktop();
+  const { data, importData, settings, updateSettings } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -353,13 +353,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   }, [urlInput, applyRemoteImage, updateBackground]);
 
   // ── 数据 ──
-  const handleAddPage = useCallback(() => {
-    addPage();
-    setCurrentPage(data.pages.length);
-    toast.success('已添加新页面');
-    handleClose();
-  }, [addPage, setCurrentPage, data.pages.length]);
-
   const handleResetToDefault = useCallback(() => {
     if (!window.confirm('确认恢复默认桌面？系统应用和组件将恢复，用户自定义应用会被清除。')) return;
     importData(deepClone(defaultDesktopData));
@@ -446,18 +439,18 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         </button>
       ))}
 
-      <div className="pt-2 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={handleAddPage}
-          className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.itemBg} ${t.itemBgHover} ${t.textMuted} text-sm transition-colors border ${t.itemBorder}`}
-        >
-          <FilePlus className="w-4 h-4" /> 新增桌面页
-        </button>
+      <div className={`mt-2 flex items-center gap-3 rounded-2xl px-4 py-3 border ${t.itemBg} ${t.itemBorder}`}>
+        <LayoutGrid className={`w-5 h-5 shrink-0 ${t.textMuted}`} />
+        <div className="min-w-0">
+          <p className={`text-sm font-medium ${t.textPrimary}`}>智能桌面分页</p>
+          <p className={`text-xs ${t.textDim}`}>拖到最后一页右边缘自动创建；空白页会自动回收</p>
+        </div>
+      </div>
+      <div className="pt-2">
         <button
           type="button"
           onClick={handleResetToDefault}
-          className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.dangerBg} ${t.dangerText} text-sm transition-colors`}
+          className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 ${t.dangerBg} ${t.dangerText} text-sm transition-colors`}
         >
           <RotateCcw className="w-4 h-4" /> 恢复默认
         </button>

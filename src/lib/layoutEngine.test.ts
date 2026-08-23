@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { DesktopData, DesktopItem } from '@/types';
 import {
   canPlaceItem,
+  compactDesktopPages,
   moveDesktopItem,
   reflowDesktopData,
   reorderFolderChildren,
+  resolvePageAfterCompaction,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   validateDesktopLayout,
@@ -112,5 +114,58 @@ describe('layoutEngine', () => {
     expect(reorderFolderChildren(children, 0, 9)).toBeNull();
     expect(reorderFolderChildren(children, 1, 1)).toBeNull();
     expect(reorderFolderChildren(children, 1, 8)).toBeNull();
+  });
+
+  it('自动删除所有空桌面页并重写项目与文件夹子项页号', () => {
+    const folder: DesktopItem = {
+      id: 'folder', type: 'folder', name: 'folder', color: 'gray', page: 2, row: 1, col: 0,
+      children: [app('child', 2, 1, 0)],
+    };
+    const compacted = compactDesktopPages(data([
+      [app('a', 0, 0, 0)],
+      [],
+      [folder],
+      [],
+    ]));
+
+    expect(compacted.pageMap).toEqual([0, -1, 1, -1]);
+    expect(compacted.data.pages).toHaveLength(2);
+    expect(compacted.data.pages[1][0]).toMatchObject({ id: 'folder', page: 1 });
+    expect(compacted.data.pages[1][0].children?.[0]).toMatchObject({ id: 'child', page: 1 });
+  });
+
+  it('空页删除后把当前页稳定映射到相邻有效页', () => {
+    const { data: compacted, pageMap } = compactDesktopPages(data([
+      [app('a', 0, 0, 0)],
+      [],
+      [app('b', 2, 0, 0)],
+      [],
+    ]));
+    expect(resolvePageAfterCompaction(1, pageMap, compacted.pages.length)).toBe(1);
+    expect(resolvePageAfterCompaction(3, pageMap, compacted.pages.length)).toBe(1);
+    expect(resolvePageAfterCompaction(-1, pageMap, compacted.pages.length)).toBe(-1);
+  });
+
+  it('所有普通页为空时仍保留一个可用桌面页', () => {
+    const compacted = compactDesktopPages(data([[], [], []]));
+    expect(compacted.data.pages).toEqual([[]]);
+    expect(resolvePageAfterCompaction(2, compacted.pageMap, 1)).toBe(0);
+  });
+
+  it('拖到临时尾页后原子落位，并在来源页变空时保持目标页可见', () => {
+    const withTrailingPage = data([
+      [app('moved', 0, 0, 0)],
+      [app('kept', 1, 0, 0)],
+      [],
+    ]);
+    const moved = moveDesktopItem(withTrailingPage, 'moved', 0, 2, 2, 1, 4, 8);
+    expect(moved.ok).toBe(true);
+
+    const compacted = compactDesktopPages(moved.data);
+    expect(compacted.data.pages.map((page) => page.map((item) => item.id))).toEqual([
+      ['kept'],
+      ['moved'],
+    ]);
+    expect(resolvePageAfterCompaction(2, compacted.pageMap, 2)).toBe(1);
   });
 });

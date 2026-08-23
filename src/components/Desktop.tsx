@@ -3,6 +3,14 @@ import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { uploadToGithub } from '@/lib/github';
 import { getIconLayoutMetrics } from '@/lib/iconLayout';
+import { LAYOUT_LIMITS } from '@/lib/layoutEngine';
+import {
+  resolveDragEdgeTarget,
+  resolvePageSwipeTarget,
+  resolveSwipeAxis,
+  type SwipeAxis,
+  shouldCommitPageSwipe,
+} from '@/lib/pageNavigation';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import {
@@ -121,6 +129,16 @@ const Desktop: React.FC = () => {
   const mergeHoverIdRef = useRef<string | null>(null);
   // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
   const dragOverItemRef = useRef<string | null>(null);
+  // 拖到最后一页右边缘时只渲染临时落点页；成功放置才由数据层原子创建。
+  const [trailingDropPage, setTrailingDropPage] = useState(false);
+  const trailingDropPageRef = useRef(false);
+  const currentPageRef = useRef(currentPage);
+  const pageCountRef = useRef(data.pages.length);
+  const isDraggingRef = useRef(isDragging);
+  // render 阶段同步，消除快速连续翻页时 useEffect 尚未运行的短暂旧值窗口。
+  currentPageRef.current = currentPage;
+  pageCountRef.current = data.pages.length + (trailingDropPage ? 1 : 0);
+  isDraggingRef.current = isDragging;
 
   // 响应式列数：始终使用用户设置，桌面端不强制扩展为 MAX_COLS（避免图标偏左不对称）
   const [screenMd, setScreenMd] = useState<boolean>(
@@ -253,11 +271,16 @@ const Desktop: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openSync, redo, undo]);
 
+  const navigateToPage = useCallback((page: number) => {
+    currentPageRef.current = page;
+    setCurrentPage(page);
+  }, [setCurrentPage]);
+
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
     moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
     gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
-    setCurrentPage, clearEdgeFn: null as (() => void) | null,
+    setCurrentPage: navigateToPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
   });
   React.useLayoutEffect(() => {
@@ -265,7 +288,7 @@ const Desktop: React.FC = () => {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
       moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
       gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
-      setCurrentPage, clearEdgeFn: latestRef.current.clearEdgeFn,
+      setCurrentPage: navigateToPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems, privacyPageItems, privacyUnlocked,
     };
   });
@@ -286,20 +309,29 @@ const Desktop: React.FC = () => {
 
   const handleEdgeHover = useCallback((clientX: number) => {
     if (!containerRef.current || !ghostRef.current) return;
-    const { currentPage: page, data: d, setCurrentPage: nav } = latestRef.current;
+    const { data: d, setCurrentPage: nav } = latestRef.current;
+    const page = currentPageRef.current;
     const rect = containerRef.current.getBoundingClientRect();
     const relX = clientX - rect.left;
-    let targetPage: number | null = null;
-    if (relX < EDGE_THRESHOLD && page >= 0) {
-      // 拖着隐私页图标时，不允许往左切回隐私页（会导致松手时找不到普通页格子）
-      const isPrivacyDrag = ghostRef.current?.source.type === 'privacy';
-      if (isPrivacyDrag) { clearEdgeTimer(); return; }
-      // page=0 时向左滑入隐私页（page=-1），page>0 向左翻页
-      targetPage = page > 0 ? page - 1 : -1;
-    } else if (relX > rect.width - EDGE_THRESHOLD && (page < d.pages.length - 1 || page === -1)) {
-      // page=-1（隐私页）右边缘 → 回到 page=0
-      targetPage = page === -1 ? 0 : page + 1;
-    }
+    const edge = relX < EDGE_THRESHOLD
+      ? 'left'
+      : relX > rect.width - EDGE_THRESHOLD
+        ? 'right'
+        : null;
+    const activeDrag = ghostRef.current;
+    const edgeTarget = edge && activeDrag
+      ? resolveDragEdgeTarget({
+        currentPage: page,
+        pageCount: d.pages.length,
+        edge,
+        allowPrivacyPage: activeDrag.source.type === 'desktop' && activeDrag.item.type === 'app',
+        hasTrailingPage: trailingDropPageRef.current,
+        canCreateTrailingPage:
+          d.pages.length < LAYOUT_LIMITS.maxPages && activeDrag.item.type !== 'system',
+      })
+      : null;
+    const targetPage = edgeTarget?.page ?? null;
+    const createsTrailingPage = edgeTarget?.createsTrailingPage ?? false;
 
     if (targetPage === null) {
       clearEdgeTimer();
@@ -313,7 +345,22 @@ const Desktop: React.FC = () => {
     edgeTargetPageRef.current = targetPage;
     edgeTimerRef.current = setTimeout(() => {
       if (edgeTargetPageRef.current !== targetPage) return;
-      nav(targetPage);
+      let resolvedTargetPage = targetPage;
+      if (createsTrailingPage) {
+        const latest = latestRef.current;
+        if (
+          currentPageRef.current !== latest.data.pages.length - 1
+          || latest.data.pages.length >= LAYOUT_LIMITS.maxPages
+          || !ghostRef.current
+        ) {
+          clearEdgeTimer();
+          return;
+        }
+        trailingDropPageRef.current = true;
+        setTrailingDropPage(true);
+        resolvedTargetPage = latest.data.pages.length;
+      }
+      nav(resolvedTargetPage);
       clearEdgeTimer();
     }, EDGE_DELAY);
   }, [clearEdgeTimer]);
@@ -441,6 +488,10 @@ const Desktop: React.FC = () => {
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g || g.pointerId !== e.pointerId) return;
+      const hadTrailingDropPage = trailingDropPageRef.current;
+      const trailingPageIndex = latestRef.current.data.pages.length;
+      let committedToTrailingPage = false;
+      try {
       dragOverItemRef.current = null;
       ghostRef.current = null;
       setGhost(null);
@@ -523,7 +574,9 @@ const Desktop: React.FC = () => {
       // ── 从隐私页拖到普通桌面 ──
       if (targetPage >= 0 && g.source.type === 'privacy') {
         const { movePrivacyToPage: fromPrivacy } = latestRef.current;
-        if (!fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol)) {
+        const moved = fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol);
+        if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
+        if (!moved) {
           toast.error('目标位置已占用，请选择空白位置');
         }
         return;
@@ -548,7 +601,8 @@ const Desktop: React.FC = () => {
       // ── 文件夹拖出到桌面 ──
       if (g.source.type === 'folder') {
         if (g.source.folderId) {
-          moveOut(g.source.folderId, g.source.itemId, targetPage, targetRow, targetCol);
+          const moved = moveOut(g.source.folderId, g.source.itemId, targetPage, targetRow, targetCol);
+          if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
         }
         return;
       }
@@ -607,10 +661,12 @@ const Desktop: React.FC = () => {
             toast.error('空间不足');
             return;
           }
-          moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
+          const moved = moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
+          if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
-          moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
+          const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
+          if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
         } else {
           // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
           const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
@@ -619,6 +675,18 @@ const Desktop: React.FC = () => {
             g.source.itemId, src.page, src.row, String(src.col),
             tgt.id, tgt.page, tgt.row, String(tgt.col),
           );
+        }
+      }
+      } finally {
+        if (hadTrailingDropPage) {
+          trailingDropPageRef.current = false;
+          setTrailingDropPage(false);
+          if (
+            !committedToTrailingPage
+            && currentPageRef.current >= latestRef.current.data.pages.length
+          ) {
+            latestRef.current.setCurrentPage(Math.max(0, latestRef.current.data.pages.length - 1));
+          }
         }
       }
     };
@@ -636,6 +704,13 @@ const Desktop: React.FC = () => {
       setDragOverItem(null);
       clearEdgeTimer();
       clearMergeTimer();
+      if (trailingDropPageRef.current) {
+        trailingDropPageRef.current = false;
+        setTrailingDropPage(false);
+        if (currentPageRef.current >= latestRef.current.data.pages.length) {
+          latestRef.current.setCurrentPage(Math.max(0, latestRef.current.data.pages.length - 1));
+        }
+      }
       if (active.source.type === 'folder') {
         setOpenFolderId(null);
         setFolderRenameId(null);
@@ -745,16 +820,12 @@ const Desktop: React.FC = () => {
 
   // pageItems 已不再需要（全页渲染后每页自行从 data.pages[i] 取数据）
   // const pageItems = data.pages[currentPage] || [];
-  const SWIPE_MIN_X = 50;   // 最小水平位移触发翻页
-  const SWIPE_MAX_Y = 60;   // 垂直位移超出此值视为滚动，不翻页
-
   // swipe 翻页容器 ref（与 containerRef 区分）
   const swipeContainerRef = useRef<HTMLDivElement>(null);
   // 横向滑轨：所有页面（隐私页在最左）并排，translateX 驱动翻页动画
   const pageTrackRef = useRef<HTMLDivElement>(null);
   // 跟手滑动起始偏移（逻辑页序：隐私页=0，普通页 i 对应 i+1）
   const startOffsetRef = useRef(0);
-  const horizontalLockRef = useRef(false);
 
   // 翻页动画统一入口：currentPage 变化（指示器点击 / 边缘拖拽 / 手势 / 锁隐私 / 拖拽收尾）
   // 均由本 effect 将滑轨平滑移动到目标位置，无需在各调用点重复动画逻辑。
@@ -765,20 +836,18 @@ const Desktop: React.FC = () => {
     track.style.transition = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
     track.style.transform = `translateX(${-(currentPage + 1) * 100}%)`;
   }, [currentPage]);
-  // 用 ref 避免 native touch 回调中的 stale closure
-  const currentPageRef = useRef(currentPage);
-  const pageCountRef = useRef(data.pages.length);
-  const isDraggingRef = useRef(isDragging);
-  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
-  useEffect(() => { pageCountRef.current = data.pages.length; }, [data.pages.length]);
-  useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
-
   // 原生 touch 翻页（跟手）：touchmove 非 passive 以便 preventDefault 阻止水平滑动时的滚动取消；
   // 滑动期间实时驱动滑轨 translateX，松手后按位移决定翻页或回弹（与 iOS 主屏一致）
   useEffect(() => {
     const el = swipeContainerRef.current;
     if (!el) return;
-    let startX = 0, startY = 0, tracking = false;
+    let startX = 0;
+    let startY = 0;
+    let startTime = 0;
+    let viewportWidth = 1;
+    let touchId = -1;
+    let axis: SwipeAxis = 'pending';
+    let tracking = false;
 
     // 跟手：关闭 transition，按手指位移实时移动滑轨（逻辑偏移 = 起始偏移 - dx/宽度）
     const applyTrack = (offset: number) => {
@@ -796,34 +865,51 @@ const Desktop: React.FC = () => {
     };
 
     const onTouchStart = (e: TouchEvent) => {
-      if (isDraggingRef.current || ghostRef.current) return;
+      if (isDraggingRef.current || ghostRef.current || e.touches.length !== 1) return;
       const target = e.target as HTMLElement;
       // 输入框内保留浏览器默认长按行为，不启动翻页追踪
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
       // 搜索全屏覆盖层打开时禁用翻页（双重保险：SearchScreen 已在原生冒泡阶段 stopPropagation）
       if (target.closest('[data-search-overlay="true"]')) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
+      const touch = e.touches[0];
+      touchId = touch.identifier;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      startTime = e.timeStamp;
+      viewportWidth = el.clientWidth || 1;
       startOffsetRef.current = currentPageRef.current + 1;
-      horizontalLockRef.current = false;
+      axis = 'pending';
       tracking = true;
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (!tracking) return;
       // 拖拽已开始（ghostRef 同步设置）→ 立即退出翻页追踪，避免 preventDefault 取消指针事件
-      if (ghostRef.current) { tracking = false; return; }
-      const absDx = Math.abs(e.touches[0].clientX - startX);
-      const absDy = Math.abs(e.touches[0].clientY - startY);
+      if (ghostRef.current) {
+        tracking = false;
+        settleTrack(currentPageRef.current + 1);
+        return;
+      }
+      if (e.touches.length !== 1) {
+        tracking = false;
+        settleTrack(currentPageRef.current + 1);
+        return;
+      }
+      const touch = Array.from(e.touches).find((candidate) => candidate.identifier === touchId);
+      if (!touch) return;
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (axis === 'pending') axis = resolveSwipeAxis(dx, dy);
+      if (axis === 'vertical') {
+        tracking = false;
+        return;
+      }
       // 明确水平滑动：阻止浏览器默认行为（防止 pointercancel / scroll 覆盖）
-      // cancelable=false 时浏览器已提交原生滚动，跳过以避免控制台警告
-      if (!horizontalLockRef.current && absDx > absDy && absDx > 10) horizontalLockRef.current = true;
-      if (horizontalLockRef.current && e.cancelable) e.preventDefault();
-      if (horizontalLockRef.current) {
+      // cancelable=false 时浏览器已提交原生滚动，跳过以避免控制台警告。
+      if (axis === 'horizontal' && e.cancelable) e.preventDefault();
+      if (axis === 'horizontal') {
         // 跟手：滑轨随手指移动，并夹取在 [隐私页(0), 最后一页] 范围内
-        const track = pageTrackRef.current;
-        const width = track?.clientWidth || 1;
-        const raw = startOffsetRef.current - (e.touches[0].clientX - startX) / width;
+        const raw = startOffsetRef.current - dx / viewportWidth;
         const clamped = Math.max(0, Math.min(pageCountRef.current, raw));
         applyTrack(clamped);
       }
@@ -832,38 +918,37 @@ const Desktop: React.FC = () => {
     const onTouchEnd = (e: TouchEvent) => {
       if (!tracking) return;
       tracking = false;
-      const dx = e.changedTouches[0].clientX - startX;
-      const dy = Math.abs(e.changedTouches[0].clientY - startY);
-      const cur = currentPageRef.current;
-      if (dy > SWIPE_MAX_Y || Math.abs(dx) < SWIPE_MIN_X) {
-        // 纵向滚动或位移不足：回弹到原页
-        settleTrack(startOffsetRef.current);
+      const touch = Array.from(e.changedTouches).find((candidate) => candidate.identifier === touchId);
+      if (!touch) {
+        settleTrack(currentPageRef.current + 1);
         return;
       }
-      if (dx < -SWIPE_MIN_X && cur < pageCountRef.current - 1) {
-        settleTrack(cur + 2); // 目标页逻辑偏移 = page + 1
-        setCurrentPage(cur + 1);
-      } else if (dx > SWIPE_MIN_X && cur > 0) {
-        settleTrack(cur);
-        setCurrentPage(cur - 1);
-      } else if (dx > SWIPE_MIN_X && cur === 0) {
-        // 第一页右滑 → 进入隐私桌面（currentPage=-1），不重置解锁状态
-        settleTrack(0);
-        setCurrentPage(-1);
-      } else if (dx < -SWIPE_MIN_X && cur === -1) {
-        // 隐私页左滑 → 返回第一页
-        settleTrack(1);
-        setCurrentPage(0);
-      } else {
-        // 已在边界：回弹
-        settleTrack(startOffsetRef.current);
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (axis === 'pending') axis = resolveSwipeAxis(dx, dy);
+      const cur = currentPageRef.current;
+      if (!shouldCommitPageSwipe({
+        dx,
+        durationMs: e.timeStamp - startTime,
+        viewportWidth,
+        axis,
+      })) {
+        settleTrack(cur + 1);
+        return;
       }
+      const targetPage = resolvePageSwipeTarget(cur, pageCountRef.current, dx);
+      if (targetPage === null) {
+        settleTrack(cur + 1);
+        return;
+      }
+      settleTrack(targetPage + 1);
+      navigateToPage(targetPage);
     };
 
     const onTouchCancel = () => {
       tracking = false;
-      horizontalLockRef.current = false;
-      settleTrack(startOffsetRef.current);
+      axis = 'pending';
+      settleTrack(currentPageRef.current + 1);
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -877,7 +962,7 @@ const Desktop: React.FC = () => {
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchCancel);
     };
-  }, [setCurrentPage]); // setCurrentPage 是稳定引用
+  }, [navigateToPage]);
 
   /**
    * 渲染网格
@@ -1062,6 +1147,7 @@ const Desktop: React.FC = () => {
         <div
           ref={swipeContainerRef}
           className="flex-1 overflow-x-hidden overflow-y-auto min-h-0"
+          style={{ touchAction: 'pan-y' }}
         >
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
@@ -1095,6 +1181,18 @@ const Desktop: React.FC = () => {
                   </div>
                 </div>
               ))}
+              {trailingDropPage && (
+                <div key="page-layer-trailing-drop" className="w-full shrink-0 px-4 md:px-8 pt-2 pb-2">
+                  <div className="relative w-full max-w-2xl mx-auto">
+                    <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
+                      settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
+                    }`}>
+                      松开放置并创建新桌面页
+                    </div>
+                    {renderPageGrid(data.pages.length, [])}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1107,7 +1205,7 @@ const Desktop: React.FC = () => {
             onClick={() => {
               // 手动锁定：加密落盘 + 清除内存密钥/明文（privacyUnlocked 由 context 内部复位）
               void lockPrivacy()
-                .then(() => setCurrentPage(-1))
+                .then(() => navigateToPage(-1))
                 .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
             }}
             className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
@@ -1123,7 +1221,7 @@ const Desktop: React.FC = () => {
             <button
               key={`page-${i}`}
               type="button"
-              onClick={() => setCurrentPage(i)}
+              onClick={() => navigateToPage(i)}
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 i === currentPage
                   ? `w-4 ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`
@@ -1131,6 +1229,12 @@ const Desktop: React.FC = () => {
               }`}
             />
           ))}
+          {trailingDropPage && (
+            <span
+              className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
+              aria-label="拖拽新桌面页"
+            />
+          )}
         </div>
       </div>
 
@@ -1228,7 +1332,7 @@ const Desktop: React.FC = () => {
         <React.Suspense fallback={null}>
           <PrivacyScreen
             onUnlock={handleUnlock}
-            onClose={() => setCurrentPage(0)}
+            onClose={() => navigateToPage(0)}
           />
         </React.Suspense>
       )}
