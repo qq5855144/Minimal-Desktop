@@ -32,7 +32,14 @@ const EngineIcon: React.FC<{ engine: AnyEngine; size?: number }> = ({ engine, si
   if ('iconSrc' in engine && engine.iconSrc) {
     return (
       <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
-        <img src={engine.iconSrc} alt={engine.name} width={iconSize} height={iconSize} className="object-contain" />
+        <img
+          src={engine.iconSrc}
+          alt={engine.name}
+          width={iconSize}
+          height={iconSize}
+          draggable={false}
+          className="object-contain"
+        />
       </div>
     );
   }
@@ -151,6 +158,7 @@ const MultiSourceImg: React.FC<{
         alt={alt}
         width={size}
         height={size}
+        draggable={false}
         referrerPolicy="no-referrer"
         className={`object-contain ${className ?? ''}`}
         onError={() => setIdx((i) => i + 1)}
@@ -355,9 +363,30 @@ interface EngineTileProps {
 }
 
 const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpenMenu }) => {
+  const tileRef = useRef<HTMLButtonElement>(null);
   const pressIntent = useLongPressIntent<HTMLButtonElement>({
     onLongPress: onOpenMenu,
   });
+
+  // Android Chromium/WebView 可能在 React 的合成 contextmenu 回调执行前，
+  // 已经依据 img 命中结果弹出原生长按菜单。直接在目标元素捕获阶段拦截
+  // contextmenu/selectstart/dragstart，确保自定义 500ms 菜单不会被系统菜单覆盖。
+  useLayoutEffect(() => {
+    const tile = tileRef.current;
+    if (!tile) return;
+    const preventNativeLongPress = (event: Event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    tile.addEventListener('contextmenu', preventNativeLongPress, true);
+    tile.addEventListener('selectstart', preventNativeLongPress, true);
+    tile.addEventListener('dragstart', preventNativeLongPress, true);
+    return () => {
+      tile.removeEventListener('contextmenu', preventNativeLongPress, true);
+      tile.removeEventListener('selectstart', preventNativeLongPress, true);
+      tile.removeEventListener('dragstart', preventNativeLongPress, true);
+    };
+  }, []);
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (pressIntent.consumeClick()) {
@@ -370,20 +399,26 @@ const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpe
 
   return (
     <button
+      ref={tileRef}
       type="button"
+      draggable={false}
       onClick={handleClick}
       onPointerDown={pressIntent.onPointerDown}
       onPointerMove={pressIntent.onPointerMove}
       onPointerUp={pressIntent.onPointerUp}
       onPointerCancel={pressIntent.onPointerCancel}
-      onContextMenu={(event) => event.preventDefault()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onDragStart={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         onOpenMenu(rect.left + rect.width / 2, rect.top + rect.height / 2);
       }}
-      className="relative flex flex-col items-center gap-1 group py-0.5 touch-none select-none"
+      className="search-engine-tile relative flex flex-col items-center gap-1 group py-0.5 touch-none select-none"
       aria-label={`${engine.name}，长按可编辑或删除`}
     >
       <div className={`rounded-xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>

@@ -25,6 +25,21 @@
   pointer-events: none;
 }
 
+/* 搜索引擎池图标是自定义长按菜单的触发面，不能让浏览器命中内部 img/svg。 */
+.search-engine-tile,
+.search-engine-tile * {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-user-drag: none;
+  touch-action: none;
+}
+
+.search-engine-tile img,
+.search-engine-tile svg {
+  pointer-events: none;
+}
+
 html[data-external-launch="true"],
 body[data-external-launch="true"] {
   cursor: default;
