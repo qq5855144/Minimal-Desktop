@@ -7,6 +7,7 @@ import {
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
 } from '@/lib/iconLayout';
+import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   canPlaceItem,
   folderContainsSystemItem,
@@ -648,13 +649,38 @@ const Desktop: React.FC = () => {
       }
       if (!cell) return;
 
-      const targetRow = Number(cell.dataset.row);
+      let targetRow = Number(cell.dataset.row);
       const rawPage = Number(cell.dataset.page);
       const targetPage = isNaN(rawPage) ? cp : rawPage;
       // 截断 col：防止旧数据 col >= gridCols 导致 item 落入不可见列消失
       const rawCol = isWidget ? 0 : Number(cell.dataset.col);
-      const targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
+      let targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
+      const isLargeFolderDrop = g.item.type === 'folder' && g.item.folderLayout === '2x2';
+
+      if (isLargeFolderDrop) {
+        const targetGrid = containerRef.current?.querySelector<HTMLElement>(
+          `[data-page-grid="${targetPage}"]`,
+        );
+        const targetGridRect = targetGrid?.getBoundingClientRect();
+        const { rowSpan, colSpan } = getItemGridSpan(g.item, gc);
+        const centeredTarget = targetGridRect
+          ? resolveCenteredGridDropPosition(
+            e.clientX,
+            e.clientY,
+            targetGridRect,
+            gc,
+            latestRef.current.gridRows,
+            getWidgetGridRowGapPx(),
+            getWidgetGridRowGapPx(),
+            colSpan,
+            rowSpan,
+          )
+          : null;
+        if (!centeredTarget) return;
+        targetRow = centeredTarget.row;
+        targetCol = centeredTarget.col;
+      }
 
       // ── 普通桌面顶层项目拖入任意隐私负页 ──
       if (targetPage < 0 && g.source.type === 'desktop') {
@@ -777,6 +803,12 @@ const Desktop: React.FC = () => {
           }
           const moved = moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
+        } else if (isLargeFolderDrop) {
+          // 2×2 文件夹以四格占位中心吸附；始终交给矩形布局引擎判断完整目标区域，
+          // 不能再根据指针恰好命中的某一个子格直接交换，否则会产生一行/一列偏移。
+          const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
+          if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
+          if (!moved) toast.error('目标四格区域不可用，请对准可放置区域');
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
