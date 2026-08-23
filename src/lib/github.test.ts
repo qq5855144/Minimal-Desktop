@@ -131,6 +131,68 @@ describe('GitHub sync concurrency protection', () => {
     expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
     const commitRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
     expect(commitRequest.parents).toEqual(['remote-head']);
+    const updateRequest = JSON.parse(fetchMock.mock.calls[5][1]?.body as string);
+    expect(updateRequest).toEqual({ sha: 'new-commit', force: false });
+  });
+
+  it('rebuilds an explicit overwrite on the latest HEAD after a fast-forward race', async () => {
+    const fetchMock = vi.fn()
+      // 第一次尝试以旧 HEAD 创建提交，但更新引用前远端又产生了新提交。
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'old-head' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'old-base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'first-backup-blob' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'first-tree' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'first-commit' }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Update is not a fast forward' }, 422))
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
+      // 第二次尝试必须重新读取 HEAD 并基于它创建新的 fast-forward commit。
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'latest-base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'second-backup-blob' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'second-tree' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'second-commit' }))
+      .mockResolvedValueOnce(jsonResponse({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub(config, snapshot, { force: true });
+
+    expect(result).toMatchObject({ ok: true, remoteHead: 'second-commit' });
+    const firstCommitRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
+    expect(firstCommitRequest.parents).toEqual(['old-head']);
+    const secondCommitRequest = JSON.parse(fetchMock.mock.calls[11][1]?.body as string);
+    expect(secondCommitRequest.parents).toEqual(['latest-head']);
+    const updateRequests = fetchMock.mock.calls
+      .filter(([, request]) => request?.method === 'PATCH')
+      .map(([, request]) => JSON.parse(request?.body as string));
+    expect(updateRequests).toEqual([
+      { sha: 'first-commit', force: false },
+      { sha: 'second-commit', force: false },
+    ]);
+  });
+
+  it('shows an actionable message when all overwrite retries encounter remote updates', async () => {
+    const fetchMock = vi.fn();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ object: { sha: `head-${attempt}` } }))
+        .mockResolvedValueOnce(jsonResponse({ tree: { sha: `base-tree-${attempt}` } }))
+        .mockResolvedValueOnce(jsonResponse({ sha: `backup-blob-${attempt}` }))
+        .mockResolvedValueOnce(jsonResponse({ sha: `tree-${attempt}` }))
+        .mockResolvedValueOnce(jsonResponse({ sha: `commit-${attempt}` }))
+        .mockResolvedValueOnce(jsonResponse({ message: 'Update is not a fast forward' }, 422))
+        .mockResolvedValueOnce(jsonResponse({ object: { sha: `advanced-head-${attempt}` } }));
+    }
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub(config, snapshot, { force: true });
+
+    expect(result).toMatchObject({
+      ok: false,
+      conflict: true,
+      remoteHead: 'advanced-head-3',
+      message: '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。',
+    });
+    expect(fetchMock.mock.calls.filter(([, request]) => request?.method === 'PATCH')).toHaveLength(3);
   });
 
   it('skips an empty commit when the generated tree is unchanged', async () => {

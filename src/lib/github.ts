@@ -29,6 +29,8 @@ export interface UploadOptions {
   force?: boolean;
 }
 
+const MAX_FORCE_UPLOAD_ATTEMPTS = 3;
+
 function encodedRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
@@ -252,7 +254,23 @@ export async function uploadToGithub(
   snapshot: SyncSnapshot,
   options: UploadOptions = {},
 ): Promise<UploadResult> {
-  return doUploadViaGitApi(config, snapshot, options);
+  // “本次覆盖”只覆盖备份文件，不强制改写分支历史。若另一个设备恰好推进 HEAD，
+  // 放弃本轮未挂到分支上的 commit，并以最新 HEAD 为父提交重新构建。
+  const maxAttempts = options.force ? MAX_FORCE_UPLOAD_ATTEMPTS : 1;
+  let lastResult: UploadResult | undefined;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const result = await doUploadViaGitApi(config, snapshot, options);
+    if (result.ok || !options.force || !result.conflict) return result;
+    lastResult = result;
+  }
+
+  return {
+    ...lastResult,
+    ok: false,
+    conflict: true,
+    message: '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。',
+  };
 }
 
 async function doUploadViaGitApi(
@@ -458,7 +476,7 @@ async function doUploadViaGitApi(
   // 步骤 5：更新分支引用
   const updateRes = await ghFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ sha: newCommitData.sha }),
+    body: JSON.stringify({ sha: newCommitData.sha, force: false }),
   });
   if (!updateRes.ok) {
     const currentRemoteHead = updateRes.status === 409 || updateRes.status === 422
