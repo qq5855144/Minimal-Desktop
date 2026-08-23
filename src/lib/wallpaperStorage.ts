@@ -5,6 +5,14 @@ const WALLPAPER_KEY = 'bg_wallpaper';
 export const WALLPAPER_MAX_BYTES = 20 * 1024 * 1024;
 export const IDB_WALLPAPER_MARKER = '__idb_wallpaper__';
 
+/**
+ * IndexedDB 壁纸在 localStorage 中只保存占位标记。恢复 Blob URL 前不能把该标记
+ * 交给 <img>，否则每次启动都会先触发一次虚假的加载失败。
+ */
+export function getRenderableWallpaperSource(source?: string): string | undefined {
+  return source && source !== IDB_WALLPAPER_MARKER ? source : undefined;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);

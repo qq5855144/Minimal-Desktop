@@ -14,6 +14,8 @@ import {
 } from '@/lib/pageNavigation';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
+import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
+import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
 import {
   getWidgetConfig,
   getWidgetGridRowGapPx,
@@ -113,10 +115,15 @@ const Desktop: React.FC = () => {
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
+  const bgImageSource = getRenderableWallpaperSource(settings.bgImage);
+  const bgVideoSource = settings.bgVideo === IDB_VIDEO_MARKER ? undefined : settings.bgVideo;
   // 壁纸加载失败标记：失败时回退默认渐变背景；切换壁纸后重置
   const [bgLoadFailed, setBgLoadFailed] = useState(false);
   const bgErrorToastRef = useRef(false);
-  useEffect(() => { setBgLoadFailed(false); bgErrorToastRef.current = false; }, [settings.bgImage, settings.bgVideo]);
+  useEffect(() => {
+    setBgLoadFailed(false);
+    bgErrorToastRef.current = false;
+  }, [bgImageSource, bgVideoSource]);
 
   // 隐私解锁状态在会话内保持：离开隐私页（切换普通页/翻页）不重置、不清除内存密钥，
   // 无需重复输入密码；页面刷新/重载或点击锁图标手动锁定后才需重新解锁。
@@ -1216,21 +1223,25 @@ const Desktop: React.FC = () => {
       {/* 壁纸背景 —— neumorphism 不使用壁纸，固定浅灰色背景 */}
       {settings.style === 'neumorphism' ? (
         <div className="absolute inset-0 neu-bg" data-desktop-layer="true" />
-      ) : settings.bgType === 'video' && settings.bgVideo ? (
+      ) : settings.bgType === 'video' && bgVideoSource ? (
         <video
+          key={bgVideoSource}
           className="absolute inset-0 w-full h-full object-cover"
           data-desktop-layer="true"
-          src={settings.bgVideo}
+          src={bgVideoSource}
           autoPlay loop muted playsInline
         />
-      ) : settings.bgType === 'image' && settings.bgImage && !bgLoadFailed ? (
+      ) : settings.bgType === 'image' && bgImageSource && !bgLoadFailed ? (
         <img
-          src={settings.bgImage}
+          key={bgImageSource}
+          src={bgImageSource}
           alt=""
           referrerPolicy="no-referrer"
           className="absolute inset-0 w-full h-full object-cover"
           data-desktop-layer="true"
-          onError={() => {
+          onError={(event) => {
+            // key 会为新地址创建新节点；额外核对 src，忽略旧请求迟到的错误事件。
+            if (event.currentTarget.getAttribute('src') !== bgImageSource) return;
             // 加载失败（链接失效/图床防盗链/格式异常）：回退默认渐变，避免静默空白
             setBgLoadFailed(true);
             if (!bgErrorToastRef.current) {
