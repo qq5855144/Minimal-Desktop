@@ -6,6 +6,7 @@
 
 import { Plus, X } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
   type AnyEngine,
@@ -417,11 +418,19 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
     ...customEngines.map((c) => ({ ...c, isCustom: true as const })),
   ];
 
-  return (
+  // 必须 Portal 到 body：桌面翻页滑轨使用 transform，普通后代的 fixed 定位会被
+  // 滑轨接管并受桌面 overflow 裁剪，导致面板实际已打开却落在可视区之外。
+  // React Portal 事件仍按组件树冒泡，因此同时阻止指针事件回到 WidgetGridCell，
+  // 避免在面板内操作时触发长按菜单或组件拖拽。
+  return createPortal(
     /* 透明全屏遮罩，捕获点击关闭 */
     <div
       className="fixed inset-x-0 top-0 h-[100dvh] z-[200]"
       onClick={onClose}
+      onPointerDown={(event) => event.stopPropagation()}
+      onPointerMove={(event) => event.stopPropagation()}
+      onPointerUp={(event) => event.stopPropagation()}
+      onPointerCancel={(event) => event.stopPropagation()}
     >
       {/* 面板本体：测量高度后动态决定向上/向下展开 */}
       <div
@@ -505,7 +514,8 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
