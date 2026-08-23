@@ -4,15 +4,17 @@
  * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
 
-import { Plus, X } from 'lucide-react';
+import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { useLongPressIntent } from '@/hooks/use-long-press-intent';
 import {
   type AnyEngine,
-  BUILTIN_ENGINES,
-  getEngineById,
+  getAvailableSearchEngines,
   getEngineIconSrc,
+  isBuiltinSearchEngine,
 } from '@/lib/searchEngines';
 import type { CustomSearchEngine } from '@/types';
 
@@ -189,12 +191,22 @@ function pickFirstLoadableIcon(candidates: string[]): Promise<string | null> {
   return tryNext(0);
 }
 
-const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel: () => void }> = ({
-  onAdd, onCancel,
+interface EngineEditorFormProps {
+  initialEngine?: AnyEngine;
+  onSave: (engine: CustomSearchEngine) => void;
+  onCancel: () => void;
+}
+
+const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
+  initialEngine,
+  onSave,
+  onCancel,
 }) => {
-  const [rawUrl, setRawUrl] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [localIconDataUrl, setLocalIconDataUrl] = useState<string | null>(null);
+  const [rawUrl, setRawUrl] = useState(initialEngine?.urlTemplate ?? '');
+  const [customName, setCustomName] = useState(initialEngine?.name ?? '');
+  const [selectedIconUrl, setSelectedIconUrl] = useState<string | null>(
+    initialEngine ? getEngineIconSrc(initialEngine) : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -203,14 +215,14 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
   const canSubmit = !!parsed && displayName.length > 0;
 
   // 预览用图标候选：本地选择 > 自动识别多源候选链
-  const previewCandidates: string[] = localIconDataUrl
-    ? [localIconDataUrl]
+  const previewCandidates: string[] = selectedIconUrl
+    ? [selectedIconUrl]
     : (parsed?.iconCandidates ?? []);
 
   // 解析结果变化时自动填充名称
   useEffect(() => {
-    if (parsed?.name && !customName) setCustomName(parsed.name);
-  }, [parsed?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!initialEngine && parsed?.name && !customName) setCustomName(parsed.name);
+  }, [customName, initialEngine, parsed?.name]);
 
   // 选择本地图片文件
   const handleLocalIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -219,42 +231,50 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result;
-      if (typeof result === 'string') setLocalIconDataUrl(result);
+      if (typeof result === 'string') setSelectedIconUrl(result);
     };
     reader.readAsDataURL(file);
   };
 
-  // 提交：fetch→Blob→DataURL 持久化图标，失败则存候选链首 URL 作兜底
+  // 提交：本地图标直接持久化；没有显式图标时从候选链选择可加载来源。
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit || !parsed || submitting) return;
     setSubmitting(true);
-    let persistedIconUrl: string | undefined;
-    if (localIconDataUrl) {
-      persistedIconUrl = localIconDataUrl;
-    } else if (parsed.iconCandidates.length > 0) {
+    let persistedIconUrl = selectedIconUrl ?? undefined;
+    if (!persistedIconUrl && parsed.iconCandidates.length > 0) {
       persistedIconUrl =
         (await pickFirstLoadableIcon(parsed.iconCandidates)) ?? parsed.iconCandidates[0];
     }
-    onAdd({
-      id: `custom-${Date.now()}`,
+    onSave({
+      id: initialEngine?.id ?? `custom-${Date.now()}`,
       name: displayName,
       urlTemplate: parsed.urlTemplate,
       iconUrl: persistedIconUrl,
-      color: parsed.color,
+      color: initialEngine?.color ?? parsed.color,
     });
     setSubmitting(false);
   };
 
+  const handleUrlChange = (value: string) => {
+    setRawUrl(value);
+    if (!initialEngine) {
+      setCustomName('');
+      setSelectedIconUrl(null);
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="p-4 space-y-3">
-      <p className="text-white text-sm font-semibold">添加搜索引擎</p>
+      <p className="text-white text-sm font-semibold">
+        {initialEngine ? '编辑搜索引擎' : '添加搜索引擎'}
+      </p>
 
       {/* URL 输入 */}
       <input
         type="text"
         value={rawUrl}
-        onChange={(e) => { setRawUrl(e.target.value); setCustomName(''); setLocalIconDataUrl(null); }}
+        onChange={(e) => handleUrlChange(e.target.value)}
         placeholder="输入搜索引擎网址，如 https://bing.com"
         className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
         style={{ fontSize: 16 }}
@@ -278,22 +298,19 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
                 candidates={previewCandidates}
                 alt={displayName}
                 size={28}
-                fallbackColor={parsed.color}
+                fallbackColor={initialEngine?.color ?? parsed.color}
                 fallbackLetter={displayName.slice(0, 1) || '?'}
               />
             ) : (
               <span className="text-white font-bold text-sm">{displayName.slice(0, 1) || '?'}</span>
             )}
-            {/* hover 提示层 */}
             <span className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="text-white text-[9px] leading-tight text-center px-0.5">本地<br/>图标</span>
             </span>
           </button>
 
-          {/* 隐藏文件输入 */}
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLocalIconChange} />
 
-          {/* 可编辑名称 */}
           <input
             type="text"
             value={customName}
@@ -303,9 +320,8 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
             style={{ fontSize: 15 }}
           />
 
-          {/* 已选本地图标清除 */}
-          {localIconDataUrl && (
-            <button type="button" title="移除本地图标" onClick={() => setLocalIconDataUrl(null)}
+          {selectedIconUrl && (
+            <button type="button" title="重新自动识别图标" onClick={() => setSelectedIconUrl(null)}
               className="shrink-0 text-white/40 hover:text-white/80 transition-colors">
               <X className="w-3.5 h-3.5" />
             </button>
@@ -324,10 +340,59 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
         </button>
         <button type="submit" disabled={!canSubmit || submitting}
           className="flex-1 rounded-xl py-2 text-sm text-white font-medium bg-primary/70 hover:bg-primary/90 transition-colors disabled:opacity-40">
-          {submitting ? '保存中…' : '添加'}
+          {submitting ? '保存中…' : '保存'}
         </button>
       </div>
     </form>
+  );
+};
+
+interface EngineTileProps {
+  engine: AnyEngine;
+  active: boolean;
+  onSelect: () => void;
+  onOpenMenu: (x: number, y: number) => void;
+}
+
+const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpenMenu }) => {
+  const pressIntent = useLongPressIntent<HTMLButtonElement>({
+    onLongPress: onOpenMenu,
+  });
+
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (pressIntent.consumeClick()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onSelect();
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      onPointerDown={pressIntent.onPointerDown}
+      onPointerMove={pressIntent.onPointerMove}
+      onPointerUp={pressIntent.onPointerUp}
+      onPointerCancel={pressIntent.onPointerCancel}
+      onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onOpenMenu(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }}
+      className="relative flex flex-col items-center gap-1 group py-0.5 touch-none select-none"
+      aria-label={`${engine.name}，长按可编辑或删除`}
+    >
+      <div className={`rounded-xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>
+        <EngineIcon engine={engine} size={36} />
+      </div>
+      <span className="text-white/75 text-[10px] text-center leading-tight w-full truncate px-0.5">
+        {engine.name}
+      </span>
+    </button>
   );
 };
 
@@ -335,13 +400,21 @@ const AddEngineForm: React.FC<{ onAdd: (e: CustomSearchEngine) => void; onCancel
 const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClose }) => {
   const { settings, updateSettings } = useDesktop();
   const [showAdd, setShowAdd] = useState(false);
+  const [editingEngine, setEditingEngine] = useState<AnyEngine | null>(null);
+  const [engineMenu, setEngineMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const engineMenuRef = useRef<HTMLDivElement>(null);
 
   // 面板弹出方向：'down'（默认向下）| 'up'（空间不足时向上）
   const [openDir, setOpenDir] = useState<'down' | 'up'>('down');
 
   const currentId = settings.searchEngine ?? 'bing';
   const customEngines = settings.customEngines ?? [];
+  const deletedEngineIds = settings.deletedSearchEngineIds ?? [];
+  const allEngines = getAvailableSearchEngines(customEngines, deletedEngineIds);
+  const activeId = allEngines.some((engine) => engine.id === currentId)
+    ? currentId
+    : allEngines[0]?.id;
 
   // 水平定位：居中对齐 anchor，边界保护
   const PANEL_W = Math.min(340, typeof window !== 'undefined' ? window.innerWidth - 24 : 340);
@@ -361,7 +434,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
     const spaceAbove = anchorRect.top - MARGIN;
     // 下方放不下 且 上方空间更充裕 → 向上展开
     setOpenDir(spaceBelow < panelH && spaceAbove > spaceBelow ? 'up' : 'down');
-  }, [anchorRect, showAdd]);
+  }, [anchorRect, editingEngine, showAdd]);
 
   // 根据方向计算最终定位
   const positionStyle = React.useMemo<React.CSSProperties>(() => {
@@ -382,41 +455,71 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
   // 点击面板外部关闭
   useEffect(() => {
     const handler = (e: PointerEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target) || engineMenuRef.current?.contains(target)) return;
+      onClose();
+    };
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (engineMenu) setEngineMenu(null);
+      else onClose();
     };
     document.addEventListener('pointerdown', handler, true);
+    document.addEventListener('keydown', keyHandler);
     return () => {
       document.removeEventListener('pointerdown', handler, true);
+      document.removeEventListener('keydown', keyHandler);
     };
-  }, [onClose]);
+  }, [engineMenu, onClose]);
 
   const selectEngine = useCallback((id: string) => {
     updateSettings({ searchEngine: id });
     onClose();
   }, [updateSettings, onClose]);
 
-  const addEngine = useCallback((eng: CustomSearchEngine) => {
-    const list = [...(settings.customEngines ?? []), eng];
-    updateSettings({ customEngines: list, searchEngine: eng.id });
-    setShowAdd(false);
-    onClose();
-  }, [settings.customEngines, updateSettings, onClose]);
-
-  const removeEngine = useCallback((id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const list = (settings.customEngines ?? []).filter((c) => c.id !== id);
+  const saveEngine = useCallback((engine: CustomSearchEngine) => {
+    const list = [
+      ...customEngines.filter((candidate) => candidate.id !== engine.id),
+      engine,
+    ];
     updateSettings({
       customEngines: list,
-      searchEngine: currentId === id ? 'bing' : currentId,
+      deletedSearchEngineIds: deletedEngineIds.filter((id) => id !== engine.id),
+      searchEngine: editingEngine ? currentId : engine.id,
     });
-  }, [settings.customEngines, currentId, updateSettings]);
+    setShowAdd(false);
+    setEditingEngine(null);
+    onClose();
+    toast.success(editingEngine ? '搜索引擎已更新' : '搜索引擎已添加');
+  }, [customEngines, currentId, deletedEngineIds, editingEngine, onClose, updateSettings]);
 
-  const allEngines: AnyEngine[] = [
-    ...BUILTIN_ENGINES,
-    ...customEngines.map((c) => ({ ...c, isCustom: true as const })),
-  ];
+  const removeEngine = useCallback((id: string) => {
+    if (allEngines.length <= 1) {
+      toast.error('至少需要保留一个搜索引擎');
+      setEngineMenu(null);
+      return;
+    }
+    const list = customEngines.filter((candidate) => candidate.id !== id);
+    const nextDeleted = isBuiltinSearchEngine(id)
+      ? [...new Set([...deletedEngineIds, id])]
+      : deletedEngineIds.filter((deletedId) => deletedId !== id);
+    const remaining = getAvailableSearchEngines(list, nextDeleted);
+    updateSettings({
+      customEngines: list,
+      deletedSearchEngineIds: nextDeleted,
+      searchEngine: currentId === id ? remaining[0].id : currentId,
+    });
+    setEngineMenu(null);
+    toast.success('搜索引擎已删除');
+  }, [allEngines.length, customEngines, currentId, deletedEngineIds, updateSettings]);
+
+  const openEngineEditor = useCallback((id: string) => {
+    const engine = allEngines.find((candidate) => candidate.id === id);
+    if (!engine) return;
+    setEngineMenu(null);
+    setShowAdd(false);
+    setEditingEngine(engine);
+  }, [allEngines]);
 
   // 必须 Portal 到 body：桌面翻页滑轨使用 transform，普通后代的 fixed 定位会被
   // 滑轨接管并受桌面 overflow 裁剪，导致面板实际已打开却落在可视区之外。
@@ -448,8 +551,16 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {showAdd ? (
-          <AddEngineForm onAdd={addEngine} onCancel={() => setShowAdd(false)} />
+        {showAdd || editingEngine ? (
+          <EngineEditorForm
+            key={editingEngine?.id ?? 'new-engine'}
+            initialEngine={editingEngine ?? undefined}
+            onSave={saveEngine}
+            onCancel={() => {
+              setShowAdd(false);
+              setEditingEngine(null);
+            }}
+          />
         ) : (
           <div className="p-2.5">
             {/* 标题行 */}
@@ -467,39 +578,25 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
             {/* 引擎网格：6列紧凑排列 */}
             <div className="grid grid-cols-6 gap-y-2 gap-x-0.5">
               {allEngines.map((eng) => {
-                const active = eng.id === currentId;
                 return (
-                  <button
+                  <EngineTile
                     key={eng.id}
-                    type="button"
-                    onClick={() => selectEngine(eng.id)}
-                    className="relative flex flex-col items-center gap-1 group py-0.5"
-                  >
-                    {/* 当前选中高亮环 */}
-                    <div className={`rounded-xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>
-                      <EngineIcon engine={eng} size={36} />
-                    </div>
-                    <span className="text-white/75 text-[10px] text-center leading-tight w-full truncate px-0.5">
-                      {eng.name}
-                    </span>
-                    {/* 自定义引擎删除按钮 */}
-                    {'isCustom' in eng && eng.isCustom && (
-                      <button
-                        type="button"
-                        onClick={(e) => removeEngine(eng.id, e)}
-                        className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-2 h-2 text-white" strokeWidth={3} />
-                      </button>
-                    )}
-                  </button>
+                    engine={eng}
+                    active={eng.id === activeId}
+                    onSelect={() => selectEngine(eng.id)}
+                    onOpenMenu={(x, y) => setEngineMenu({ id: eng.id, x, y })}
+                  />
                 );
               })}
 
               {/* 添加按钮 */}
               <button
                 type="button"
-                onClick={() => setShowAdd(true)}
+                onClick={() => {
+                  setEngineMenu(null);
+                  setEditingEngine(null);
+                  setShowAdd(true);
+                }}
                 className="flex flex-col items-center gap-1 py-0.5"
               >
                 <div
@@ -514,6 +611,50 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           </div>
         )}
       </div>
+
+      {engineMenu && (() => {
+        const menuWidth = 152;
+        const menuHeight = 94;
+        const left = Math.min(Math.max(engineMenu.x, 8), window.innerWidth - menuWidth - 8);
+        const top = Math.min(Math.max(engineMenu.y, 8), window.innerHeight - menuHeight - 8);
+        return (
+          <div
+            ref={engineMenuRef}
+            role="menu"
+            aria-label="搜索引擎操作"
+            className="fixed z-[210] w-[152px] rounded-2xl overflow-hidden shadow-2xl animate-scale-in p-1.5"
+            style={{
+              left,
+              top,
+              background: 'rgba(30,30,40,0.94)',
+              backdropFilter: 'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => openEngineEditor(engineMenu.id)}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm text-white/90 hover:bg-white/15 transition-colors"
+            >
+              <Pencil className="w-4 h-4 text-primary shrink-0" />
+              编辑
+            </button>
+            <div className="h-px bg-white/10 my-0.5" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => removeEngine(engineMenu.id)}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-white/15 transition-colors"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" />
+              删除
+            </button>
+          </div>
+        );
+      })()}
     </div>,
     document.body,
   );

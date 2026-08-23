@@ -1,8 +1,9 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
-import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { LAYOUT_LIMITS } from './layoutEngine';
+import { createWidgetItem, getWidgetConfig } from './widgetConfig';
+
 const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
@@ -238,6 +239,7 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   applyOverlayToWallpaper: false,
   searchEngine: 'bing',
   customEngines: [],
+  deletedSearchEngineIds: [],
 };
 
 export function loadSettings(): import('@/types').DesktopSettings {

@@ -40,7 +40,7 @@ export interface DesktopItem {
   iconCrop?: IconCrop;
   // 图标颜色主题（无自定义图标时使用）
   color: IconColor;
-  // 所在页面索引（0 起）
+  // 所在页面索引（普通桌面从 0 起；隐私桌面从 -1 向左递减）
   page: number;
   // 网格位置（行, 列）—— widget 始终 col=0，视觉占满整行
   row: number;
@@ -107,7 +107,10 @@ export interface DesktopSettings {
   bgOverlayScheme?: BgOverlayScheme;
   applyOverlayToWallpaper?: boolean;
   searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
-  customEngines?: CustomSearchEngine[]; // 用户自定义搜索引擎列表
+  /** 用户新增的搜索引擎，以及对同 ID 内置引擎的本地覆盖。 */
+  customEngines?: CustomSearchEngine[];
+  /** 被用户删除的内置搜索引擎 ID；自定义引擎删除时直接从 customEngines 移除。 */
+  deletedSearchEngineIds?: string[];
 }
 
 // 拖拽来源信息

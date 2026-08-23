@@ -5,19 +5,30 @@ import { HistoryBuffer } from '@/lib/historyBuffer';
 import { pruneIconCaches } from '@/lib/iconCache';
 import {
   compactDesktopPages,
+  compactPrivacyPages,
+  findFirstAvailablePrivacySlot,
   findFirstAvailableSlot,
   findFirstAvailableSlotAcrossPages,
+  getPrivacyPageCount,
   LAYOUT_LIMITS,
   minimumRowsForEnabledWidgets,
   moveDesktopItem,
+  movePrivacyItem,
   reflowDesktopData,
+  reflowPrivacyItems,
   reorderFolderChildren as reorderFolderChildrenLayout,
   resolvePageAfterCompaction,
+  resolvePrivacyPageAfterCompaction,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   validateDesktopLayout,
 } from '@/lib/layoutEngine';
 import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
+import {
+  dissolvePrivacyFolder,
+  mergePrivacyItemsToFolder,
+  movePrivacyFolderChild,
+} from '@/lib/privacyWorkspace';
 import { loadDesktopData, loadPrivacyVault, loadSettings, saveDesktopData, savePrivacyVault, saveSettings } from '@/lib/storage';
 import { deepClone } from '@/lib/utils/deepClone';
 import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
@@ -54,11 +65,12 @@ interface DesktopContextType {
   // 拖拽：文件夹内排序
   reorderFolderChildren: (folderId: string, fromIdx: number, toIdx: number) => void;
   // 拖拽：移动到隐私页
-  moveItemToPrivacy: (id: string, row: number, col: number) => boolean;
+  moveItemToPrivacy: (id: string, page: number, row: number, col: number) => boolean;
   // 拖拽：从隐私页移到普通页
   movePrivacyToPage: (id: string, toPage: number, row: number, col: number) => boolean;
-  reorderPrivacyItems: (id: string, row: number, col: number) => void;
+  reorderPrivacyItems: (id: string, page: number, row: number, col: number) => boolean;
   privacyPageItems: DesktopItem[];
+  privacyPageCount: number;
   /** 隐私桌面当前是否处于解锁状态（会话内保持，刷新/手动锁定后为 false） */
   privacyUnlocked: boolean;
   /** 每次加密 vault 成功落盘后递增，供自动同步捕获纯隐私数据变化。 */
@@ -145,6 +157,28 @@ function collapseFolderAfterChildRemoval(
   }
 }
 
+function collapsePrivacyFolderAfterChildRemoval(
+  items: DesktopItem[],
+  folderId: string,
+): void {
+  const folderIndex = items.findIndex((item) => item.id === folderId);
+  if (folderIndex < 0) return;
+  const folder = items[folderIndex];
+  if (folder.type !== 'folder' || !folder.children) return;
+  if (folder.children.length === 0) {
+    items.splice(folderIndex, 1);
+    return;
+  }
+  if (folder.children.length === 1) {
+    items[folderIndex] = {
+      ...folder.children[0],
+      page: folder.page,
+      row: folder.row,
+      col: folder.col,
+    };
+  }
+}
+
 export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<DesktopData>(() => compactDesktopPages(loadDesktopData()).data);
   const [currentPage, setCurrentPage] = useState(0);
@@ -172,6 +206,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
   const privacyLockTokenRef = useRef<object | null>(null);
   const historyRef = useRef(new HistoryBuffer<DesktopHistoryState>(50));
+  const privacyPageCount = getPrivacyPageCount(privacyPageItems);
   // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
   privacyPageItemsRef.current = privacyPageItems;
@@ -194,6 +229,19 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       compacted.data.pages.length,
     ));
     return compacted.data;
+  }, []);
+
+  const applyCompactedPrivacyItems = useCallback((next: DesktopItem[]): DesktopItem[] => {
+    const compacted = compactPrivacyPages(next);
+    const pageCount = getPrivacyPageCount(compacted.items);
+    privacyPageItemsRef.current = compacted.items;
+    setPrivacyPageItems(compacted.items);
+    setCurrentPage((page) => resolvePrivacyPageAfterCompaction(
+      page,
+      compacted.pageMap,
+      pageCount,
+    ));
+    return compacted.items;
   }, []);
 
   const commitDesktopData = useCallback((next: DesktopData, recordHistory = true): boolean => {
@@ -336,17 +384,24 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const gridRows = settings.rows ?? 8;
     const draft = { ...item, id: uid(), page: 0, row: 0, col: 0 } as DesktopItem;
 
-    // 添加到隐私桌面
-    if (preferPage === -1) {
-      if (draft.type !== 'app') return;
-      const slot = findFirstAvailableSlot(privacyPageItemsRef.current, draft, gridCols, gridRows);
+    // 添加到隐私桌面；当前负页已满时自动创建更靠左的新页。
+    if (preferPage !== undefined && preferPage < 0) {
+      if (draft.type !== 'app' && draft.type !== 'folder') return;
+      const slot = findFirstAvailablePrivacySlot(
+        privacyPageItemsRef.current,
+        draft,
+        gridCols,
+        gridRows,
+        preferPage,
+      );
       if (!slot) return;
       const nextPrivacy = [
         ...privacyPageItemsRef.current.map((candidate) => ({ ...candidate })),
-        { ...draft, page: -1, row: slot.row, col: slot.col },
+        { ...draft, page: slot.page, row: slot.row, col: slot.col },
       ];
-      privacyPageItemsRef.current = nextPrivacy;
-      setPrivacyPageItems(nextPrivacy);
+      const compacted = applyCompactedPrivacyItems(nextPrivacy);
+      const inserted = compacted.find((candidate) => candidate.id === draft.id);
+      if (inserted) setCurrentPage(inserted.page);
       return;
     }
 
@@ -362,7 +417,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     next.pages[slot.page].push({ ...draft, page: slot.page, row: slot.row, col: slot.col });
     commitDesktopData(next);
     setCurrentPage(slot.page);
-  }, [commitDesktopData, settings.cols, settings.rows]);
+  }, [applyCompactedPrivacyItems, commitDesktopData, settings.cols, settings.rows]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
     const next = deepClone(dataRef.current);
@@ -382,14 +437,21 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     }
-    const privacyIndex = privacyPageItemsRef.current.findIndex((candidate) => candidate.id === id);
-    if (privacyIndex < 0) return;
-    const nextPrivacy = privacyPageItemsRef.current.map((candidate, index) => (
-      index === privacyIndex ? { ...candidate, ...patch } : { ...candidate }
-    ));
-    privacyPageItemsRef.current = nextPrivacy;
-    setPrivacyPageItems(nextPrivacy);
-  }, [commitDesktopData]);
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
+    const privacyIndex = nextPrivacy.findIndex((candidate) => candidate.id === id);
+    if (privacyIndex >= 0) {
+      nextPrivacy[privacyIndex] = { ...nextPrivacy[privacyIndex], ...patch };
+      applyCompactedPrivacyItems(nextPrivacy);
+      return;
+    }
+    for (const candidate of nextPrivacy) {
+      const childIndex = candidate.children?.findIndex((child) => child.id === id) ?? -1;
+      if (childIndex < 0 || !candidate.children) continue;
+      candidate.children[childIndex] = { ...candidate.children[childIndex], ...patch };
+      applyCompactedPrivacyItems(nextPrivacy);
+      return;
+    }
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const removeItem = useCallback((id: string) => {
     const next = deepClone(dataRef.current);
@@ -417,11 +479,23 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
     }
-    const nextPrivacy = privacyPageItemsRef.current.filter((candidate) => candidate.id !== id);
-    if (nextPrivacy.length === privacyPageItemsRef.current.length) return;
-    privacyPageItemsRef.current = nextPrivacy;
-    setPrivacyPageItems(nextPrivacy);
-  }, [commitDesktopData]);
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
+    const privacyIndex = nextPrivacy.findIndex((candidate) => candidate.id === id);
+    if (privacyIndex >= 0) {
+      nextPrivacy.splice(privacyIndex, 1);
+      applyCompactedPrivacyItems(nextPrivacy);
+      return;
+    }
+    for (const candidate of nextPrivacy) {
+      if (candidate.type !== 'folder' || !candidate.children) continue;
+      const childIndex = candidate.children.findIndex((child) => child.id === id);
+      if (childIndex < 0) continue;
+      candidate.children.splice(childIndex, 1);
+      collapsePrivacyFolderAfterChildRemoval(nextPrivacy, candidate.id);
+      applyCompactedPrivacyItems(nextPrivacy);
+      return;
+    }
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const swapDesktopItems = useCallback(
     (
@@ -465,60 +539,131 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [commitDesktopData, settings.cols, settings.rows]);
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
-    const next = deepClone(dataRef.current);
+    const nextData = deepClone(dataRef.current);
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
     const rows = settingsRef.current.rows ?? 8;
     const cols = settingsRef.current.cols ?? 4;
-    if (page === next.pages.length && next.pages.length < LAYOUT_LIMITS.maxPages) next.pages.push([]);
-    if (!next.pages[page]
-      || !Number.isInteger(row) || row < 0 || row >= rows
-      || !Number.isInteger(col) || col < 0 || col >= cols
-      || isRowCoveredByWidget(next.pages[page], row)) return false;
-    let folder: DesktopItem | null = null;
-    let folderPageIdx = -1;
-    for (let p = 0; p < next.pages.length; p++) {
-      const fi = next.pages[p].findIndex((it) => it.id === folderId);
-      if (fi >= 0) {
-        folder = next.pages[p][fi];
-        folderPageIdx = p;
+    if (!Number.isInteger(row) || row < 0 || row >= rows
+      || !Number.isInteger(col) || col < 0 || col >= cols) return false;
+
+    let normalFolder: DesktopItem | null = null;
+    let normalFolderPage = -1;
+    for (let candidatePage = 0; candidatePage < nextData.pages.length; candidatePage++) {
+      const folder = nextData.pages[candidatePage].find((item) => item.id === folderId);
+      if (folder) {
+        normalFolder = folder;
+        normalFolderPage = candidatePage;
         break;
       }
     }
-    if (!folder || !folder.children) return false;
-    const ci = folder.children.findIndex((c) => c.id === childId);
-    if (ci < 0) return false;
-    const child = folder.children.splice(ci, 1)[0];
-    const targetIdx = next.pages[page]?.findIndex((it) => it.row === row && it.col === col);
-    if (targetIdx !== undefined && targetIdx >= 0) {
-      const target = next.pages[page][targetIdx];
-      if (target.type === 'widget' || target.type === 'system') return false;
+    const privacyFolder = nextPrivacy.find((item) => item.id === folderId) ?? null;
+    const sourceIsPrivacy = privacyFolder !== null;
+    const folder = privacyFolder ?? normalFolder;
+    if (!folder?.children) return false;
+    const childIndex = folder.children.findIndex((child) => child.id === childId);
+    if (childIndex < 0) return false;
+    const targetIsPrivacy = page < 0;
 
-      if (target.type === 'folder') {
-        if (target.id === folderId || !target.children || target.children.length >= MAX_FOLDER_APPS) return false;
-        target.children.push({
-          ...child,
-          page: target.page,
-          row: target.row,
-          col: target.col,
-        });
-        collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-        return commitDesktopData(next);
+    if (targetIsPrivacy) {
+      const pageCount = getPrivacyPageCount(nextPrivacy);
+      if (page < -LAYOUT_LIMITS.maxPages || page < -(pageCount + 1)) return false;
+    } else {
+      if (page === nextData.pages.length && nextData.pages.length < LAYOUT_LIMITS.maxPages) {
+        nextData.pages.push([]);
       }
-
-      target.page = folderPageIdx;
-      target.row = folder.row;
-      target.col = folder.col;
-      folder.children.push(target);
-      next.pages[page].splice(targetIdx, 1);
+      if (!nextData.pages[page] || isRowCoveredByWidget(nextData.pages[page], row)) return false;
     }
-    child.page = page;
-    child.row = row;
-    child.col = col;
-    next.pages[page].push(child);
-    collapseFolderAfterChildRemoval(next.pages, folderPageIdx, folderId);
-    return commitDesktopData(next);
-  }, [commitDesktopData]);
+
+    // 跨隐私边界时目标必须为空，避免一次操作同时搬运无关项目。
+    if (sourceIsPrivacy !== targetIsPrivacy) {
+      const occupied = targetIsPrivacy
+        ? nextPrivacy.some((item) => item.page === page && item.row === row && item.col === col)
+        : nextData.pages[page].some((item) => item.row === row && item.col === col);
+      if (occupied) return false;
+      const [child] = folder.children.splice(childIndex, 1);
+      clearDesktopHistory();
+      if (sourceIsPrivacy) {
+        collapsePrivacyFolderAfterChildRemoval(nextPrivacy, folderId);
+        nextData.pages[page].push({ ...child, page, row, col });
+      } else {
+        collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
+        nextPrivacy.push({ ...child, page, row, col });
+      }
+      applyCompactedDesktopData(nextData);
+      applyCompactedPrivacyItems(nextPrivacy);
+      return true;
+    }
+
+    if (sourceIsPrivacy) {
+      const result = movePrivacyFolderChild(
+        privacyPageItemsRef.current,
+        folderId,
+        childId,
+        page,
+        row,
+        col,
+        cols,
+        rows,
+      );
+      if (!result.ok) return false;
+      applyCompactedPrivacyItems(result.items);
+      return true;
+    }
+
+    const [child] = folder.children.splice(childIndex, 1);
+    const targetIndex = nextData.pages[page].findIndex((item) => item.row === row && item.col === col);
+    if (targetIndex >= 0) {
+      const target = nextData.pages[page][targetIndex];
+      if (target.type === 'widget' || target.type === 'system' || target.id === folderId) return false;
+      if (target.type === 'folder') {
+        if (!target.children || target.children.length >= MAX_FOLDER_APPS) return false;
+        target.children.push({ ...child, page, row, col });
+        collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
+        return commitDesktopData(nextData);
+      }
+      folder.children.push({
+        ...target,
+        page: folder.page,
+        row: folder.row,
+        col: folder.col,
+      });
+      nextData.pages[page].splice(targetIndex, 1);
+    }
+    nextData.pages[page].push({ ...child, page, row, col });
+    collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
+    return commitDesktopData(nextData);
+  }, [
+    applyCompactedDesktopData,
+    applyCompactedPrivacyItems,
+    clearDesktopHistory,
+    commitDesktopData,
+  ]);
 
   const moveDesktopToFolder = useCallback((itemId: string, folderId: string): boolean => {
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
+    const privacyFolder = nextPrivacy.find((candidate) => candidate.id === folderId);
+    const privacyItemIndex = nextPrivacy.findIndex((candidate) => candidate.id === itemId);
+    const privacyItem = privacyItemIndex >= 0 ? nextPrivacy[privacyItemIndex] : null;
+    if (privacyFolder || privacyItem) {
+      if (
+        !privacyFolder
+        || privacyFolder.type !== 'folder'
+        || !privacyFolder.children
+        || !privacyItem
+        || privacyItem.type !== 'app'
+        || privacyFolder.children.length >= MAX_FOLDER_APPS
+      ) return false;
+      privacyFolder.children.push({
+        ...privacyItem,
+        page: privacyFolder.page,
+        row: privacyFolder.row,
+        col: privacyFolder.col,
+      });
+      nextPrivacy.splice(privacyItemIndex, 1);
+      applyCompactedPrivacyItems(nextPrivacy);
+      return true;
+    }
+
     const next = deepClone(dataRef.current);
     let folder: DesktopItem | null = null;
     let item: DesktopItem | null = null;
@@ -540,7 +685,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     next.pages[itemPage].splice(itemIdx, 1);
     commitDesktopData(next);
     return true;
-  }, [commitDesktopData]);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const reorderFolderChildren = useCallback((folderId: string, fromIdx: number, toIdx: number) => {
     const next = deepClone(dataRef.current);
@@ -554,9 +699,30 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
     }
-  }, [commitDesktopData]);
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
+    const folder = nextPrivacy.find((item) => item.id === folderId);
+    if (!folder?.children) return;
+    const reordered = reorderFolderChildrenLayout(folder.children, fromIdx, toIdx);
+    if (!reordered) return;
+    folder.children = reordered;
+    applyCompactedPrivacyItems(nextPrivacy);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
+      const privacyTargetIndex = privacyPageItemsRef.current.findIndex((item) => item.id === targetId);
+      if (privacyTargetIndex >= 0) {
+        const result = mergePrivacyItemsToFolder(
+          privacyPageItemsRef.current,
+          sourceId,
+          targetId,
+          uid,
+          sourceFolderId,
+        );
+        if (!result.ok) return false;
+        applyCompactedPrivacyItems(result.items);
+        return true;
+      }
+
       const next = deepClone(dataRef.current);
       let source: DesktopItem | null = null;
       let target: DesktopItem | null = null;
@@ -643,7 +809,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       commitDesktopData(next);
       return true;
-  }, [commitDesktopData]);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const renameFolder = useCallback((folderId: string, name: string) => {
     const next = deepClone(dataRef.current);
@@ -656,12 +822,27 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
     }
-  }, [commitDesktopData]);
+    const nextPrivacy = deepClone(privacyPageItemsRef.current);
+    const folder = nextPrivacy.find((item) => item.id === folderId);
+    if (!folder || folder.type !== 'folder' || folder.name === name) return;
+    folder.name = name;
+    applyCompactedPrivacyItems(nextPrivacy);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const dissolveFolder = useCallback((folderId: string) => {
     const next = deepClone(dataRef.current);
     const folderPage = next.pages.findIndex((page) => page.some((item) => item.id === folderId));
-    if (folderPage < 0) return;
+    if (folderPage < 0) {
+      const result = dissolvePrivacyFolder(
+        privacyPageItemsRef.current,
+        folderId,
+        settingsRef.current.cols ?? 4,
+        settingsRef.current.rows ?? 8,
+      );
+      if (!result.ok) return;
+      applyCompactedPrivacyItems(result.items);
+      return;
+    }
     const folderIndex = next.pages[folderPage].findIndex((item) => item.id === folderId);
     const folder = next.pages[folderPage][folderIndex];
     if (folder.type !== 'folder') return;
@@ -681,7 +862,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       next.pages[slot.page].push({ ...child, page: slot.page, row: slot.row, col: slot.col });
     }
     commitDesktopData(next);
-  }, [commitDesktopData]);
+  }, [applyCompactedPrivacyItems, commitDesktopData]);
 
   const importData = useCallback((newData: unknown, options: { recordHistory?: boolean } = {}) => {
     const parsed = parseDesktopData(newData);
@@ -712,6 +893,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     privacyPageItemsRef.current = [];
     setPrivacyPageItems([]);
     setPrivacyUnlocked(false);
+    setCurrentPage((page) => page < 0 ? -1 : page);
   }, []);
 
   const lockPrivacy = useCallback((): Promise<void> => {
@@ -721,6 +903,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       privacyPageItemsRef.current = [];
       setPrivacyPageItems([]);
       setPrivacyUnlocked(false);
+      setCurrentPage((page) => page < 0 ? -1 : page);
       return Promise.resolve();
     }
     const epoch = privacyEpochRef.current;
@@ -742,6 +925,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setPrivacyCryptoKey(null);
         setPrivacyPageItems([]);
         setPrivacyUnlocked(false);
+        setCurrentPage((page) => page < 0 ? -1 : page);
       } finally {
         if (privacyLockTokenRef.current === lockToken) {
           privacyLockPromiseRef.current = null;
@@ -759,43 +943,47 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const salt = vault ? Uint8Array.from(atob(vault.salt), (c) => c.charCodeAt(0)) : new Uint8Array(16);
     const iterations = vault?.iterations ?? LEGACY_PBKDF2_ITERATIONS;
     privacyEpochRef.current += 1;
-    privacyPageItemsRef.current = deepClone(items);
+    const normalized = reflowPrivacyItems(
+      compactPrivacyPages(deepClone(items)).items,
+      settingsRef.current.cols ?? 4,
+      settingsRef.current.rows ?? 8,
+    );
+    privacyPageItemsRef.current = normalized;
     privacyCryptoKeyRef.current = { key, salt, iterations };
     setPrivacyCryptoKey({ key, salt, iterations });
-    setPrivacyPageItems(items);
+    setPrivacyPageItems(normalized);
     setPrivacyUnlocked(true);
   }, []);
 
   /** 将普通桌面图标移入隐私页 */
-  const moveItemToPrivacy = useCallback((id: string, row: number, col: number) => {
+  const moveItemToPrivacy = useCallback((id: string, page: number, row: number, col: number) => {
     const result = transferDesktopToPrivacy(
-      dataRef.current, privacyPageItemsRef.current, id, row, col,
+      dataRef.current, privacyPageItemsRef.current, id, page, row, col,
       settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
     // 隐私数据不进入普通桌面历史；跨边界移动后清空历史，避免撤销造成数据复制。
     clearDesktopHistory();
     applyCompactedDesktopData(result.data);
-    privacyPageItemsRef.current = result.privacyItems;
-    setPrivacyPageItems(result.privacyItems);
+    applyCompactedPrivacyItems(result.privacyItems);
     return true;
-  }, [applyCompactedDesktopData, clearDesktopHistory]);
+  }, [applyCompactedDesktopData, applyCompactedPrivacyItems, clearDesktopHistory]);
 
   /** 隐私页内部图标重新排列（拖拽换位） */
-  const reorderPrivacyItems = useCallback((id: string, row: number, col: number) => {
-    const rows = settingsRef.current.rows ?? 8;
-    const cols = settingsRef.current.cols ?? 4;
-    if (!Number.isInteger(row) || row < 0 || row >= rows || !Number.isInteger(col) || col < 0 || col >= cols) return;
-    const next = privacyPageItemsRef.current.map((item) => ({ ...item }));
-    const srcIdx = next.findIndex((item) => item.id === id);
-    if (srcIdx < 0) return;
-    const source = next[srcIdx];
-    const targetIdx = next.findIndex((item) => item.id !== id && item.row === row && item.col === col);
-    if (targetIdx >= 0) next[targetIdx] = { ...next[targetIdx], row: source.row, col: source.col };
-    next[srcIdx] = { ...source, row, col };
-    privacyPageItemsRef.current = next;
-    setPrivacyPageItems(next);
-  }, []);
+  const reorderPrivacyItems = useCallback((id: string, page: number, row: number, col: number) => {
+    const result = movePrivacyItem(
+      privacyPageItemsRef.current,
+      id,
+      page,
+      row,
+      col,
+      settingsRef.current.cols ?? 4,
+      settingsRef.current.rows ?? 8,
+    );
+    if (!result.ok) return false;
+    applyCompactedPrivacyItems(result.privacyItems);
+    return true;
+  }, [applyCompactedPrivacyItems]);
 
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
@@ -812,10 +1000,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!result.ok) return false;
     clearDesktopHistory();
     applyCompactedDesktopData(result.data);
-    privacyPageItemsRef.current = result.privacyItems;
-    setPrivacyPageItems(result.privacyItems);
+    applyCompactedPrivacyItems(result.privacyItems);
     return true;
-  }, [applyCompactedDesktopData, clearDesktopHistory]);
+  }, [applyCompactedDesktopData, applyCompactedPrivacyItems, clearDesktopHistory]);
 
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
     const prev = settingsRef.current;
@@ -828,7 +1015,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (gridChanged) {
       try {
         const reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        const reflowedPrivacy = privacyUnlocked
+          ? reflowPrivacyItems(privacyPageItemsRef.current, cols, rows)
+          : null;
         commitDesktopData(reflowed);
+        if (reflowedPrivacy) applyCompactedPrivacyItems(reflowedPrivacy);
         setCurrentPage(0);
       } catch {
         return;
@@ -837,7 +1028,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     settingsRef.current = next;
     setSettings(next);
     saveSettings(next);
-  }, [commitDesktopData]);
+  }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
 
   return (
     <DesktopContext.Provider
@@ -870,6 +1061,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         movePrivacyToPage,
         reorderPrivacyItems,
         privacyPageItems,
+        privacyPageCount,
         privacyUnlocked,
         privacyRevision,
         setPrivacyUnlockData,

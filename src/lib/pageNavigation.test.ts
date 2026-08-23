@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getPageTrackIndex,
   resolveDragEdgeTarget,
   resolvePageSwipeTarget,
   resolveSwipeAxis,
@@ -45,32 +46,71 @@ describe('pageNavigation', () => {
     expect(resolvePageSwipeTarget(2, 3, -60)).toBeNull();
     expect(resolvePageSwipeTarget(0, 3, 60)).toBe(-1);
     expect(resolvePageSwipeTarget(-1, 3, -60)).toBe(0);
+    expect(resolvePageSwipeTarget(-1, 3, 60, 3)).toBe(-2);
+    expect(resolvePageSwipeTarget(-3, 3, 60, 3)).toBeNull();
+    expect(getPageTrackIndex(-3, 3)).toBe(0);
+    expect(getPageTrackIndex(0, 3)).toBe(3);
   });
 
   it('拖到末页右边缘时复用或创建临时页，并限制隐私页入口', () => {
     expect(resolveDragEdgeTarget({
       currentPage: 2,
       pageCount: 3,
+      privacyPageCount: 1,
       edge: 'right',
       allowPrivacyPage: false,
+      hasLeadingPrivacyPage: false,
+      canCreateLeadingPrivacyPage: false,
       hasTrailingPage: false,
       canCreateTrailingPage: true,
-    })).toEqual({ page: 3, createsTrailingPage: true });
+    })).toEqual({ page: 3, createsTrailingPage: true, createsLeadingPrivacyPage: false });
     expect(resolveDragEdgeTarget({
       currentPage: 2,
       pageCount: 3,
+      privacyPageCount: 1,
       edge: 'right',
       allowPrivacyPage: false,
+      hasLeadingPrivacyPage: false,
+      canCreateLeadingPrivacyPage: false,
       hasTrailingPage: true,
       canCreateTrailingPage: false,
-    })).toEqual({ page: 3, createsTrailingPage: false });
+    })).toEqual({ page: 3, createsTrailingPage: false, createsLeadingPrivacyPage: false });
     expect(resolveDragEdgeTarget({
       currentPage: 0,
       pageCount: 3,
+      privacyPageCount: 1,
       edge: 'left',
       allowPrivacyPage: false,
+      hasLeadingPrivacyPage: false,
+      canCreateLeadingPrivacyPage: false,
       hasTrailingPage: false,
       canCreateTrailingPage: false,
     })).toBeNull();
+  });
+
+  it('隐私页向左递减并可在最左边缘按需创建临时负页', () => {
+    expect(resolveDragEdgeTarget({
+      currentPage: -1,
+      pageCount: 2,
+      privacyPageCount: 2,
+      edge: 'left',
+      allowPrivacyPage: true,
+      hasLeadingPrivacyPage: false,
+      canCreateLeadingPrivacyPage: true,
+      hasTrailingPage: false,
+      canCreateTrailingPage: false,
+    })).toEqual({ page: -2, createsTrailingPage: false, createsLeadingPrivacyPage: false });
+    expect(resolveDragEdgeTarget({
+      currentPage: -2,
+      pageCount: 2,
+      privacyPageCount: 2,
+      edge: 'left',
+      allowPrivacyPage: true,
+      hasLeadingPrivacyPage: false,
+      canCreateLeadingPrivacyPage: true,
+      hasTrailingPage: false,
+      canCreateTrailingPage: false,
+    })).toEqual({ page: -3, createsTrailingPage: false, createsLeadingPrivacyPage: true });
+    expect(getPageTrackIndex(-3, 2, true)).toBe(0);
   });
 });

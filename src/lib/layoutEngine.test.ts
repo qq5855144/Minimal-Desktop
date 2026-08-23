@@ -3,8 +3,13 @@ import type { DesktopData, DesktopItem } from '@/types';
 import {
   canPlaceItem,
   compactDesktopPages,
+  compactPrivacyPages,
+  getPrivacyPageCount,
+  getPrivacyPageNumbers,
   moveDesktopItem,
+  movePrivacyItem,
   reflowDesktopData,
+  reflowPrivacyItems,
   reorderFolderChildren,
   resolvePageAfterCompaction,
   transferDesktopToPrivacy,
@@ -60,11 +65,75 @@ describe('layoutEngine', () => {
     expect(result.reason).toBe('widget-overlap');
   });
 
-  it('系统项与文件夹不能被误拖入隐私桌面', () => {
+  it('系统项与组件不能被误拖入隐私桌面，但文件夹可以安全迁移', () => {
     const system: DesktopItem = { id: 'sys', type: 'system', name: '设置', color: 'gray', page: 0, row: 2, col: 0 };
-    const folder: DesktopItem = { id: 'folder', type: 'folder', name: '文件夹', color: 'gray', page: 0, row: 2, col: 1, children: [] };
-    expect(transferDesktopToPrivacy(data([[system]]), [], 'sys', 0, 0, 4, 8).reason).toBe('protected-item');
-    expect(transferDesktopToPrivacy(data([[folder]]), [], 'folder', 0, 0, 4, 8).reason).toBe('protected-item');
+    const folder: DesktopItem = {
+      id: 'folder', type: 'folder', name: '文件夹', color: 'gray', page: 0, row: 2, col: 1,
+      children: [app('child', 0, 2, 1)],
+    };
+    expect(transferDesktopToPrivacy(data([[system]]), [], 'sys', -1, 0, 0, 4, 8).reason).toBe('protected-item');
+    expect(transferDesktopToPrivacy(data([[clock()]]), [], 'widget-clock', -1, 0, 0, 4, 8).reason).toBe('protected-item');
+    const moved = transferDesktopToPrivacy(data([[folder]]), [], 'folder', -1, 0, 0, 4, 8);
+    expect(moved.ok).toBe(true);
+    expect(moved.privacyItems[0]).toMatchObject({ id: 'folder', page: -1 });
+    expect(moved.privacyItems[0].children?.[0]).toMatchObject({ id: 'child', page: -1 });
+
+    const restored = transferPrivacyToDesktop(data([[]]), moved.privacyItems, 'folder', 0, 1, 1, 4, 8);
+    expect(restored.ok).toBe(true);
+    expect(restored.data.pages[0][0]).toMatchObject({ id: 'folder', page: 0, row: 1, col: 1 });
+    expect(restored.data.pages[0][0].children?.[0]).toMatchObject({ id: 'child', page: 0 });
+  });
+
+  it('隐私负页会清理空洞并保持 -1 靠近普通桌面', () => {
+    const compacted = compactPrivacyPages([
+      app('near', -1, 0, 0),
+      app('far', -3, 0, 0),
+    ]);
+    expect(compacted.items.map((item) => [item.id, item.page])).toEqual([
+      ['near', -1],
+      ['far', -2],
+    ]);
+    expect(getPrivacyPageCount(compacted.items)).toBe(2);
+    expect(getPrivacyPageNumbers(2)).toEqual([-2, -1]);
+  });
+
+  it('隐私项目可拖到临时负页，并在来源页变空时自动回收空页', () => {
+    const privacy = [
+      app('moving', -1, 0, 0),
+      app('kept', -1, 0, 1),
+    ];
+    const moved = movePrivacyItem(privacy, 'moving', -2, 2, 1, 4, 8);
+    expect(moved.ok).toBe(true);
+    expect(moved.privacyItems.find((item) => item.id === 'moving')).toMatchObject({ page: -2, row: 2, col: 1 });
+    expect(getPrivacyPageCount(moved.privacyItems)).toBe(2);
+
+    const collapsed = movePrivacyItem(
+      [app('only', -1, 0, 0)],
+      'only',
+      -2,
+      1,
+      1,
+      4,
+      8,
+    );
+    expect(collapsed.privacyItems[0]).toMatchObject({ id: 'only', page: -1 });
+    expect(getPrivacyPageCount(collapsed.privacyItems)).toBe(1);
+  });
+
+  it('隐私桌面调整网格后维持边界与唯一占位', () => {
+    const privacy = Array.from({ length: 11 }, (_, index) => (
+      app(`private-${index}`, -1, Math.floor(index / 4), index % 4)
+    ));
+    const reflowed = reflowPrivacyItems(privacy, 4, 2);
+    expect(reflowed).toHaveLength(privacy.length);
+    expect(getPrivacyPageCount(reflowed)).toBe(2);
+    for (const page of getPrivacyPageNumbers(2)) {
+      const positions = reflowed
+        .filter((item) => item.page === page)
+        .map((item) => `${item.row}:${item.col}`);
+      expect(new Set(positions).size).toBe(positions.length);
+      expect(positions.length).toBeLessThanOrEqual(8);
+    }
   });
 
   it('改变行列数时不会产生越界或重叠布局', () => {

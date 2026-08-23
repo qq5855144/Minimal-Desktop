@@ -52,7 +52,11 @@ const CombinedWidget: React.FC = () => {
   const weekday = WEEKDAYS[now.getDay()];
   const lunar   = getLunarDate(now);
 
-  const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
+  const currentEngine = getEngineById(
+    settings.searchEngine ?? 'bing',
+    settings.customEngines,
+    settings.deletedSearchEngineIds,
+  );
   const [iconErr, setIconErr] = useState(false);
   const iconSrc = getEngineIconSrc(currentEngine);
 

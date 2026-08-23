@@ -6,12 +6,17 @@
  * - getEngineIconSrc：获取图标 src（内联 data URL 或 iconUrl）
  */
 
-import type { CustomSearchEngine } from '@/types';
 import {
-  bingIcon, googleIcon, baiduIcon,
-  duckduckgoIcon, yandexIcon, sogouIcon,
-  i360Icon, quarkIcon,
+  baiduIcon,
+  bingIcon,
+  duckduckgoIcon,
+  googleIcon,
+  i360Icon,
+  quarkIcon,
+  sogouIcon,
+  yandexIcon,
 } from '@/assets/engineIcons';
+import type { CustomSearchEngine } from '@/types';
 
 export interface BuiltinEngine {
   id: string;
@@ -83,6 +88,35 @@ export const BUILTIN_ENGINES: BuiltinEngine[] = [
 
 export type AnyEngine = BuiltinEngine | (CustomSearchEngine & { isCustom: true });
 
+const BUILTIN_ENGINE_IDS = new Set(BUILTIN_ENGINES.map((engine) => engine.id));
+
+export function isBuiltinSearchEngine(id: string): boolean {
+  return BUILTIN_ENGINE_IDS.has(id);
+}
+
+/**
+ * 生成实际可见的引擎列表。
+ * customEngines 中与内置引擎同 ID 的记录视为用户编辑覆盖，并保持原内置排序；
+ * deletedSearchEngineIds 是内置引擎的持久化删除墓碑。
+ */
+export function getAvailableSearchEngines(
+  customEngines: CustomSearchEngine[] = [],
+  deletedSearchEngineIds: string[] = [],
+): AnyEngine[] {
+  const deleted = new Set(deletedSearchEngineIds);
+  const overrides = new Map(customEngines.map((engine) => [engine.id, engine]));
+  const builtins = BUILTIN_ENGINES
+    .filter((engine) => !deleted.has(engine.id))
+    .map((engine): AnyEngine => {
+      const override = overrides.get(engine.id);
+      return override ? { ...override, isCustom: true as const } : engine;
+    });
+  const custom = [...overrides.values()]
+    .filter((engine) => !BUILTIN_ENGINE_IDS.has(engine.id) && !deleted.has(engine.id))
+    .map((engine): AnyEngine => ({ ...engine, isCustom: true as const }));
+  return [...builtins, ...custom];
+}
+
 /** 获取图标 src：内置引擎返回内联 data URL，自定义引擎返回 iconUrl */
 export function getEngineIconSrc(engine: AnyEngine): string | null {
   if ('iconSrc' in engine) return engine.iconSrc;
@@ -94,12 +128,10 @@ export function getEngineIconSrc(engine: AnyEngine): string | null {
 export function getEngineById(
   id: string,
   customEngines: CustomSearchEngine[] = [],
+  deletedSearchEngineIds: string[] = [],
 ): AnyEngine {
-  const builtin = BUILTIN_ENGINES.find((e) => e.id === id);
-  if (builtin) return builtin;
-  const custom = customEngines.find((e) => e.id === id);
-  if (custom) return { ...custom, isCustom: true as const };
-  return BUILTIN_ENGINES[0];
+  const available = getAvailableSearchEngines(customEngines, deletedSearchEngineIds);
+  return available.find((engine) => engine.id === id) ?? available[0] ?? BUILTIN_ENGINES[0];
 }
 
 /** 构建搜索 URL，支持 {q} 和 %s 两种占位符 */

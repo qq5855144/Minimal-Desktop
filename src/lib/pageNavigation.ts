@@ -10,8 +10,11 @@ export interface PageSwipeCommitInput {
 export interface DragEdgeTargetInput {
   currentPage: number;
   pageCount: number;
+  privacyPageCount: number;
   edge: 'left' | 'right';
   allowPrivacyPage: boolean;
+  hasLeadingPrivacyPage: boolean;
+  canCreateLeadingPrivacyPage: boolean;
   hasTrailingPage: boolean;
   canCreateTrailingPage: boolean;
 }
@@ -19,6 +22,7 @@ export interface DragEdgeTargetInput {
 export interface DragEdgeTarget {
   page: number;
   createsTrailingPage: boolean;
+  createsLeadingPrivacyPage: boolean;
 }
 
 const AXIS_LOCK_DISTANCE_PX = 10;
@@ -58,14 +62,23 @@ export function resolvePageSwipeTarget(
   currentPage: number,
   pageCount: number,
   dx: number,
+  privacyPageCount = 1,
 ): number | null {
-  if (!Number.isInteger(currentPage) || !Number.isInteger(pageCount) || pageCount <= 0) return null;
+  if (
+    !Number.isInteger(currentPage)
+    || !Number.isInteger(pageCount)
+    || pageCount <= 0
+    || !Number.isInteger(privacyPageCount)
+    || privacyPageCount <= 0
+  ) return null;
   if (dx < 0) {
+    if (currentPage < -1) return currentPage + 1;
     if (currentPage === -1) return 0;
     return currentPage < pageCount - 1 ? currentPage + 1 : null;
   }
   if (dx > 0) {
     if (currentPage === 0) return -1;
+    if (currentPage < 0) return currentPage > -privacyPageCount ? currentPage - 1 : null;
     return currentPage > 0 ? currentPage - 1 : null;
   }
   return null;
@@ -76,26 +89,63 @@ export function resolvePageSwipeTarget(
  * 最后一页右侧按需复用或创建一个临时落点页。
  */
 export function resolveDragEdgeTarget(input: DragEdgeTargetInput): DragEdgeTarget | null {
-  if (!Number.isInteger(input.currentPage) || !Number.isInteger(input.pageCount) || input.pageCount <= 0) {
+  if (
+    !Number.isInteger(input.currentPage)
+    || !Number.isInteger(input.pageCount)
+    || input.pageCount <= 0
+    || !Number.isInteger(input.privacyPageCount)
+    || input.privacyPageCount <= 0
+  ) {
     return null;
   }
 
   if (input.edge === 'left') {
     if (input.currentPage > 0) {
-      return { page: input.currentPage - 1, createsTrailingPage: false };
+      return { page: input.currentPage - 1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
     }
     if (input.currentPage === 0 && input.allowPrivacyPage) {
-      return { page: -1, createsTrailingPage: false };
+      return { page: -1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+    }
+    if (input.currentPage < 0) {
+      const leftmostPage = -input.privacyPageCount;
+      if (input.currentPage > leftmostPage) {
+        return { page: input.currentPage - 1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+      }
+      if (input.currentPage !== leftmostPage) return null;
+      if (input.hasLeadingPrivacyPage) {
+        return { page: leftmostPage - 1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+      }
+      if (input.canCreateLeadingPrivacyPage) {
+        return { page: leftmostPage - 1, createsTrailingPage: false, createsLeadingPrivacyPage: true };
+      }
     }
     return null;
   }
 
-  if (input.currentPage === -1) return { page: 0, createsTrailingPage: false };
+  if (input.currentPage < -1) {
+    return { page: input.currentPage + 1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+  }
+  if (input.currentPage === -1) {
+    return { page: 0, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+  }
   if (input.currentPage < input.pageCount - 1) {
-    return { page: input.currentPage + 1, createsTrailingPage: false };
+    return { page: input.currentPage + 1, createsTrailingPage: false, createsLeadingPrivacyPage: false };
   }
   if (input.currentPage !== input.pageCount - 1) return null;
-  if (input.hasTrailingPage) return { page: input.pageCount, createsTrailingPage: false };
-  if (input.canCreateTrailingPage) return { page: input.pageCount, createsTrailingPage: true };
+  if (input.hasTrailingPage) {
+    return { page: input.pageCount, createsTrailingPage: false, createsLeadingPrivacyPage: false };
+  }
+  if (input.canCreateTrailingPage) {
+    return { page: input.pageCount, createsTrailingPage: true, createsLeadingPrivacyPage: false };
+  }
   return null;
+}
+
+/** 逻辑页码到横向滑轨索引；临时前置隐私页存在时所有既有页面右移一格。 */
+export function getPageTrackIndex(
+  page: number,
+  privacyPageCount: number,
+  hasLeadingPrivacyPage = false,
+): number {
+  return page + privacyPageCount + (hasLeadingPrivacyPage ? 1 : 0);
 }

@@ -111,7 +111,11 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const [iconErr, setIconErr] = useState(false);
 
   const isNeu = settings.style === 'neumorphism';
-  const currentEngine = getEngineById(settings.searchEngine ?? 'bing', settings.customEngines);
+  const currentEngine = getEngineById(
+    settings.searchEngine ?? 'bing',
+    settings.customEngines,
+    settings.deletedSearchEngineIds,
+  );
   const iconSrc = getEngineIconSrc(currentEngine);
 
   // 浏览器返回键 → 关闭搜索屏回到桌面
