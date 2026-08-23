@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SyncConfig, SyncSnapshot } from '@/types';
 import { downloadFromGithub, getBackgroundBackupPath, uploadToGithub } from './github';
-import { CURRENT_DESKTOP_VERSION } from './desktopSchema';
+import { CURRENT_DESKTOP_VERSION, parseDesktopBackup } from './desktopSchema';
 
 const config: SyncConfig = {
   token: 'token', owner: 'alice', repo: 'backup', branch: 'main', path: 'desktop_backup.json',
@@ -16,6 +16,16 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+async function expectedGitBlobSha(content: string): Promise<string> {
+  const body = new TextEncoder().encode(content);
+  const header = new TextEncoder().encode(`blob ${body.byteLength}\0`);
+  const object = new Uint8Array(header.byteLength + body.byteLength);
+  object.set(header);
+  object.set(body, header.byteLength);
+  const digest = await crypto.subtle.digest('SHA-1', object.buffer);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function successfulUploadResponses(fetchMock: ReturnType<typeof vi.fn>): void {
@@ -82,6 +92,92 @@ describe('GitHub sync concurrency protection', () => {
 
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it('uses the backup blob baseline to avoid a false conflict from a stale branch HEAD', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'known-backup-blob' }));
+    successfulUploadResponses(fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub({
+      ...config,
+      lastRemoteHead: 'stale-head',
+      lastBackupBlobSha: 'known-backup-blob',
+    }, snapshot);
+
+    expect(result).toMatchObject({
+      ok: true,
+      remoteHead: 'new-commit',
+      backupBlobSha: 'backup-blob',
+    });
+    // 不再读取旧 HEAD 下的文件元数据；当前 blob 基线已经足够判断。
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
+  it('supports an explicit one-time overwrite while retaining fast-forward updates', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }));
+    successfulUploadResponses(fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub(
+      { ...config, lastRemoteHead: undefined, lastBackupBlobSha: undefined },
+      snapshot,
+      { force: true },
+    );
+
+    expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
+    const commitRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
+    expect(commitRequest.parents).toEqual(['remote-head']);
+  });
+
+  it('skips an empty commit when the generated tree is unchanged', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'current-head' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'backup-blob' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'base-tree' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub({
+      ...config,
+      lastRemoteHead: 'current-head',
+      lastBackupBlobSha: 'backup-blob',
+    }, snapshot);
+
+    expect(result).toMatchObject({
+      ok: true,
+      unchanged: true,
+      remoteHead: 'current-head',
+      backupBlobSha: 'backup-blob',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('uses the saved file fingerprint to skip every write request for identical data', async () => {
+    const parsed = parseDesktopBackup(snapshot.data);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const backupBlobSha = await expectedGitBlobSha(JSON.stringify(parsed.data, null, 2));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'current-head' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub({
+      ...config,
+      lastRemoteHead: 'current-head',
+      lastBackupBlobSha: backupBlobSha,
+    }, snapshot);
+
+    expect(result).toMatchObject({
+      ok: true,
+      unchanged: true,
+      remoteHead: 'current-head',
+      backupBlobSha,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('uploads a wallpaper as a separate blob in the same commit', async () => {
@@ -156,7 +252,12 @@ describe('GitHub sync concurrency protection', () => {
 
     const result = await downloadFromGithub(config);
 
-    expect(result).toMatchObject({ ok: true, remoteHead: 'remote-head', backgroundBlobSha: 'media-blob' });
+    expect(result).toMatchObject({
+      ok: true,
+      remoteHead: 'remote-head',
+      backupBlobSha: 'backup-blob',
+      backgroundBlobSha: 'media-blob',
+    });
     expect(result.data?.background?.sha256).toBe(sha256);
     expect(result.backgroundFile).toMatchObject({ name: 'wallpaper.webp', type: 'image/webp', size: 4 });
     expect(Array.from(new Uint8Array(await result.backgroundFile?.arrayBuffer()))).toEqual([1, 2, 3, 4]);

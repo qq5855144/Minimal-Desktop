@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
-import { uploadToGithub } from '@/lib/github';
 import {
   getDesktopGridLayoutMetrics,
   getIconLayoutMetrics,
@@ -23,7 +22,8 @@ import {
   type SwipeAxis,
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
-import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
+import { loadSyncConfig } from '@/lib/storage';
+import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
@@ -253,22 +253,20 @@ const Desktop: React.FC = () => {
     // 跳过首次挂载（避免页面刚加载就触发上传）
     if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
     if (!cfg?.autoSync || !cfg.token || !cfg.owner || !cfg.repo) return;
+    // 冲突只提示一次并持久暂停；由同步面板执行“下载确认”或“本次覆盖”后恢复。
+    if (cfg.pendingConflictHead) return;
     if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
     autoSyncTimerRef.current = setTimeout(async () => {
       try {
+        // 真正执行时由协调器重新读取最新基线，不能继续使用定时器创建时的旧 HEAD。
         const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
         const snapshot = await buildSyncSnapshot(data, settings);
-        const result = await uploadToGithub(syncCfg, snapshot);
-        if (result.ok) {
-          saveSyncConfig({
-            ...cfg,
-            lastSyncAt: new Date().toISOString(),
-            lastRemoteHead: result.remoteHead ?? cfg.lastRemoteHead,
-            lastBackgroundSha256: result.backgroundSha256,
-            lastBackgroundBlobSha: result.backgroundBlobSha,
+        const result = await uploadSyncSnapshot(syncCfg, snapshot, { source: 'auto' });
+        if (result.conflict && !result.suppressed) {
+          toast.error('检测到云端新版本，自动同步已暂停', {
+            description: '请在云同步中下载确认，或选择“本次覆盖”。',
+            action: { label: '立即处理', onClick: () => setOpenSync(true) },
           });
-        } else if (result.conflict) {
-          toast.error('云端已有其他设备的新版本，自动同步已停止本次覆盖');
         }
       } catch { /* 静默失败，不打扰用户 */ }
     }, 3000);

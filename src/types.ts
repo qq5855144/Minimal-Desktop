@@ -81,10 +81,15 @@ export interface SyncConfig {
   lastSyncAt?: string; // ISO string
   /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
   lastRemoteHead?: string;
+  /** 上一次确认过的备份文件 blob；分支有无关提交时不应误报冲突。 */
+  lastBackupBlobSha?: string;
   /** 最近一次成功上传/下载的背景媒体摘要，用于避免重复上传大文件。 */
   lastBackgroundSha256?: string;
   /** 最近一次成功上传/下载的 GitHub 背景媒体 blob SHA。 */
   lastBackgroundBlobSha?: string;
+  /** 检测到远端备份变化后暂停自动同步，等待用户下载或明确覆盖。 */
+  pendingConflictHead?: string;
+  pendingConflictAt?: string;
   /** 勾选后 Token 持久化到 localStorage；默认仅保留在当前会话 */
   rememberToken?: boolean;
 }

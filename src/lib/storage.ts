@@ -8,6 +8,7 @@ const DESKTOP_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
 const SYNC_TOKEN_KEY = 'ios_sync_token';
+export const SYNC_CONFIG_CHANGED_EVENT = 'minimal-desktop-sync-config-changed';
 const PRIVACY_VAULT_KEY = 'ios_privacy_vault';
 const PIN_LOCKOUT_KEY = 'ios_privacy_lockout';
 
@@ -213,12 +214,23 @@ export function saveSyncConfig(config: SyncConfig): void {
       localStorage.removeItem(SYNC_TOKEN_KEY);
     }
   } catch { /* ignore */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(SYNC_CONFIG_CHANGED_EVENT));
+}
+
+/** 基于最新持久化值原子合并，避免并发同步用旧配置覆盖刚写入的远端基线。 */
+export function updateSyncConfig(patch: Partial<SyncConfig>): SyncConfig | null {
+  const current = loadSyncConfig();
+  if (!current) return null;
+  const next = { ...current, ...patch };
+  saveSyncConfig(next);
+  return next;
 }
 
 export function clearSyncConfig(): void {
   try { localStorage.removeItem(SYNC_KEY); } catch { /* ignore */ }
   try { sessionStorage.removeItem(SYNC_TOKEN_SESSION_KEY); } catch { /* ignore */ }
   try { localStorage.removeItem(SYNC_TOKEN_KEY); } catch { /* ignore */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(SYNC_CONFIG_CHANGED_EVENT));
 }
 
 const SETTINGS_KEY = 'ios_desktop_settings';

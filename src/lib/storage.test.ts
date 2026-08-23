@@ -5,6 +5,7 @@ import {
   loadDesktopData,
   loadSyncConfig,
   saveSyncConfig,
+  updateSyncConfig,
   WIDGET_ITEMS,
 } from './storage';
 
@@ -42,6 +43,27 @@ describe('sync credential storage', () => {
     localStorage.setItem('ios_sync_config', JSON.stringify(config));
     expect(loadSyncConfig()?.token).toBe(config.token);
     expect(localStorage.getItem('ios_sync_config')).not.toContain(config.token);
+  });
+
+  it('atomically patches sync preferences without losing the latest remote baseline', () => {
+    saveSyncConfig({
+      ...config,
+      lastRemoteHead: 'latest-head',
+      lastBackupBlobSha: 'latest-blob',
+    });
+
+    const updated = updateSyncConfig({ autoSync: false });
+
+    expect(updated).toMatchObject({
+      autoSync: false,
+      lastRemoteHead: 'latest-head',
+      lastBackupBlobSha: 'latest-blob',
+    });
+    expect(loadSyncConfig()).toMatchObject({
+      autoSync: false,
+      lastRemoteHead: 'latest-head',
+      lastBackupBlobSha: 'latest-blob',
+    });
   });
 
   it('recognizes system entries inside a folder instead of recreating duplicates', () => {

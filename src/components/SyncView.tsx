@@ -7,8 +7,11 @@ import {
   loadSyncConfig,
   savePrivacyVault,
   saveSyncConfig,
+  SYNC_CONFIG_CHANGED_EVENT,
+  updateSyncConfig,
 } from '@/lib/storage';
-import { verifyToken, ensureRepo, getBranchHead, uploadToGithub, downloadFromGithub } from '@/lib/github';
+import { verifyToken, ensureRepo, getBranchHead, downloadFromGithub } from '@/lib/github';
+import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnapshot';
 import { summarizeDesktopDiff, type DesktopDiffSummary } from '@/lib/desktopDiff';
 import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
@@ -38,6 +41,7 @@ const DEFAULT_CONFIG: SyncConfig = {
 interface PendingRestore {
   data: DesktopBackup;
   remoteHead?: string;
+  backupBlobSha?: string;
   backgroundFile?: File;
   backgroundBlobSha?: string;
   summary: DesktopDiffSummary;
@@ -52,7 +56,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const [tokenInput, setTokenInput] = useState('');
   const [remember, setRemember] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [syncing, setSyncing] = useState<'upload' | 'download' | 'restore' | null>(null);
+  const [syncing, setSyncing] = useState<'upload' | 'overwrite' | 'download' | 'restore' | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
@@ -74,6 +78,21 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       setStatusMsg(null);
       setPendingRestore(null);
     }
+  }, [open]);
+
+  // 自动同步在面板打开期间更新基线/冲突状态时，立即刷新界面而不是保留旧闭包。
+  useEffect(() => {
+    if (!open) return;
+    const refreshConfig = () => {
+      const saved = loadSyncConfig();
+      if (saved) setConfig(saved);
+    };
+    window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, refreshConfig);
+    window.addEventListener('storage', refreshConfig);
+    return () => {
+      window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, refreshConfig);
+      window.removeEventListener('storage', refreshConfig);
+    };
   }, [open]);
 
   // 一键连接：验证 Token + 自动创建仓库
@@ -120,38 +139,35 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   }, [tokenInput, remember]);
 
   const handleAutoSyncToggle = useCallback(() => {
-    const next = { ...config, autoSync: !config.autoSync };
+    const next = updateSyncConfig({ autoSync: !config.autoSync })
+      ?? { ...config, autoSync: !config.autoSync };
     setConfig(next);
-    saveSyncConfig(next);
     toast.success(next.autoSync ? '已开启自动同步' : '已关闭自动同步');
   }, [config]);
 
-  const handleUpload = useCallback(async () => {
+  const performUpload = useCallback(async (force = false) => {
     if (!config.token) {
       setStatusMsg({ type: 'error', msg: '登录已过期，请重新连接' });
       toast.error('登录已过期，请重新连接');
       return;
     }
-    setSyncing('upload'); setStatusMsg(null);
+    setSyncing(force ? 'overwrite' : 'upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
       const uploadData = await buildSyncSnapshot(data, settings);
-      const result = await uploadToGithub(syncCfg, uploadData);
+      const result = await uploadSyncSnapshot(syncCfg, uploadData, {
+        source: 'manual',
+        force,
+      });
+      setConfig(result.config);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok) {
-        const next = {
-          ...config,
-          lastSyncAt: new Date().toISOString(),
-          lastRemoteHead: result.remoteHead ?? config.lastRemoteHead,
-          lastBackgroundSha256: result.backgroundSha256,
-          lastBackgroundBlobSha: result.backgroundBlobSha,
-        };
-        setConfig(next); saveSyncConfig(next);
         const included = [
           uploadData.data.privacyVault ? '加密隐私数据' : null,
           uploadData.data.background ? '壁纸' : null,
         ].filter(Boolean).join('、');
-        toast.success(included ? `已上传到云端（含${included}）` : '已上传到云端');
+        const prefix = force ? '已覆盖云端备份' : result.unchanged ? '云端已是最新数据' : '已上传到云端';
+        toast.success(included && !result.unchanged ? `${prefix}（含${included}）` : prefix);
       } else { toast.error(result.message); }
     } catch (error) {
       const message = error instanceof Error ? error.message : '上传失败，请检查网络';
@@ -160,6 +176,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     }
     finally { setSyncing(null); }
   }, [config, data, settings]);
+
+  const handleUpload = useCallback(() => performUpload(false), [performUpload]);
+  const handleForceUpload = useCallback(() => performUpload(true), [performUpload]);
 
   const handleDownload = useCallback(async () => {
     if (!config.token) {
@@ -175,6 +194,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         setPendingRestore({
           data: result.data,
           remoteHead: result.remoteHead,
+          backupBlobSha: result.backupBlobSha,
           backgroundFile: result.backgroundFile,
           backgroundBlobSha: result.backgroundBlobSha,
           summary: summarizeDesktopDiff(data, result.data),
@@ -258,15 +278,25 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
       if (pendingRestore.data.privacyVault) savePrivacyVault(pendingRestore.data.privacyVault);
       else clearPrivacyVault();
-      const next = {
+      const next = updateSyncConfig({
+        lastSyncAt: new Date().toISOString(),
+        lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
+        lastBackupBlobSha: pendingRestore.backupBlobSha,
+        lastBackgroundSha256: pendingRestore.data.background?.sha256,
+        lastBackgroundBlobSha: pendingRestore.backgroundBlobSha,
+        pendingConflictHead: undefined,
+        pendingConflictAt: undefined,
+      }) ?? {
         ...config,
         lastSyncAt: new Date().toISOString(),
         lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
+        lastBackupBlobSha: pendingRestore.backupBlobSha,
         lastBackgroundSha256: pendingRestore.data.background?.sha256,
         lastBackgroundBlobSha: pendingRestore.backgroundBlobSha,
+        pendingConflictHead: undefined,
+        pendingConflictAt: undefined,
       };
       setConfig(next);
-      saveSyncConfig(next);
       const oldBackgroundUrls = [settings.bgImage, settings.bgVideo].filter(
         (source): source is string => Boolean(source?.startsWith('blob:')),
       );
@@ -426,7 +456,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               <div className={`flex items-center justify-between rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3`}>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-medium ${t.textPrimary}`}>自动同步</p>
-                  <p className={`text-xs ${t.textDim} opacity-70`}>数据变更后自动上传到云端</p>
+                  <p className={`text-xs ${config.pendingConflictHead ? 'text-amber-500' : `${t.textDim} opacity-70`}`}>
+                    {config.pendingConflictHead ? '等待处理云端版本冲突' : '数据变更后自动上传到云端'}
+                  </p>
                 </div>
                 <button type="button" onClick={handleAutoSyncToggle} className="shrink-0 ml-3 transition-transform active:scale-95">
                   {config.autoSync
@@ -440,6 +472,43 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
                   {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
                   <span>{statusMsg.msg}</span>
+                </div>
+              )}
+
+              {config.pendingConflictHead && (
+                <div className={`rounded-2xl p-4 space-y-3 ${isNeu ? 'bg-amber-50 border border-amber-200' : 'bg-amber-500/10 border border-amber-400/20'}`}>
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                    <div>
+                      <p className={`text-sm font-semibold ${t.textPrimary}`}>自动同步已暂停</p>
+                      <p className={`text-xs mt-0.5 ${t.textDim}`}>
+                        检测到云端备份变化。可先下载比较；确认本机数据应优先时，仅覆盖这一次。
+                      </p>
+                      {config.pendingConflictAt && (
+                        <p className={`text-[11px] mt-1 ${t.textDim} opacity-60`}>
+                          检测时间：{formatDate(config.pendingConflictAt)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      disabled={!!syncing || !!pendingRestore}
+                      className={`rounded-xl py-2.5 text-xs font-medium border ${t.itemBorder} ${t.itemBg} ${t.textPrimary} disabled:opacity-40`}
+                    >
+                      {syncing === 'download' ? '正在下载…' : '下载并比较'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleForceUpload}
+                      disabled={!!syncing || !!pendingRestore}
+                      className="rounded-xl py-2.5 text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-40"
+                    >
+                      {syncing === 'overwrite' ? '正在覆盖…' : '本次覆盖'}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -508,7 +577,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               {/* 操作按钮 */}
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  type="button" onClick={handleUpload} disabled={!!syncing || !!pendingRestore}
+                  type="button" onClick={handleUpload} disabled={!!syncing || !!pendingRestore || !!config.pendingConflictHead}
                   className="flex items-center justify-center gap-2 rounded-2xl py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors disabled:opacity-40"
                 >
                   {syncing === 'upload'
