@@ -13,6 +13,7 @@ import {
 import { verifyToken, ensureRepo, getBranchHead, downloadFromGithub } from '@/lib/github';
 import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnapshot';
+import { preserveSyncStateForReconnect } from '@/lib/syncTarget';
 import { summarizeDesktopDiff, type DesktopDiffSummary } from '@/lib/desktopDiff';
 import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB } from '@/lib/wallpaperStorage';
@@ -70,7 +71,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         setRemember(!!saved.rememberToken);
         setLoggedIn(true);
       } else {
-        setConfig(DEFAULT_CONFIG);
+        // Token 默认仅保留当前会话；重新认证前仍保留非敏感的目标与同步基线。
+        setConfig(saved ? { ...DEFAULT_CONFIG, ...saved } : DEFAULT_CONFIG);
         setTokenInput(saved?.token ?? '');
         setRemember(!!saved?.rememberToken);
         setLoggedIn(false);
@@ -116,7 +118,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         return;
       }
       const branch = repoResult.branch || 'main';
-      const next: SyncConfig = {
+      const connection: SyncConfig = {
         ...DEFAULT_CONFIG, token: tok, owner: user.login,
         repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
         rememberToken: remember,
@@ -126,6 +128,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           ? await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined
           : undefined,
       };
+      const next = repoResult.created
+        ? connection
+        : preserveSyncStateForReconnect(connection, loadSyncConfig());
       setConfig(next);
       setLoggedIn(true);
       saveSyncConfig(next);

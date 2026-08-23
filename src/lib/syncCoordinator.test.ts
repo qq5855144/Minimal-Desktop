@@ -81,6 +81,39 @@ describe('sync upload coordinator', () => {
     });
   });
 
+  it('refreshes the baseline after acquiring the cross-tab upload lock', async () => {
+    const lockRequest = vi.fn(async (_name: string, callback: () => Promise<unknown>) => {
+      saveSyncConfig({
+        ...config,
+        lastRemoteHead: 'other-tab-head',
+        lastBackupBlobSha: 'other-tab-blob',
+      });
+      return callback();
+    });
+    vi.stubGlobal('navigator', { locks: { request: lockRequest } });
+    uploadMock.mockResolvedValueOnce({
+      ok: true,
+      unchanged: true,
+      message: '云端已是最新数据',
+      remoteHead: 'other-tab-head',
+      backupBlobSha: 'other-tab-blob',
+    });
+
+    await uploadSyncSnapshot(config, snapshot, { source: 'auto' });
+
+    expect(lockRequest).toHaveBeenCalledOnce();
+    expect(lockRequest.mock.calls[0][0]).toContain('minimal-desktop-sync:');
+    expect(lockRequest.mock.calls[0][0]).not.toContain(config.token);
+    expect(uploadMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastRemoteHead: 'other-tab-head',
+        lastBackupBlobSha: 'other-tab-blob',
+      }),
+      snapshot,
+      { force: undefined },
+    );
+  });
+
   it('persists a conflict and suppresses repeated automatic uploads', async () => {
     uploadMock.mockResolvedValueOnce({
       ok: false,

@@ -29,7 +29,12 @@ export interface UploadOptions {
   force?: boolean;
 }
 
-const MAX_FORCE_UPLOAD_ATTEMPTS = 3;
+interface UploadAttemptResult extends UploadResult {
+  /** 更新引用前 HEAD 被推进；下一轮必须重新校验备份 blob 后再构建提交。 */
+  retryableRefRace?: boolean;
+}
+
+const MAX_UPLOAD_ATTEMPTS = 3;
 
 function encodedRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
@@ -254,22 +259,28 @@ export async function uploadToGithub(
   snapshot: SyncSnapshot,
   options: UploadOptions = {},
 ): Promise<UploadResult> {
-  // “本次覆盖”只覆盖备份文件，不强制改写分支历史。若另一个设备恰好推进 HEAD，
-  // 放弃本轮未挂到分支上的 commit，并以最新 HEAD 为父提交重新构建。
-  const maxAttempts = options.force ? MAX_FORCE_UPLOAD_ATTEMPTS : 1;
-  let lastResult: UploadResult | undefined;
+  // 引用竞态后放弃未挂到分支上的 commit，并以最新 HEAD 为父提交重新构建。
+  // 普通同步会重新检查备份 blob；只有它仍等于本地基线时才继续，因此不会
+  // 借重试覆盖真正的其他设备更新。“本次覆盖”则只跳过 blob 基线检查。
+  let lastResult: UploadAttemptResult | undefined;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_UPLOAD_ATTEMPTS; attempt += 1) {
     const result = await doUploadViaGitApi(config, snapshot, options);
-    if (result.ok || !options.force || !result.conflict) return result;
+    if (result.ok || !result.retryableRefRace) {
+      const { retryableRefRace: _retryable, ...uploadResult } = result;
+      return uploadResult;
+    }
     lastResult = result;
   }
 
+  const { retryableRefRace: _retryable, ...uploadResult } = lastResult as UploadAttemptResult;
   return {
-    ...lastResult,
+    ...uploadResult,
     ok: false,
-    conflict: true,
-    message: '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。',
+    conflict: options.force ? true : undefined,
+    message: options.force
+      ? '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。'
+      : '云端正在持续更新，本次同步未完成，请稍后重试。',
   };
 }
 
@@ -277,7 +288,7 @@ async function doUploadViaGitApi(
   config: SyncConfig,
   snapshot: SyncSnapshot,
   options: UploadOptions,
-): Promise<UploadResult> {
+): Promise<UploadAttemptResult> {
   const { token, owner, repo, branch = 'main' } = config;
   const filePath = config.path || 'desktop_backup.json';
   const backgroundPath = getBackgroundBackupPath(filePath);
@@ -479,14 +490,21 @@ async function doUploadViaGitApi(
     body: JSON.stringify({ sha: newCommitData.sha, force: false }),
   });
   if (!updateRes.ok) {
-    const currentRemoteHead = updateRes.status === 409 || updateRes.status === 422
+    const couldBeRefRace = updateRes.status === 409 || updateRes.status === 422;
+    const message = await errorMessage(updateRes, '更新分支引用失败');
+    const currentRemoteHead = couldBeRefRace
       ? await getBranchHead(token, owner, repo, branch) ?? latestCommitSha
       : latestCommitSha;
+    const retryableRefRace = couldBeRefRace && (
+      currentRemoteHead !== latestCommitSha
+      || /fast[\s-]?forward/i.test(message)
+    );
     return {
       ok: false,
-      conflict: updateRes.status === 409 || updateRes.status === 422,
+      conflict: retryableRefRace,
+      retryableRefRace,
       remoteHead: currentRemoteHead,
-      message: await errorMessage(updateRes, '更新分支引用失败'),
+      message,
     };
   }
 

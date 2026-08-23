@@ -1,5 +1,6 @@
 import { uploadToGithub, type UploadOptions, type UploadResult } from '@/lib/github';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
+import { isSameSyncTarget, syncTargetKey } from '@/lib/syncTarget';
 import type { SyncConfig, SyncSnapshot } from '@/types';
 
 export type SyncUploadSource = 'auto' | 'manual';
@@ -16,19 +17,6 @@ export interface CoordinatedUploadResult extends UploadResult {
 
 let uploadQueue: Promise<void> = Promise.resolve();
 
-function normalizedTarget(config: SyncConfig): string {
-  return [
-    config.owner,
-    config.repo,
-    config.branch || 'main',
-    config.path || 'desktop_backup.json',
-  ].join('\u0000');
-}
-
-function isSameTarget(left: SyncConfig, right: SyncConfig): boolean {
-  return normalizedTarget(left) === normalizedTarget(right);
-}
-
 /**
  * 只从最新配置中吸收同步运行态，保留调用方当前的 Token 与交互设置。
  * 这一步在任务真正出队时执行，避免定时器闭包持有过期远端基线。
@@ -37,7 +25,7 @@ export function mergeLatestSyncRuntime(
   config: SyncConfig,
   latest: SyncConfig | null,
 ): SyncConfig {
-  if (!latest || !isSameTarget(config, latest)) return config;
+  if (!latest || !isSameSyncTarget(config, latest)) return config;
   return {
     ...config,
     lastSyncAt: latest.lastSyncAt,
@@ -55,7 +43,7 @@ function persistRuntimePatch(
   patch: Partial<SyncConfig>,
 ): SyncConfig {
   const latest = loadSyncConfig();
-  if (!latest || !isSameTarget(base, latest)) return { ...base, ...patch };
+  if (!latest || !isSameSyncTarget(base, latest)) return { ...base, ...patch };
   const next = {
     ...latest,
     token: latest.token || base.token,
@@ -107,6 +95,15 @@ async function performCoordinatedUpload(
   return { ...result, config: current };
 }
 
+/** Web Locks 将不同标签页/扩展页面对同一备份文件的上传也串行化。 */
+async function withCrossContextLock<T>(
+  config: SyncConfig,
+  task: () => Promise<T>,
+): Promise<T> {
+  if (typeof navigator === 'undefined' || !navigator.locks) return task();
+  return navigator.locks.request(`minimal-desktop-sync:${syncTargetKey(config)}`, task);
+}
+
 /**
  * 手动和自动上传共享同一串行队列。后发任务会在前一任务持久化新基线后再读取配置，
  * 因此连续拖拽、隐私 vault 落盘和手动上传不会互相制造伪冲突。
@@ -116,9 +113,13 @@ export function uploadSyncSnapshot(
   snapshot: SyncSnapshot,
   options: CoordinatedUploadOptions = {},
 ): Promise<CoordinatedUploadResult> {
+  const run = () => withCrossContextLock(
+    config,
+    () => performCoordinatedUpload(config, snapshot, options),
+  );
   const task = uploadQueue.then(
-    () => performCoordinatedUpload(config, snapshot, options),
-    () => performCoordinatedUpload(config, snapshot, options),
+    run,
+    run,
   );
   uploadQueue = task.then(() => undefined, () => undefined);
   return task;
