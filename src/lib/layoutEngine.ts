@@ -1,6 +1,6 @@
 import { deepClone } from '@/lib/utils/deepClone';
-import { getWidgetConfig } from '@/lib/widgetConfig';
-import type { DesktopData, DesktopItem, DesktopSettings, FolderLayout } from '@/types';
+import { createWidgetItem, getWidgetConfig } from '@/lib/widgetConfig';
+import type { DesktopData, DesktopItem, DesktopSettings, FolderLayout, WidgetType } from '@/types';
 
 /**
  * 桌面布局的唯一规则源。
@@ -29,6 +29,10 @@ export interface LayoutMutationResult {
   ok: boolean;
   data: DesktopData;
   reason?: LayoutFailure;
+}
+
+export interface WidgetVisibilityResult extends LayoutMutationResult {
+  widgetPage?: number;
 }
 
 export interface PrivacyTransferResult extends LayoutMutationResult {
@@ -261,6 +265,49 @@ export function findFirstAvailableSlotAcrossPages(
     if (slot) return { page, ...slot };
   }
   return null;
+}
+
+/**
+ * 启用或隐藏桌面组件时只修改组件本身，不重排普通应用。
+ * 新组件优先使用已有页面中的完整空行；没有空间时创建新页。
+ */
+export function setDesktopWidgetEnabled(
+  data: DesktopData,
+  widgetType: WidgetType,
+  enabled: boolean,
+  cols: number,
+  rows: number,
+): WidgetVisibilityResult {
+  const widget = createWidgetItem(widgetType, 0, 0);
+  const existingPage = data.pages.findIndex((page) => page.some((item) => item.id === widget.id));
+
+  if (!enabled) {
+    if (existingPage < 0) return { ok: true, data };
+    const next = deepClone(data);
+    next.pages = next.pages.map((page) => page.filter((item) => item.id !== widget.id));
+    return { ok: true, data: compactDesktopPages(next).data };
+  }
+
+  if (existingPage >= 0) return { ok: true, data, widgetPage: existingPage };
+
+  const next = deepClone(data);
+  if (next.pages.length === 0) next.pages.push([]);
+  let slot = findFirstAvailableSlotAcrossPages(next.pages, widget, cols, rows, 0);
+  if (!slot && next.pages.length < LAYOUT_LIMITS.maxPages) {
+    const page = next.pages.length;
+    next.pages.push([]);
+    const position = findFirstAvailableSlot(next.pages[page], widget, cols, rows);
+    if (position) slot = { page, ...position };
+  }
+  if (!slot) return { ok: false, data, reason: 'occupied' };
+
+  next.pages[slot.page].push({
+    ...widget,
+    page: slot.page,
+    row: slot.row,
+    col: slot.col,
+  });
+  return { ok: true, data: next, widgetPage: slot.page };
 }
 
 function moveToPosition(item: DesktopItem, page: number, row: number, col: number): DesktopItem {

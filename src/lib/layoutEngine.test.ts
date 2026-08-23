@@ -13,6 +13,7 @@ import {
   reflowPrivacyItems,
   reorderFolderChildren,
   resolvePageAfterCompaction,
+  setDesktopWidgetEnabled,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   updateDesktopFolderLayout,
@@ -56,6 +57,47 @@ describe('layoutEngine', () => {
     const result = moveDesktopItem(original, 'widget-clock', 0, 0, 7, 0, 4, 8);
     expect(result.ok).toBe(false);
     expect(result.data).toBe(original);
+  });
+
+  it('隐藏和重新启用组件时保持普通应用的行列坐标不变', () => {
+    const original = data([[
+      clock(0, 0),
+      { ...clock(0, 2), id: 'widget-search', widgetType: 'search', name: '搜索栏' },
+      app('a', 0, 3, 0),
+      app('b', 0, 4, 2),
+    ]]);
+    const appPositions = original.pages[0]
+      .filter((item) => item.type === 'app')
+      .map(({ id, page, row, col }) => ({ id, page, row, col }));
+
+    const hidden = setDesktopWidgetEnabled(original, 'clock', false, 4, 8);
+    expect(hidden.ok).toBe(true);
+    expect(hidden.data.pages[0].some((item) => item.id === 'widget-clock')).toBe(false);
+    expect(hidden.data.pages[0]
+      .filter((item) => item.type === 'app')
+      .map(({ id, page, row, col }) => ({ id, page, row, col }))).toEqual(appPositions);
+
+    const restored = setDesktopWidgetEnabled(hidden.data, 'clock', true, 4, 8);
+    expect(restored.ok).toBe(true);
+    expect(restored.data.pages[0].find((item) => item.id === 'widget-clock')).toMatchObject({
+      page: 0, row: 0, col: 0,
+    });
+    expect(restored.data.pages[0]
+      .filter((item) => item.type === 'app')
+      .map(({ id, page, row, col }) => ({ id, page, row, col }))).toEqual(appPositions);
+  });
+
+  it('组件无完整空行时创建新页且不挪动现有应用', () => {
+    const apps = Array.from({ length: 8 }, (_, row) => app(`app-${row}`, 0, row, row % 4));
+    const original = data([apps]);
+    const added = setDesktopWidgetEnabled(original, 'clock', true, 4, 8);
+
+    expect(added.ok).toBe(true);
+    expect(added.widgetPage).toBe(1);
+    expect(added.data.pages[0]).toEqual(original.pages[0]);
+    expect(added.data.pages[1][0]).toMatchObject({
+      id: 'widget-clock', page: 1, row: 0, col: 0,
+    });
   });
 
   it('2×2 文件夹真实占用四格并受行列边界约束', () => {

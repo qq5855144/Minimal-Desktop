@@ -23,6 +23,7 @@ import {
   reorderFolderChildren as reorderFolderChildrenLayout,
   resolvePageAfterCompaction,
   resolvePrivacyPageAfterCompaction,
+  setDesktopWidgetEnabled,
   transferDesktopToPrivacy,
   transferPrivacyToDesktop,
   updateDesktopFolderLayout,
@@ -39,6 +40,7 @@ import { loadDesktopData, loadPrivacyVault, loadSettings, saveDesktopData, saveP
 import { deepClone } from '@/lib/utils/deepClone';
 import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
+import { getWidgetConfig } from '@/lib/widgetConfig';
 import type {
   DesktopData,
   DesktopItem,
@@ -46,6 +48,7 @@ import type {
   FolderLayout,
   IconColor,
   ItemType,
+  WidgetType,
 } from '@/types';
 
 const MAX_ROWS = LAYOUT_LIMITS.maxRows;
@@ -64,6 +67,7 @@ interface DesktopContextType {
   updateSettings: (patch: Partial<DesktopSettings>) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
+  setWidgetEnabled: (widgetType: WidgetType, enabled: boolean) => boolean;
   updateItem: (id: string, patch: Partial<DesktopItem>) => void;
   removeItem: (id: string) => void;
   // 拖拽：交换桌面位置
@@ -434,6 +438,29 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     commitDesktopData(next);
     setCurrentPage(slot.page);
   }, [applyCompactedPrivacyItems, commitDesktopData, settings.cols, settings.rows]);
+
+  const setWidgetEnabled = useCallback((widgetType: WidgetType, enabled: boolean): boolean => {
+    const cols = settingsRef.current.cols === 5 ? 5 : 4;
+    const currentRows = settingsRef.current.rows ?? 8;
+    const rows = Math.min(
+      LAYOUT_LIMITS.maxRows,
+      Math.max(currentRows, getWidgetConfig(widgetType).rowSpan),
+    );
+    const result = setDesktopWidgetEnabled(dataRef.current, widgetType, enabled, cols, rows);
+    if (!result.ok) return false;
+
+    if (result.data !== dataRef.current) {
+      commitDesktopData(result.data);
+      if (rows !== currentRows) {
+        const nextSettings = { ...settingsRef.current, rows };
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
+        saveSettings(nextSettings);
+      }
+    }
+    if (enabled && result.widgetPage !== undefined) setCurrentPage(result.widgetPage);
+    return true;
+  }, [commitDesktopData]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
     const next = deepClone(dataRef.current);
@@ -1128,6 +1155,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settings,
         updateSettings,
         addItem,
+        setWidgetEnabled,
         updateItem,
         removeItem,
         swapDesktopItems,

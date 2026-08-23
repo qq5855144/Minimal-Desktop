@@ -13,7 +13,6 @@ import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { deepClone } from '@/lib/utils/deepClone';
 import { clearVideoDB, saveVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
-import { getWidgetConfig } from '@/lib/widgetConfig';
 import type { DesktopSettings, DesktopStyle } from '@/types';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
@@ -98,7 +97,7 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
-  const { data, importData, settings, updateSettings } = useDesktop();
+  const { data, importData, settings, setWidgetEnabled, updateSettings } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -365,21 +364,14 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
 
   const toggleWidget = useCallback((widgetId: 'widget-clock' | 'widget-search') => {
     const exists = widgetExists(widgetId);
-    if (exists) {
-      const newData = deepClone(data);
-      newData.pages = newData.pages.map((p) => p.filter((it) => it.id !== widgetId));
-      if (importData(newData)) toast.success('已移除组件');
+    const def = WIDGET_ITEMS.find((widget) => widget.id === widgetId);
+    if (!def?.widgetType) return;
+    if (setWidgetEnabled(def.widgetType, !exists)) {
+      toast.success(exists ? '已移除组件' : '已添加组件');
     } else {
-      const def = WIDGET_ITEMS.find((w) => w.id === widgetId);
-      if (!def) return;
-      const requiredRows = getWidgetConfig(def.widgetType).rowSpan;
-      if ((settings.rows ?? 8) < requiredRows) updateSettings({ rows: requiredRows });
-      const newData = deepClone(data);
-      newData.pages[0].push({ ...def });
-      if (importData(newData)) toast.success('已添加组件');
-      else toast.error('当前网格没有足够空间放置组件');
+      toast.error('当前网格没有足够空间放置组件');
     }
-  }, [data, importData, settings.rows, updateSettings]);
+  }, [data, setWidgetEnabled]);
 
   if (!open) return null;
 
