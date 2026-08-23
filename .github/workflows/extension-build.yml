@@ -242,6 +242,7 @@ jobs:
   #   CHROME_CLIENT_ID      — Google OAuth2 Client ID
   #   CHROME_CLIENT_SECRET  — Google OAuth2 Client Secret
   #   CHROME_REFRESH_TOKEN  — Google OAuth2 Refresh Token
+  #   CHROME_PUBLISHER_ID   — Chrome Web Store 开发者账号 Publisher ID
   # 获取方式见：https://github.com/nicedoc/chrome-webstore-upload-keys
   # ══════════════════════════════════════════════════════════════════════════
   publish-chrome:
@@ -251,39 +252,73 @@ jobs:
     if: needs.build.outputs.release_tag != ''
 
     steps:
+      - name: Check Chrome Web Store configuration
+        id: chrome-config
+        shell: bash
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+        run: |
+          MISSING=()
+          for NAME in EXTENSION_ID CLIENT_ID CLIENT_SECRET REFRESH_TOKEN PUBLISHER_ID; do
+            if [ -z "${!NAME}" ]; then MISSING+=("$NAME"); fi
+          done
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Chrome Web Store 未配置，跳过商店发布。缺少：${MISSING[*]}"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download artifact
+        if: steps.chrome-config.outputs.available == 'true'
         uses: actions/download-artifact@v4
         with:
           name: minimal-desktop-extension
 
       - name: Setup Node
+        if: steps.chrome-config.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
       - name: Install chrome-webstore-upload-cli
-        run: npm install -g chrome-webstore-upload-cli@3
+        if: steps.chrome-config.outputs.available == 'true'
+        run: npm install -g chrome-webstore-upload-cli@4
 
       - name: Upload to Chrome Web Store
         id: cws-upload
+        if: steps.chrome-config.outputs.available == 'true'
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
         run: |
           echo "⬆️  上传扩展包到 Chrome Web Store..."
-          webstore upload \
+          chrome-webstore-upload upload \
             --source "${{ needs.build.outputs.zip_name }}" \
-            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}" \
-            --client-id "${{ secrets.CHROME_CLIENT_ID }}" \
-            --client-secret "${{ secrets.CHROME_CLIENT_SECRET }}" \
-            --refresh-token "${{ secrets.CHROME_REFRESH_TOKEN }}"
+            --extension-id "$EXTENSION_ID" \
+            --publisher-id "$PUBLISHER_ID"
           echo "✅ 上传成功"
 
       - name: Publish on Chrome Web Store
+        if: steps.chrome-config.outputs.available == 'true'
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
         run: |
           echo "🚀 提交发布到 Chrome Web Store..."
-          webstore publish \
-            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}" \
-            --client-id "${{ secrets.CHROME_CLIENT_ID }}" \
-            --client-secret "${{ secrets.CHROME_CLIENT_SECRET }}" \
-            --refresh-token "${{ secrets.CHROME_REFRESH_TOKEN }}"
+          chrome-webstore-upload publish \
+            --extension-id "$EXTENSION_ID" \
+            --publisher-id "$PUBLISHER_ID"
           echo "✅ 已提交发布，等待 Google 审核（通常 1-3 个工作日）"
 
   # ══════════════════════════════════════════════════════════════════════════
@@ -304,23 +339,47 @@ jobs:
       - name: Checkout（web-ext 需要源码目录结构）
         uses: actions/checkout@v4
 
+      - name: Check Firefox AMO configuration
+        id: firefox-config
+        shell: bash
+        env:
+          FIREFOX_API_KEY: ${{ secrets.FIREFOX_API_KEY }}
+          FIREFOX_API_SECRET: ${{ secrets.FIREFOX_API_SECRET }}
+        run: |
+          MISSING=()
+          if [ -z "$FIREFOX_API_KEY" ]; then MISSING+=("FIREFOX_API_KEY"); fi
+          if [ -z "$FIREFOX_API_SECRET" ]; then MISSING+=("FIREFOX_API_SECRET"); fi
+          ADDON_ID=$(node -e "const m=require('./public/manifest.json'); process.stdout.write(m.browser_specific_settings?.gecko?.id || '')")
+          if [ -z "$ADDON_ID" ]; then MISSING+=("browser_specific_settings.gecko.id"); fi
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Firefox AMO 未配置，跳过商店发布。缺少：${MISSING[*]}"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download artifact
+        if: steps.firefox-config.outputs.available == 'true'
         uses: actions/download-artifact@v4
         with:
           name: minimal-desktop-extension
 
       - name: Setup Node
+        if: steps.firefox-config.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
       - name: Setup pnpm
+        if: steps.firefox-config.outputs.available == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Install dependencies
+        if: steps.firefox-config.outputs.available == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install ImageMagick & generate icons
+        if: steps.firefox-config.outputs.available == 'true'
         run: |
           sudo apt-get install -y imagemagick
           mkdir -p public/icons
@@ -329,14 +388,17 @@ jobs:
           done
 
       - name: Rebuild extension (web-ext 需要 dist-ext 目录)
+        if: steps.firefox-config.outputs.available == 'true'
         run: pnpm build:ext
         env:
           NODE_ENV: production
 
       - name: Install web-ext
+        if: steps.firefox-config.outputs.available == 'true'
         run: npm install -g web-ext@8
 
       - name: Submit to Firefox AMO
+        if: steps.firefox-config.outputs.available == 'true'
         run: |
           VERSION="${{ needs.build.outputs.version }}"
           echo "🦊 提交扩展 v${VERSION} 到 Firefox AMO (listed channel)..."
@@ -350,13 +412,12 @@ jobs:
             --api-key "${{ secrets.FIREFOX_API_KEY }}" \
             --api-secret "${{ secrets.FIREFOX_API_SECRET }}" \
             --timeout 300000 \
-            --no-input \
-            || echo "⚠️  web-ext sign 超时（listed channel 等待人工审核属正常现象）"
+            --no-input
 
           echo "✅ 已提交 Firefox AMO，等待 Mozilla 审核（通常 1-7 个工作日）"
 
       - name: Upload AMO artifacts
-        if: always()
+        if: always() && steps.firefox-config.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: amo-artifacts
