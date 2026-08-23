@@ -81,6 +81,10 @@ export interface SyncConfig {
   lastSyncAt?: string; // ISO string
   /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
   lastRemoteHead?: string;
+  /** 最近一次成功上传/下载的背景媒体摘要，用于避免重复上传大文件。 */
+  lastBackgroundSha256?: string;
+  /** 最近一次成功上传/下载的 GitHub 背景媒体 blob SHA。 */
+  lastBackgroundBlobSha?: string;
   /** 勾选后 Token 持久化到 localStorage；默认仅保留在当前会话 */
   rememberToken?: boolean;
 }
@@ -114,6 +118,28 @@ export interface DesktopSettings {
   customEngines?: CustomSearchEngine[];
   /** 被用户删除的内置搜索引擎 ID；自定义引擎删除时直接从 customEngines 移除。 */
   deletedSearchEngineIds?: string[];
+}
+
+/** 云端备份中的背景媒体索引；文件本体与 JSON 分开存储，避免重复传输。 */
+export interface BackupBackground {
+  kind: 'image' | 'video';
+  mimeType: string;
+  fileName: string;
+  size: number;
+  sha256: string;
+  lastModified?: number;
+}
+
+/** 云同步专用备份格式；旧版只有 DesktopData 字段的备份仍保持兼容。 */
+export interface DesktopBackup extends DesktopData {
+  settings?: DesktopSettings;
+  background?: BackupBackground;
+}
+
+/** 构建阶段的内存快照；背景文件不会嵌入 JSON。 */
+export interface SyncSnapshot {
+  data: DesktopBackup;
+  backgroundFile?: File;
 }
 
 // 拖拽来源信息

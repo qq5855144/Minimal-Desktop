@@ -1,10 +1,19 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { loadSyncConfig, saveSyncConfig, clearSyncConfig, clearPrivacyVault, savePrivacyVault } from '@/lib/storage';
+import {
+  clearPrivacyVault,
+  clearSyncConfig,
+  DEFAULT_BG_IMAGE,
+  loadSyncConfig,
+  savePrivacyVault,
+  saveSyncConfig,
+} from '@/lib/storage';
 import { verifyToken, ensureRepo, getBranchHead, uploadToGithub, downloadFromGithub } from '@/lib/github';
-import { buildSyncSnapshot } from '@/lib/syncSnapshot';
+import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnapshot';
 import { summarizeDesktopDiff, type DesktopDiffSummary } from '@/lib/desktopDiff';
-import type { DesktopData, SyncConfig } from '@/types';
+import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
+import { clearWallpaperDB, saveWallpaperDB } from '@/lib/wallpaperStorage';
+import type { DesktopBackup, SyncConfig } from '@/types';
 import {
   LogOut, Loader2, CheckCircle2, AlertCircle, Github, X,
   CloudUpload, CloudDownload, RefreshCw, ToggleLeft, ToggleRight,
@@ -27,13 +36,15 @@ const DEFAULT_CONFIG: SyncConfig = {
 };
 
 interface PendingRestore {
-  data: DesktopData;
+  data: DesktopBackup;
   remoteHead?: string;
+  backgroundFile?: File;
+  backgroundBlobSha?: string;
   summary: DesktopDiffSummary;
 }
 
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
-  const { data, importData, resetPrivacyLock, settings } = useDesktop();
+  const { data, importData, resetPrivacyLock, settings, updateSettings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
@@ -41,7 +52,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const [tokenInput, setTokenInput] = useState('');
   const [remember, setRemember] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [syncing, setSyncing] = useState<'upload' | 'download' | null>(null);
+  const [syncing, setSyncing] = useState<'upload' | 'download' | 'restore' | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
@@ -90,7 +101,11 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         ...DEFAULT_CONFIG, token: tok, owner: user.login,
         repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
         rememberToken: remember,
-        lastRemoteHead: await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined,
+        // 新仓库没有远端备份，可直接以初始 HEAD 为基线；已有仓库必须先由上传逻辑
+        // 确认备份文件不存在，或由用户下载确认后再建立基线。
+        lastRemoteHead: repoResult.created
+          ? await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined
+          : undefined,
       };
       setConfig(next);
       setLoggedIn(true);
@@ -120,7 +135,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
-      const uploadData = buildSyncSnapshot(data);
+      const uploadData = await buildSyncSnapshot(data, settings);
       const result = await uploadToGithub(syncCfg, uploadData);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok) {
@@ -128,13 +143,23 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           ...config,
           lastSyncAt: new Date().toISOString(),
           lastRemoteHead: result.remoteHead ?? config.lastRemoteHead,
+          lastBackgroundSha256: result.backgroundSha256,
+          lastBackgroundBlobSha: result.backgroundBlobSha,
         };
         setConfig(next); saveSyncConfig(next);
-        toast.success(uploadData.privacyVault ? '已上传到云端（含加密隐私数据）' : '已上传到云端');
+        const included = [
+          uploadData.data.privacyVault ? '加密隐私数据' : null,
+          uploadData.data.background ? '壁纸' : null,
+        ].filter(Boolean).join('、');
+        toast.success(included ? `已上传到云端（含${included}）` : '已上传到云端');
       } else { toast.error(result.message); }
-    } catch { setStatusMsg({ type: 'error', msg: '上传失败，请检查网络' }); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '上传失败，请检查网络';
+      setStatusMsg({ type: 'error', msg: message });
+      toast.error(message);
+    }
     finally { setSyncing(null); }
-  }, [config, data]);
+  }, [config, data, settings]);
 
   const handleDownload = useCallback(async () => {
     if (!config.token) {
@@ -150,6 +175,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         setPendingRestore({
           data: result.data,
           remoteHead: result.remoteHead,
+          backgroundFile: result.backgroundFile,
+          backgroundBlobSha: result.backgroundBlobSha,
           summary: summarizeDesktopDiff(data, result.data),
         });
         setStatusMsg({ type: 'success', msg: '已读取云端备份，请确认差异后恢复' });
@@ -162,28 +189,107 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     finally { setSyncing(null); }
   }, [config, data]);
 
-  const handleConfirmRestore = useCallback(() => {
+  const handleConfirmRestore = useCallback(async () => {
     if (!pendingRestore) return;
-    // 先停止所有旧密钥写入，再导入桌面，避免旧浏览器内存密钥覆盖刚恢复的 vault。
-    resetPrivacyLock();
-    if (!importData(pendingRestore.data, { recordHistory: false })) {
-      setStatusMsg({ type: 'error', msg: '云端数据无法适配当前桌面布局' });
-      toast.error('云端数据布局无效，未覆盖本地桌面');
-      return;
+    setSyncing('restore');
+    let restoredBackgroundUrl: string | null = null;
+    try {
+      const rawBackupSettings = pendingRestore.data.settings;
+      const backupSettings = rawBackupSettings
+        ? {
+            ...rawBackupSettings,
+            bgImage: rawBackupSettings.bgImage === SYNC_DEFAULT_WALLPAPER_MARKER
+              ? DEFAULT_BG_IMAGE
+              : rawBackupSettings.bgImage,
+          }
+        : undefined;
+      let restoredSettings = backupSettings;
+      const background = pendingRestore.data.background;
+      if (background) {
+        if (!backupSettings || !pendingRestore.backgroundFile) {
+          throw new Error('云端壁纸文件不完整，已取消恢复');
+        }
+        restoredBackgroundUrl = URL.createObjectURL(pendingRestore.backgroundFile);
+        restoredSettings = background.kind === 'image'
+          ? {
+              ...backupSettings,
+              bgType: 'image',
+              bgImage: restoredBackgroundUrl,
+              bgVideo: undefined,
+            }
+          : {
+              ...backupSettings,
+              bgType: 'video',
+              bgVideo: restoredBackgroundUrl,
+              bgImage: undefined,
+            };
+      }
+
+      // 先停止所有旧密钥写入，再以备份网格设置导入，避免布局被当前设备设置扭曲。
+      resetPrivacyLock();
+      if (!importData(pendingRestore.data, {
+        recordHistory: false,
+        settings: restoredSettings,
+      })) {
+        if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
+        setStatusMsg({ type: 'error', msg: '云端数据无法适配备份中的桌面布局' });
+        toast.error('云端数据布局无效，未覆盖本地桌面');
+        return;
+      }
+
+      let backgroundSaved = true;
+      if (background && pendingRestore.backgroundFile) {
+        try {
+          if (background.kind === 'image') {
+            await saveWallpaperDB(pendingRestore.backgroundFile);
+            await clearVideoDB();
+          } else {
+            await saveVideoDB(pendingRestore.backgroundFile);
+            await clearWallpaperDB();
+          }
+        } catch {
+          backgroundSaved = false;
+          updateSettings({ bgType: 'default', bgImage: undefined, bgVideo: undefined });
+          if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
+        }
+      } else if (backupSettings) {
+        await Promise.all([clearWallpaperDB(), clearVideoDB()]);
+      }
+
+      if (pendingRestore.data.privacyVault) savePrivacyVault(pendingRestore.data.privacyVault);
+      else clearPrivacyVault();
+      const next = {
+        ...config,
+        lastSyncAt: new Date().toISOString(),
+        lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
+        lastBackgroundSha256: pendingRestore.data.background?.sha256,
+        lastBackgroundBlobSha: pendingRestore.backgroundBlobSha,
+      };
+      setConfig(next);
+      saveSyncConfig(next);
+      const oldBackgroundUrls = [settings.bgImage, settings.bgVideo].filter(
+        (source): source is string => Boolean(source?.startsWith('blob:')),
+      );
+      setTimeout(() => oldBackgroundUrls.forEach((source) => URL.revokeObjectURL(source)), 0);
+      setPendingRestore(null);
+      const message = backgroundSaved ? '云端备份已恢复' : '桌面已恢复，但壁纸保存失败，已回退默认背景';
+      setStatusMsg({ type: 'success', msg: message });
+      if (backgroundSaved) {
+        toast.success(pendingRestore.data.privacyVault
+          ? '已从云端恢复（隐私数据需重新解锁）'
+          : '已从云端恢复');
+      } else {
+        toast.error(message);
+      }
+    } catch (error) {
+      if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
+      const message = error instanceof Error ? error.message : '恢复失败，请重试';
+      setStatusMsg({ type: 'error', msg: message });
+      toast.error(message);
+    } finally {
+      setSyncing(null);
     }
-    if (pendingRestore.data.privacyVault) savePrivacyVault(pendingRestore.data.privacyVault);
-    else clearPrivacyVault();
-    const next = {
-      ...config,
-      lastSyncAt: new Date().toISOString(),
-      lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
-    };
-    setConfig(next);
-    saveSyncConfig(next);
-    setPendingRestore(null);
-    setStatusMsg({ type: 'success', msg: '云端备份已恢复' });
-    toast.success(pendingRestore.data.privacyVault ? '已从云端恢复（隐私数据需重新解锁）' : '已从云端恢复');
-  }, [config, importData, pendingRestore, resetPrivacyLock]);
+  }, [config, importData, pendingRestore, resetPrivacyLock, settings.bgImage, settings.bgVideo, updateSettings]);
 
   const handleLogout = useCallback(() => {
     clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput(''); setRemember(false);
@@ -368,10 +474,19 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                       : '⚠ 此备份不含隐私保险库；确认恢复会清除当前浏览器中的隐私保险库。'}
                   </div>
 
+                  {pendingRestore.data.settings && (
+                    <div className={`text-xs rounded-xl px-3 py-2 ${pendingRestore.data.background ? 'bg-emerald-500/10 text-emerald-600' : `${t.itemBg} ${t.textMuted}`}`}>
+                      {pendingRestore.data.background
+                        ? `✓ 包含外观设置与${pendingRestore.data.background.kind === 'image' ? '图片' : '视频'}壁纸。`
+                        : '✓ 包含外观设置；远程链接壁纸会随设置恢复。'}
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => { setPendingRestore(null); setStatusMsg(null); }}
+                      disabled={syncing === 'restore'}
                       className={`flex-1 rounded-xl py-2.5 text-xs font-medium border ${t.itemBorder} ${t.itemBg} ${t.textMuted}`}
                     >
                       取消
@@ -379,9 +494,10 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                     <button
                       type="button"
                       onClick={handleConfirmRestore}
-                      className="flex-1 rounded-xl py-2.5 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+                      disabled={syncing === 'restore'}
+                      className="flex-1 rounded-xl py-2.5 text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white transition-colors disabled:opacity-50"
                     >
-                      确认恢复
+                      {syncing === 'restore' ? '正在恢复…' : '确认恢复'}
                     </button>
                   </div>
                 </div>

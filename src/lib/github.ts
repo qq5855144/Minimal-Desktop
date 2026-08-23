@@ -1,7 +1,59 @@
-import type { DesktopData, SyncConfig } from '@/types';
-import { parseDesktopData } from '@/lib/desktopSchema';
+import type { DesktopBackup, SyncConfig, SyncSnapshot } from '@/types';
+import { parseDesktopBackup } from '@/lib/desktopSchema';
 
 const API = 'https://api.github.com';
+
+interface UploadResult {
+  ok: boolean;
+  message: string;
+  remoteHead?: string;
+  conflict?: boolean;
+  backgroundSha256?: string;
+  backgroundBlobSha?: string;
+}
+
+interface DownloadResult {
+  ok: boolean;
+  message: string;
+  data?: DesktopBackup;
+  remoteHead?: string;
+  backgroundFile?: File;
+  backgroundBlobSha?: string;
+}
+
+function encodedRepoPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+/** 背景媒体与 JSON 分离，桌面小改动不会重复提交大文件。 */
+export function getBackgroundBackupPath(filePath: string): string {
+  return `${filePath}.assets/background`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(content: string): Uint8Array {
+  const binary = atob(content.replace(/\s/g, ''));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function bytesSha256(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytesToArrayBuffer(bytes));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 // GitHub API 通用请求辅助
 async function ghFetch(
   token: string,
@@ -98,6 +150,65 @@ export async function getBranchHead(
   return data.object?.sha ?? null;
 }
 
+type RemoteFileMetadata =
+  | { state: 'found'; sha: string }
+  | { state: 'missing' }
+  | { state: 'error'; message: string };
+
+async function getRemoteFileMetadata(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  ref: string,
+): Promise<RemoteFileMetadata> {
+  const res = await ghFetch(
+    token,
+    `/repos/${owner}/${repo}/contents/${encodedRepoPath(filePath)}?ref=${encodeURIComponent(ref)}`,
+  );
+  if (res.status === 404) return { state: 'missing' };
+  if (!res.ok) return { state: 'error', message: await errorMessage(res, '读取远端文件状态失败') };
+  const file = await res.json() as { sha?: string };
+  return file.sha
+    ? { state: 'found', sha: file.sha }
+    : { state: 'error', message: '远端备份文件状态无效' };
+}
+
+interface RepoFileResult {
+  ok: boolean;
+  message: string;
+  bytes?: Uint8Array;
+  blobSha?: string;
+}
+
+/** Contents API 对大文件不返回 content；此时自动回退 Git Blob API。 */
+async function readRepoFileAtRef(
+  token: string,
+  owner: string,
+  repo: string,
+  filePath: string,
+  ref: string,
+): Promise<RepoFileResult> {
+  const res = await ghFetch(
+    token,
+    `/repos/${owner}/${repo}/contents/${encodedRepoPath(filePath)}?ref=${encodeURIComponent(ref)}`,
+  );
+  if (!res.ok) return { ok: false, message: await errorMessage(res, `下载失败 (${res.status})`) };
+  const file = await res.json() as { content?: string; encoding?: string; sha?: string };
+  if (file.content && file.encoding === 'base64') {
+    return { ok: true, message: '读取成功', bytes: base64ToBytes(file.content), blobSha: file.sha };
+  }
+  if (!file.sha) return { ok: false, message: '远端文件内容为空' };
+
+  const blobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs/${file.sha}`);
+  if (!blobRes.ok) return { ok: false, message: await errorMessage(blobRes, '下载大文件失败') };
+  const blob = await blobRes.json() as { content?: string; encoding?: string };
+  if (!blob.content || blob.encoding !== 'base64') {
+    return { ok: false, message: '远端大文件内容为空' };
+  }
+  return { ok: true, message: '读取成功', bytes: base64ToBytes(blob.content), blobSha: file.sha };
+}
+
 // ─── 上传核心：使用 Git Data API（Tree + Commit）彻底避免 SHA 竞态 ────────────
 //
 // Contents API（PUT /repos/.../contents/...）要求在请求体中提供文件的当前 blob SHA。
@@ -118,12 +229,12 @@ let uploadLock = false;
 
 export async function uploadToGithub(
   config: SyncConfig,
-  data: DesktopData,
-): Promise<{ ok: boolean; message: string; remoteHead?: string; conflict?: boolean }> {
+  snapshot: SyncSnapshot,
+): Promise<UploadResult> {
   if (uploadLock) return { ok: false, message: '上传进行中，请稍后重试' };
   uploadLock = true;
   try {
-    return await doUploadViaGitApi(config, data);
+    return await doUploadViaGitApi(config, snapshot);
   } finally {
     uploadLock = false;
   }
@@ -131,55 +242,132 @@ export async function uploadToGithub(
 
 async function doUploadViaGitApi(
   config: SyncConfig,
-  data: DesktopData,
-): Promise<{ ok: boolean; message: string; remoteHead?: string; conflict?: boolean }> {
+  snapshot: SyncSnapshot,
+): Promise<UploadResult> {
   const { token, owner, repo, branch = 'main' } = config;
   const filePath = config.path || 'desktop_backup.json';
-  const validated = parseDesktopData(data);
+  const backgroundPath = getBackgroundBackupPath(filePath);
+  const validated = parseDesktopBackup(snapshot.data);
   if (!validated.ok) return { ok: false, message: validated.message };
   const jsonContent = JSON.stringify(validated.data, null, 2);
 
   // 步骤 1：获取分支最新 commit SHA 与 tree SHA
-  const refRes = await ghFetch(token, `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+  const refRes = await ghFetch(token, `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
   if (!refRes.ok) {
     return { ok: false, message: await errorMessage(refRes, '获取分支信息失败') };
   }
   const refData = await refRes.json() as { object: { sha: string } };
   const latestCommitSha = refData.object.sha;
-  if (config.lastRemoteHead && config.lastRemoteHead !== latestCommitSha) {
-    return {
-      ok: false,
-      conflict: true,
-      remoteHead: latestCommitSha,
-      message: '远端数据已被其他设备更新。请先下载云端数据，确认后再上传。',
-    };
+  if (!config.lastRemoteHead) {
+    const latestFile = await getRemoteFileMetadata(token, owner, repo, filePath, latestCommitSha);
+    if (latestFile.state === 'error') return { ok: false, message: latestFile.message };
+    if (latestFile.state === 'found') {
+      return {
+        ok: false,
+        conflict: true,
+        remoteHead: latestCommitSha,
+        message: '远端已有备份。请先下载云端数据，确认后再上传。',
+      };
+    }
+  } else if (config.lastRemoteHead !== latestCommitSha) {
+    // 分支 HEAD 可能只是 README 等无关文件变化。只在备份文件本身被修改时阻止覆盖；
+    // 若目标备份已被删除，则允许本次上传重新创建。
+    const latestFile = await getRemoteFileMetadata(token, owner, repo, filePath, latestCommitSha);
+    if (latestFile.state === 'error') return { ok: false, message: latestFile.message };
+    if (latestFile.state === 'found') {
+      const previousFile = await getRemoteFileMetadata(
+        token,
+        owner,
+        repo,
+        filePath,
+        config.lastRemoteHead,
+      );
+      if (previousFile.state === 'error') return { ok: false, message: previousFile.message };
+      if (previousFile.state !== 'found' || previousFile.sha !== latestFile.sha) {
+        return {
+          ok: false,
+          conflict: true,
+          remoteHead: latestCommitSha,
+          message: '远端数据已被其他设备更新。请先下载云端数据，确认后再上传。',
+        };
+      }
+    }
   }
 
   const commitRes = await ghFetch(token, `/repos/${owner}/${repo}/git/commits/${latestCommitSha}`);
   if (!commitRes.ok) return { ok: false, message: await errorMessage(commitRes, '获取 commit 信息失败') };
   const commitData = await commitRes.json() as { tree: { sha: string } };
   const baseTreeSha = commitData.tree.sha;
-  // 步骤 2：创建文件 blob
+
+  // 步骤 2a：背景媒体单独作为 blob；相同媒体沿用当前 tree 中的 blob，避免重复上传。
+  let backgroundBlobSha: string | undefined;
+  const background = validated.data.background;
+  if (
+    background
+    && config.lastBackgroundSha256 === background.sha256
+    && config.lastBackgroundBlobSha
+  ) {
+    const currentTreeRes = await ghFetch(
+      token,
+      `/repos/${owner}/${repo}/git/trees/${baseTreeSha}?recursive=1`,
+    );
+    if (currentTreeRes.ok) {
+      const currentTree = await currentTreeRes.json() as {
+        tree?: { path?: string; type?: string; sha?: string }[];
+      };
+      const existing = currentTree.tree?.find((entry) => (
+        entry.path === backgroundPath && entry.type === 'blob'
+      ));
+      if (existing?.sha === config.lastBackgroundBlobSha) backgroundBlobSha = existing.sha;
+    }
+  }
+
+  if (background && !backgroundBlobSha) {
+    const file = snapshot.backgroundFile;
+    if (!file) return { ok: false, message: '背景媒体文件缺失，无法创建完整备份' };
+    if (file.size !== background.size) return { ok: false, message: '背景媒体大小已变化，请重新上传' };
+    const mediaBytes = new Uint8Array(await file.arrayBuffer());
+    if (await bytesSha256(mediaBytes) !== background.sha256) {
+      return { ok: false, message: '背景媒体校验失败，请重新选择后上传' };
+    }
+    const mediaBlobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      body: JSON.stringify({ content: bytesToBase64(mediaBytes), encoding: 'base64' }),
+    });
+    if (!mediaBlobRes.ok) {
+      return { ok: false, message: await errorMessage(mediaBlobRes, '上传背景媒体失败') };
+    }
+    const mediaBlob = await mediaBlobRes.json() as { sha: string };
+    backgroundBlobSha = mediaBlob.sha;
+  }
+
+  // 步骤 2b：创建备份 JSON blob。使用 UTF-8 避免对 JSON 再做一层 Base64 膨胀。
   const blobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs`, {
     method: 'POST',
-    body: JSON.stringify({
-      content: btoa(unescape(encodeURIComponent(jsonContent))),
-      encoding: 'base64',
-    }),
+    body: JSON.stringify({ content: jsonContent, encoding: 'utf-8' }),
   });
   if (!blobRes.ok) return { ok: false, message: await errorMessage(blobRes, '创建文件内容失败') };
   const blobData = await blobRes.json() as { sha: string };
-  // 步骤 3：创建新 tree（仅替换目标文件）
+  // 步骤 3：创建新 tree（替换 JSON；存在本地背景时同时更新媒体文件）
+  const treeEntries = [{
+    path: filePath,
+    mode: '100644',
+    type: 'blob',
+    sha: blobData.sha,
+  }];
+  if (background && backgroundBlobSha) {
+    treeEntries.push({
+      path: backgroundPath,
+      mode: '100644',
+      type: 'blob',
+      sha: backgroundBlobSha,
+    });
+  }
   const treeRes = await ghFetch(token, `/repos/${owner}/${repo}/git/trees`, {
     method: 'POST',
     body: JSON.stringify({
       base_tree: baseTreeSha,
-      tree: [{
-        path: filePath,
-        mode: '100644',
-        type: 'blob',
-        sha: blobData.sha,
-      }],
+      tree: treeEntries,
     }),
   });
   if (!treeRes.ok) return { ok: false, message: await errorMessage(treeRes, '创建文件树失败') };
@@ -196,7 +384,7 @@ async function doUploadViaGitApi(
   if (!newCommitRes.ok) return { ok: false, message: await errorMessage(newCommitRes, '创建 commit 失败') };
   const newCommitData = await newCommitRes.json() as { sha: string };
   // 步骤 5：更新分支引用
-  const updateRes = await ghFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
+  const updateRes = await ghFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
     method: 'PATCH',
     body: JSON.stringify({ sha: newCommitData.sha }),
   });
@@ -204,37 +392,70 @@ async function doUploadViaGitApi(
     return {
       ok: false,
       conflict: updateRes.status === 409 || updateRes.status === 422,
+      remoteHead: latestCommitSha,
       message: await errorMessage(updateRes, '更新分支引用失败'),
     };
   }
 
-  return { ok: true, message: '同步成功', remoteHead: newCommitData.sha };
+  return {
+    ok: true,
+    message: background ? '同步成功（含背景媒体）' : '同步成功',
+    remoteHead: newCommitData.sha,
+    backgroundSha256: background?.sha256,
+    backgroundBlobSha,
+  };
 }
 
-// 从 GitHub 下载数据（继续使用 Contents API，只读无竞态问题）
+// 从 GitHub 下载数据；JSON 与背景媒体固定读取同一个 commit 快照。
 export async function downloadFromGithub(
   config: SyncConfig,
-): Promise<{ ok: boolean; message: string; data?: DesktopData; remoteHead?: string }> {
+): Promise<DownloadResult> {
   const { token, owner, repo, branch = 'main' } = config;
   const filePath = config.path || 'desktop_backup.json';
-  const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
 
   const remoteHead = await getBranchHead(token, owner, repo, branch);
   if (!remoteHead) return { ok: false, message: '无法读取远端分支状态' };
 
-  // 按已读取的 commit SHA 下载，保证 HEAD 检查和文件内容来自同一快照。
-  const res = await ghFetch(token, `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${remoteHead}`);
-  if (!res.ok) return { ok: false, message: await errorMessage(res, `下载失败 (${res.status})`) };
-
-  const file = await res.json() as { content?: string };
-  if (!file.content) return { ok: false, message: '文件内容为空' };
-
+  const backupFile = await readRepoFileAtRef(token, owner, repo, filePath, remoteHead);
+  if (!backupFile.ok || !backupFile.bytes) return { ok: false, message: backupFile.message };
+  let parsed: ReturnType<typeof parseDesktopBackup>;
   try {
-    const bytes = Uint8Array.from(atob(file.content.replace(/\n/g, '')), (char) => char.charCodeAt(0));
-    const parsed = parseDesktopData(JSON.parse(new TextDecoder().decode(bytes)));
-    if (!parsed.ok) return { ok: false, message: parsed.message };
-    return { ok: true, message: '同步成功', data: parsed.data, remoteHead };
+    parsed = parseDesktopBackup(JSON.parse(new TextDecoder().decode(backupFile.bytes)));
   } catch {
     return { ok: false, message: '备份文件不是有效 JSON' };
   }
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  if (!parsed.data.background) {
+    return { ok: true, message: '同步成功', data: parsed.data, remoteHead };
+  }
+
+  const media = await readRepoFileAtRef(
+    token,
+    owner,
+    repo,
+    getBackgroundBackupPath(filePath),
+    remoteHead,
+  );
+  if (!media.ok || !media.bytes) {
+    return { ok: false, message: `备份中的背景媒体无法读取：${media.message}` };
+  }
+  const metadata = parsed.data.background;
+  if (media.bytes.byteLength !== metadata.size) {
+    return { ok: false, message: '备份中的背景媒体大小校验失败' };
+  }
+  if (await bytesSha256(media.bytes) !== metadata.sha256) {
+    return { ok: false, message: '备份中的背景媒体完整性校验失败' };
+  }
+  const backgroundFile = new File([bytesToArrayBuffer(media.bytes)], metadata.fileName, {
+    type: metadata.mimeType,
+    lastModified: metadata.lastModified,
+  });
+  return {
+    ok: true,
+    message: '同步成功（含背景媒体）',
+    data: parsed.data,
+    remoteHead,
+    backgroundFile,
+    backgroundBlobSha: media.blobSha,
+  };
 }

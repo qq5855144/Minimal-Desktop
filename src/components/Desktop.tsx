@@ -257,12 +257,15 @@ const Desktop: React.FC = () => {
     autoSyncTimerRef.current = setTimeout(async () => {
       try {
         const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
-        const result = await uploadToGithub(syncCfg, buildSyncSnapshot(data));
+        const snapshot = await buildSyncSnapshot(data, settings);
+        const result = await uploadToGithub(syncCfg, snapshot);
         if (result.ok) {
           saveSyncConfig({
             ...cfg,
             lastSyncAt: new Date().toISOString(),
             lastRemoteHead: result.remoteHead ?? cfg.lastRemoteHead,
+            lastBackgroundSha256: result.backgroundSha256,
+            lastBackgroundBlobSha: result.backgroundBlobSha,
           });
         } else if (result.conflict) {
           toast.error('云端已有其他设备的新版本，自动同步已停止本次覆盖');
@@ -270,7 +273,7 @@ const Desktop: React.FC = () => {
       } catch { /* 静默失败，不打扰用户 */ }
     }, 3000);
     return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
-  }, [data, privacyRevision]);
+  }, [data, privacyRevision, settings]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 

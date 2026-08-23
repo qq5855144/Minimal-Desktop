@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CURRENT_DESKTOP_VERSION, parseDesktopData } from './desktopSchema';
+import { CURRENT_DESKTOP_VERSION, parseDesktopBackup, parseDesktopData } from './desktopSchema';
 
 const validData = {
   version: CURRENT_DESKTOP_VERSION,
@@ -54,5 +54,61 @@ describe('desktop backup schema', () => {
       ...folderBackup,
       pages: [[{ ...folderBackup.pages[0][0], folderLayout: '3x3' }]],
     }).ok).toBe(false);
+  });
+
+  it('accepts a cloud backup containing settings and an indexed wallpaper', () => {
+    const result = parseDesktopBackup({
+      ...validData,
+      settings: {
+        style: 'glassmorphism',
+        iconSize: 46,
+        iconRadiusPct: 25,
+        cols: 4,
+        rows: 8,
+        bgType: 'image',
+        bgImage: '__idb_wallpaper__',
+      },
+      background: {
+        kind: 'image',
+        mimeType: 'image/webp',
+        fileName: 'wallpaper.webp',
+        size: 1024,
+        sha256: 'a'.repeat(64),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts the extension build relative default wallpaper path', () => {
+    expect(parseDesktopBackup({
+      ...validData,
+      settings: {
+        style: 'glassmorphism',
+        iconSize: 46,
+        iconRadiusPct: 25,
+        cols: 4,
+        rows: 8,
+        bgType: 'image',
+        bgImage: './images/wallpaper-default.svg',
+      },
+    }).ok).toBe(true);
+  });
+
+  it('rejects an indexed wallpaper marker without its media asset metadata', () => {
+    const result = parseDesktopBackup({
+      ...validData,
+      settings: {
+        style: 'glassmorphism',
+        iconSize: 46,
+        iconRadiusPct: 25,
+        cols: 4,
+        rows: 8,
+        bgType: 'image',
+        bgImage: '__idb_wallpaper__',
+      },
+    });
+
+    expect(result.ok).toBe(false);
   });
 });

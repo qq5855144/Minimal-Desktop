@@ -92,7 +92,10 @@ interface DesktopContextType {
   renameFolder: (folderId: string, name: string) => void;
   setFolderLayout: (folderId: string, layout: FolderLayout) => boolean;
   dissolveFolder: (folderId: string) => void;
-  importData: (data: unknown, options?: { recordHistory?: boolean }) => boolean;
+  importData: (
+    data: unknown,
+    options?: { recordHistory?: boolean; settings?: DesktopSettings },
+  ) => boolean;
   undo: () => boolean;
   redo: () => boolean;
   /** 恢复云端数据后重置隐私解锁状态（防止旧密钥 effect 覆盖还原的 vault） */
@@ -928,16 +931,35 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     commitDesktopData(next);
   }, [applyCompactedPrivacyItems, commitDesktopData]);
 
-  const importData = useCallback((newData: unknown, options: { recordHistory?: boolean } = {}) => {
+  const importData = useCallback((
+    newData: unknown,
+    options: { recordHistory?: boolean; settings?: DesktopSettings } = {},
+  ) => {
     const parsed = parseDesktopData(newData);
     if (!parsed.ok) return false;
     try {
+      const requestedSettings = options.settings ?? settingsRef.current;
+      const cols = Math.min(
+        LAYOUT_LIMITS.maxCols,
+        Math.max(LAYOUT_LIMITS.minCols, requestedSettings.cols ?? 4),
+      ) as 4 | 5;
+      const minRows = minimumRowsForEnabledWidgets(parsed.data);
+      const rows = Math.min(
+        LAYOUT_LIMITS.maxRows,
+        Math.max(minRows, Math.round(requestedSettings.rows ?? 8)),
+      );
       const next = reflowDesktopData(
         { ...parsed.data, version: CURRENT_DESKTOP_VERSION },
-        settingsRef.current.cols ?? 4,
-        settingsRef.current.rows ?? 8,
+        cols,
+        rows,
       );
       commitDesktopData(next, options.recordHistory ?? true);
+      if (options.settings) {
+        const restoredSettings = { ...requestedSettings, cols, rows };
+        settingsRef.current = restoredSettings;
+        setSettings(restoredSettings);
+        saveSettings(restoredSettings);
+      }
       setCurrentPage(0);
       return true;
     } catch {
