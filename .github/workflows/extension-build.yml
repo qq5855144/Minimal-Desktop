@@ -22,12 +22,15 @@ concurrency:
 jobs:
   # ══════════════════════════════════════════════════════════════════════════
   # JOB 1: 构建 + 打包 + GitHub Release
+  # 可选 Secret：CRX_PRIVATE_KEY — 与 manifest.key 匹配的未加密 RSA PEM 私钥。
+  # 私钥只写入 runner 临时文件，打包结束后立即清除，绝不能提交到仓库。
   # ══════════════════════════════════════════════════════════════════════════
   build:
     runs-on: ubuntu-latest
 
     outputs:
       zip_name: ${{ steps.pkg.outputs.zip_name }}
+      crx_name: ${{ steps.pkg.outputs.crx_name }}
       version:  ${{ steps.pkg.outputs.version }}
       release_tag: ${{ steps.release-meta.outputs.release_tag }}
 
@@ -151,26 +154,53 @@ jobs:
           echo "=== 构建产物文件列表 ==="
           find dist-ext -type f | sort
 
-      # ── 6. 打包为 .zip ───────────────────────────────────────────────────
-      - name: Package extension as zip
+      # ── 6. 打包 ZIP / 签名 CRX3 ──────────────────────────────────────────
+      - name: Package extension artifacts
         id: pkg
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
         run: |
           VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
           ZIPNAME="minimal-desktop-extension-v${VERSION}.zip"
+          CRXNAME="minimal-desktop-extension-v${VERSION}.crx"
           echo "zip_name=${ZIPNAME}" >> $GITHUB_OUTPUT
+          echo "crx_name=${CRXNAME}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}"  >> $GITHUB_OUTPUT
 
           cd dist-ext
-          zip -r "../${ZIPNAME}" . -x "*.map"
+          zip -X -r "../${ZIPNAME}" . -x "*.map"
           cd ..
-          echo "Package: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
+
+          if [ -n "$CRX_PRIVATE_KEY" ]; then
+            mkdir -p .private
+            KEY_PATH=".private/extension-signing.pem"
+            printf '%s\n' "$CRX_PRIVATE_KEY" > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            trap 'shred -u "$KEY_PATH" 2>/dev/null || rm -f "$KEY_PATH"' EXIT
+            node scripts/crx3.mjs pack --zip "$ZIPNAME" --key "$KEY_PATH" --out "$CRXNAME"
+          elif [ -f "release-assets/${CRXNAME}" ]; then
+            cp "release-assets/${CRXNAME}" "$CRXNAME"
+            echo "ℹ️ 使用已审核的预签名 CRX3 发布资产"
+          else
+            echo "::warning::未配置 CRX_PRIVATE_KEY，且没有当前版本的预签名 CRX3；本次仅发布 ZIP"
+          fi
+
+          if [ -f "$CRXNAME" ]; then
+            node scripts/crx3.mjs verify --crx "$CRXNAME" --manifest dist-ext/manifest.json
+          fi
+          echo "ZIP package: ${ZIPNAME} ($(du -sh ${ZIPNAME} | cut -f1))"
+          if [ -f "$CRXNAME" ]; then
+            echo "CRX package: ${CRXNAME} ($(du -sh ${CRXNAME} | cut -f1))"
+          fi
 
       # ── 7. 上传构建产物（供后续 publish jobs 下载）──────────────────────
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: minimal-desktop-extension
-          path: ${{ steps.pkg.outputs.zip_name }}
+          path: |
+            ${{ steps.pkg.outputs.zip_name }}
+            ${{ steps.pkg.outputs.crx_name }}
           retention-days: 30
 
       # ── 8a. main 分支 push：自动更新滚动版 "latest" Release ─────────────
@@ -186,10 +216,8 @@ jobs:
             > 本 Release 由 `main` 分支每次 push 自动更新，始终对应最新代码。
 
             ### 安装方式（Chrome 开发者模式）
-            1. 下载下方的 `minimal-desktop-extension-*.zip` 并解压
-            2. 打开 `chrome://extensions/` → 开启「开发者模式」
-            3. 点击「加载已解压的扩展程序」，选择解压目录
-            4. 打开新标签页，即可看到 Minimal Desktop ✨
+            - CRX3：下载 `minimal-desktop-extension-*.crx`，在允许侧载的 Chromium 系浏览器中安装
+            - ZIP：解压后打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」
 
             ### 安装方式（Firefox）
             1. 打开 `about:debugging#/runtime/this-firefox`
@@ -198,7 +226,9 @@ jobs:
             ---
             **构建提交：** `${{ github.sha }}`
             **触发时间：** `${{ github.event.head_commit.timestamp }}`
-          files: ${{ steps.pkg.outputs.zip_name }}
+          files: |
+            ${{ steps.pkg.outputs.zip_name }}
+            ${{ steps.pkg.outputs.crx_name }}
           prerelease: true
           make_latest: false
         env:
@@ -220,15 +250,18 @@ jobs:
             - 🦊 [Firefox Add-ons](https://addons.mozilla.org) *(审核通过后可用)*
 
             ### 手动安装（开发者模式）
-            1. 下载 `minimal-desktop-extension-${{ steps.release-meta.outputs.release_tag }}.zip` 并解压
-            2. Chrome：打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」
+            1. CRX3：下载 `.crx`，在允许侧载的 Chromium 系浏览器中安装
+            2. ZIP：解压后在 Chrome 开发者模式中选择「加载已解压的扩展程序」
             3. Firefox：打开 `about:debugging#/runtime/this-firefox` →「临时载入附加组件」
 
             ### 合规说明
             - ✅ Manifest V3 标准
+            - ✅ CRX3 RSA/SHA-256 完整性签名
             - ✅ 无内联脚本，符合严格 CSP（`script-src 'self'`）
             - ✅ 最小权限：`storage` / `activeTab` / `tabs`
-          files: ${{ steps.pkg.outputs.zip_name }}
+          files: |
+            ${{ steps.pkg.outputs.zip_name }}
+            ${{ steps.pkg.outputs.crx_name }}
           draft: false
           prerelease: ${{ contains(steps.release-meta.outputs.release_tag, '-') }}
           make_latest: true

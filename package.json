@@ -1,6 +1,6 @@
 {
   "name": "minimal-desktop",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "type": "module",
@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "build:ext": "vite build --config vite.config.extension.ts",
+    "pack:crx": "node scripts/crx3.mjs pack",
+    "verify:crx": "node scripts/crx3.mjs verify",
     "typecheck": "tsgo -p tsconfig.check.json",
     "test": "vitest run",
     "lint": "biome lint .",

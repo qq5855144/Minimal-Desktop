@@ -74,6 +74,17 @@
 
 运行 `pnpm build:ext` 后产物位于 `dist-ext/`。Chrome 在「扩展程序 → 开发者模式 → 加载已解压的扩展程序」中选择该目录。扩展包含新标签页桌面、剪藏弹窗和后台搜索建议代理。
 
+正式版 Release 同时提供 ZIP 与 RSA/SHA-256 签名的 CRX3，当前固定扩展 ID 为
+`eebbmnggihhbaeejkhdinnbilelbmaef`。本地签名可先生成 ZIP，再运行：
+
+```bash
+node scripts/crx3.mjs pack --zip extension.zip --key extension.pem --out extension.crx
+node scripts/crx3.mjs verify --crx extension.crx --manifest dist-ext/manifest.json
+```
+
+签名私钥只能放入被忽略的 `.private/` 目录或 GitHub Actions 的 `CRX_PRIVATE_KEY`
+Secret，禁止提交到仓库。Chrome 稳定版可能受侧载策略限制；ZIP 开发者模式安装仍作为兼容方案保留。
+
 Web 版默认不执行第三方 JSONP 搜索建议脚本。如需 Web 搜索建议，可在构建时把 `VITE_SUGGEST_API_URL` 指向同源 JSON API；响应格式为 `{ "suggestions": ["..."] }` 或 `{ "data": ["..."] }`。
 
 ## 本地开发
