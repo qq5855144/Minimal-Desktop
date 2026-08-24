@@ -69,6 +69,7 @@ export interface DesktopData {
 }
 
 // GitHub 同步配置
+export type AutoSyncDelaySeconds = 5 | 15 | 30 | 60;
 export interface SyncConfig {
   token: string;
   owner: string;
@@ -78,6 +79,8 @@ export interface SyncConfig {
   fileName: string;
   syncInterval: 'manual' | '1d' | '7d' | '30d';
   autoSync: boolean;   // 数据变更时自动上传
+  /** 连续本地变更停止多久后上传；用于合并短时间内的拖拽与布局调整。 */
+  autoSyncDelaySeconds?: AutoSyncDelaySeconds;
   lastSyncAt?: string; // ISO string
   /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
   lastRemoteHead?: string;
@@ -106,6 +109,7 @@ export interface CustomSearchEngine {
 // 桌面外观设置
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
 export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
+export type DesktopColumnCount = 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export interface DesktopSettings {
   bgImage?: string;        // URL / blob URL；本地文件本体持久化在 IndexedDB
   bgVideo?: string;        // URL / blob URL；本地文件本体持久化在 IndexedDB
@@ -113,7 +117,7 @@ export interface DesktopSettings {
   style: DesktopStyle;
   iconSize: number;        // 默认 46
   iconRadiusPct: number;   // 图标圆角百分比，默认 25，范围 0-50
-  cols: 4 | 5;
+  cols: DesktopColumnCount;
   rows: number;            // 每页总视觉行数（含 widget 行），默认 8，范围 1-16
   bgOverlayEnabled?: boolean;
   bgOverlayScheme?: BgOverlayScheme;

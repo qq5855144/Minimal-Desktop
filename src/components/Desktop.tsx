@@ -2,18 +2,20 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
+import { AutoSyncScheduler, getAutoSyncDelayMs } from '@/lib/autoSyncScheduler';
+import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
 } from '@/lib/iconLayout';
-import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   canPlaceItem,
   folderContainsSystemItem,
   getItemGridSpan,
   getPrivacyPageNumbers,
   LAYOUT_LIMITS,
+  normalizeResponsiveColumnCount,
 } from '@/lib/layoutEngine';
 import {
   getPageTrackIndex,
@@ -23,12 +25,11 @@ import {
   type SwipeAxis,
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
-import { loadSyncConfig } from '@/lib/storage';
+import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
 import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
-import { getWidgetGridRowGapPx } from '@/lib/widgetConfig';
 import { getWidgetLayoutMetrics, resolveGridRowAtY } from '@/lib/widgetLayout';
 import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
@@ -81,6 +82,7 @@ const Desktop: React.FC = () => {
     setEditMode,
     loading,
     settings,
+    updateSettings,
     addItem,
     updateItem,
     removeItem,
@@ -178,12 +180,15 @@ const Desktop: React.FC = () => {
     y: y - viewport.shell.top,
   }), [viewport.shell.left, viewport.shell.top]);
 
-  // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
-  const gridCols = settings.cols ?? 4;
+  // 窄屏允许 4/5 列；有效宽度达到电脑端断点后至少使用 6 列。
+  const gridCols = normalizeResponsiveColumnCount(settings.cols, viewport.isWide);
+  const gridRows = settings.rows ?? 8;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
     viewport.shell.width,
     gridCols,
     settings.iconSize,
+    viewport.shell.height,
+    gridRows,
   );
   const desktopIconMetrics = getIconLayoutMetrics(
     'normal',
@@ -192,11 +197,17 @@ const Desktop: React.FC = () => {
   );
   const largeFolderLayout = getLargeFolderLayoutMetrics(
     desktopIconMetrics,
-    desktopGridMetrics.columnWidthPx,
+    desktopGridMetrics,
   );
-  const gridRowGapPx = getWidgetGridRowGapPx();
+  const gridColumnGapPx = desktopGridMetrics.columnGapPx;
+  const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
+
+  // 已有用户若仍保存 4/5 列，首次进入电脑端时原子重排并持久化为 6 列。
+  useEffect(() => {
+    if (settings.cols !== gridCols) updateSettings({ cols: gridCols });
+  }, [gridCols, settings.cols, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
@@ -236,33 +247,84 @@ const Desktop: React.FC = () => {
     });
   }, [addItem]);
 
-  // 自动同步：普通桌面或加密隐私 vault 变更时，防抖 3s 后上传同一种完整快照。
-  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstRenderRef = useRef(true);
+  // 自动同步：静默期防抖 + 单任务在途。快照生成期间若又发生拖拽，旧快照会被丢弃；
+  // 上传期间的后续改动则合并为下一次任务，避免旧快照晚到和同设备自相冲突。
+  const autoSyncLatestRef = useRef({ data, settings });
+  autoSyncLatestRef.current = { data, settings };
+  const autoSyncSchedulerRef = useRef<AutoSyncScheduler | null>(null);
+  const isFirstAutoSyncRenderRef = useRef(true);
+
+  useEffect(() => {
+    const scheduler = new AutoSyncScheduler({
+      getDelayMs: () => getAutoSyncDelayMs(loadSyncConfig()?.autoSyncDelaySeconds),
+      run: async ({ isSuperseded }) => {
+        const initialConfig = loadSyncConfig();
+        if (
+          !initialConfig?.autoSync
+          || !initialConfig.token
+          || !initialConfig.owner
+          || !initialConfig.repo
+          || initialConfig.pendingConflictHead
+        ) {
+          return 'paused';
+        }
+
+        try {
+          const latest = autoSyncLatestRef.current;
+          const snapshot = await buildSyncSnapshot(latest.data, latest.settings);
+          if (isSuperseded()) return 'complete';
+
+          // 构建壁纸快照可能耗时，上传前再次读取配置，避免使用已切换或已暂停的目标。
+          const currentConfig = loadSyncConfig();
+          if (
+            !currentConfig?.autoSync
+            || !currentConfig.token
+            || !currentConfig.owner
+            || !currentConfig.repo
+            || currentConfig.pendingConflictHead
+          ) {
+            return 'paused';
+          }
+
+          const result = await uploadSyncSnapshot(
+            { ...currentConfig, path: currentConfig.path || 'desktop_backup.json' },
+            snapshot,
+            { source: 'auto' },
+          );
+          if (result.conflict && !result.suppressed) {
+            toast.error('检测到云端新版本，自动同步已暂停', {
+              description: '请在云同步中下载确认，或选择“本次覆盖”。',
+              action: { label: '立即处理', onClick: () => setOpenSync(true) },
+            });
+          }
+          return result.conflict ? 'paused' : 'complete';
+        } catch {
+          // 网络错误保持静默；下一次本地变更仍可重新触发。
+          return 'complete';
+        }
+      },
+    });
+    autoSyncSchedulerRef.current = scheduler;
+    const handleConfigChange = () => scheduler.reschedule();
+    window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
+    window.addEventListener('storage', handleConfigChange);
+    return () => {
+      window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
+      window.removeEventListener('storage', handleConfigChange);
+      scheduler.dispose();
+      if (autoSyncSchedulerRef.current === scheduler) autoSyncSchedulerRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     // 即使首次挂载不上传，也立即触发旧版 PAT → sessionStorage 的安全迁移。
-    const cfg = loadSyncConfig();
+    loadSyncConfig();
     // 跳过首次挂载（避免页面刚加载就触发上传）
-    if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
-    if (!cfg?.autoSync || !cfg.token || !cfg.owner || !cfg.repo) return;
-    // 冲突只提示一次并持久暂停；由同步面板执行“下载确认”或“本次覆盖”后恢复。
-    if (cfg.pendingConflictHead) return;
-    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    autoSyncTimerRef.current = setTimeout(async () => {
-      try {
-        // 真正执行时由协调器重新读取最新基线，不能继续使用定时器创建时的旧 HEAD。
-        const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
-        const snapshot = await buildSyncSnapshot(data, settings);
-        const result = await uploadSyncSnapshot(syncCfg, snapshot, { source: 'auto' });
-        if (result.conflict && !result.suppressed) {
-          toast.error('检测到云端新版本，自动同步已暂停', {
-            description: '请在云同步中下载确认，或选择“本次覆盖”。',
-            action: { label: '立即处理', onClick: () => setOpenSync(true) },
-          });
-        }
-      } catch { /* 静默失败，不打扰用户 */ }
-    }, 3000);
-    return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
+    if (isFirstAutoSyncRenderRef.current) {
+      isFirstAutoSyncRenderRef.current = false;
+      return;
+    }
+    autoSyncSchedulerRef.current?.request();
   }, [data, privacyRevision, settings]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
@@ -317,8 +379,10 @@ const Desktop: React.FC = () => {
 
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-    moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
-    gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
+    moveFromFolderToDesktop, gridRows,
+    gridRowHeightPx: desktopGridMetrics.rowHeightPx,
+    gridColumnGapPx,
+    gridRowGapPx,
     setCurrentPage: navigateToPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems,
     privacyPageItems, privacyPageCount, privacyUnlocked,
@@ -326,8 +390,10 @@ const Desktop: React.FC = () => {
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-      moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
-      gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
+      moveFromFolderToDesktop, gridRows,
+      gridRowHeightPx: desktopGridMetrics.rowHeightPx,
+      gridColumnGapPx,
+      gridRowGapPx,
       setCurrentPage: navigateToPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems,
       privacyPageItems, privacyPageCount, privacyUnlocked,
@@ -665,8 +731,8 @@ const Desktop: React.FC = () => {
             targetGridRect,
             gc,
             latestRef.current.gridRows,
-            getWidgetGridRowGapPx(),
-            getWidgetGridRowGapPx(),
+            latestRef.current.gridColumnGapPx,
+            latestRef.current.gridRowGapPx,
             colSpan,
             rowSpan,
           )
@@ -759,7 +825,7 @@ const Desktop: React.FC = () => {
               e.clientY,
               widgetGridRect.top,
               latestRef.current.gridRowHeightPx,
-              getWidgetGridRowGapPx(),
+              latestRef.current.gridRowGapPx,
               latestRef.current.gridRows,
             )
             : null;
@@ -1162,7 +1228,7 @@ const Desktop: React.FC = () => {
    */
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
-    const renderRows = settings.rows ?? 8;
+    const renderRows = gridRows;
     const itemsByCell = new Map(items.map((item) => [`${item.row}:${item.col}`, item] as const));
     const coveredCells = new Set<string>();
     const dragBegin = pageIndex < 0 ? handlePrivacyDragBegin : handleDesktopDragBegin;
@@ -1182,6 +1248,8 @@ const Desktop: React.FC = () => {
         if (item) {
           const { rowSpan, colSpan } = getItemGridSpan(item, gridCols);
           const spansMultipleCells = rowSpan > 1 || colSpan > 1;
+          const gridSpanHeightPx = desktopGridMetrics.rowHeightPx * rowSpan
+            + gridRowGapPx * (rowSpan - 1);
           if (item.type === 'widget') {
             cells.push(
               <div
@@ -1204,6 +1272,7 @@ const Desktop: React.FC = () => {
                   item={item}
                   ghost={ghost?.source.itemId === item.id}
                   iconPx={desktopIconMetrics.iconPx}
+                  cellHeightPx={gridSpanHeightPx}
                   onDragBegin={dragBegin}
                   onLongPress={handleLongPress}
                 />
@@ -1225,7 +1294,8 @@ const Desktop: React.FC = () => {
                 gridColumn: `${c + 1} / span ${colSpan}`,
                 gridRow: `${r + 1} / span ${rowSpan}`,
                 justifySelf: spansMultipleCells ? 'stretch' : 'center',
-                alignSelf: spansMultipleCells ? 'stretch' : 'start',
+                // 单格应用贴齐行轨底部；2×2 文件夹名称与第二行应用名称保持同一基线。
+                alignSelf: spansMultipleCells ? 'stretch' : 'end',
                 width: spansMultipleCells ? '100%' : undefined,
                 height: spansMultipleCells ? '100%' : undefined,
               }}
@@ -1251,11 +1321,11 @@ const Desktop: React.FC = () => {
               data-row={r}
               data-col={c}
               data-page={pageIndex}
-              className="flex items-center justify-center rounded-xl"
+              className="flex items-end justify-center rounded-xl"
               style={{
                 gridColumnStart: c + 1,
                 gridRowStart: r + 1,
-                minHeight: desktopIconMetrics.cellMinHeightPx,
+                minHeight: desktopGridMetrics.rowHeightPx,
               }}
             >
               {isDragging && <SkeletonIcon iconPx={desktopIconMetrics.iconPx} />}
@@ -1271,8 +1341,8 @@ const Desktop: React.FC = () => {
         className="grid"
         style={{
           gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${renderRows}, ${desktopIconMetrics.cellMinHeightPx}px)`,
-          columnGap: gridRowGapPx,
+          gridTemplateRows: `repeat(${renderRows}, ${desktopGridMetrics.rowHeightPx}px)`,
+          columnGap: gridColumnGapPx,
           rowGap: gridRowGapPx,
           justifyItems: 'center',
         }}
@@ -1283,7 +1353,13 @@ const Desktop: React.FC = () => {
   };
 
   const ghostWidgetLayout = ghost?.item.type === 'widget'
-    ? getWidgetLayoutMetrics(ghost.item.widgetType, desktopIconMetrics.iconPx, viewport.isWide)
+    ? getWidgetLayoutMetrics(
+      ghost.item.widgetType,
+      desktopIconMetrics.iconPx,
+      viewport.isWide,
+      desktopGridMetrics.rowHeightPx,
+      gridRowGapPx,
+    )
     : null;
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
@@ -1384,9 +1460,19 @@ const Desktop: React.FC = () => {
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
             <div className={`${pagePaddingClass} pt-2 pb-2 flex justify-center`}>
-              <div className="w-full max-w-2xl">
-                <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
-                  {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
+              <div className="w-full" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${gridRows}, ${desktopGridMetrics.rowHeightPx}px)`,
+                    columnGap: gridColumnGapPx,
+                    rowGap: gridRowGapPx,
+                    alignItems: 'end',
+                    justifyItems: 'center',
+                  }}
+                >
+                  {Array.from({ length: gridCols * gridRows }).map((_, i) => (
                     <SkeletonIcon key={`sk-${i}`} iconPx={desktopIconMetrics.iconPx} />
                   ))}
                 </div>
@@ -1408,7 +1494,7 @@ const Desktop: React.FC = () => {
             >
               {leadingPrivacyDropPage && (
                 <div key="page-layer-leading-privacy-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="relative w-full max-w-2xl mx-auto">
+                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
                     }`}>
@@ -1420,7 +1506,7 @@ const Desktop: React.FC = () => {
               )}
               {privacyPageNumbers.map((privacyPage) => (
                 <div key={`privacy-page-layer-${privacyPage}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="w-full max-w-2xl mx-auto">
+                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(
                       privacyPage,
                       privacyPageItems.filter((item) => item.page === privacyPage),
@@ -1430,14 +1516,14 @@ const Desktop: React.FC = () => {
               ))}
               {data.pages.map((pageData, i) => (
                 <div key={`page-layer-${i}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="w-full max-w-2xl mx-auto">
+                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(i, pageData)}
                   </div>
                 </div>
               ))}
               {trailingDropPage && (
                 <div key="page-layer-trailing-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="relative w-full max-w-2xl mx-auto">
+                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
                     }`}>

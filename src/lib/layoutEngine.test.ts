@@ -9,6 +9,8 @@ import {
   isFolderChildCandidate,
   moveDesktopItem,
   movePrivacyItem,
+  normalizeDesktopColumnCount,
+  normalizeResponsiveColumnCount,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren,
@@ -47,6 +49,37 @@ const folder = (
 const data = (pages: DesktopItem[][]): DesktopData => ({ pages, version: 3 });
 
 describe('layoutEngine', () => {
+  it('将列数限制扩展到 10，并安全归一化旧值或越界值', () => {
+    expect(normalizeDesktopColumnCount(4)).toBe(4);
+    expect(normalizeDesktopColumnCount(8)).toBe(8);
+    expect(normalizeDesktopColumnCount(10)).toBe(10);
+    expect(normalizeDesktopColumnCount(3)).toBe(4);
+    expect(normalizeDesktopColumnCount(12)).toBe(10);
+  });
+
+  it('电脑端以 6 列为下限，窄屏仍保留 4/5 列', () => {
+    expect(normalizeResponsiveColumnCount(4, true)).toBe(6);
+    expect(normalizeResponsiveColumnCount(5, true)).toBe(6);
+    expect(normalizeResponsiveColumnCount(8, true)).toBe(8);
+    expect(normalizeResponsiveColumnCount(4, false)).toBe(4);
+    expect(normalizeResponsiveColumnCount(5, false)).toBe(5);
+  });
+
+  it('10 列布局可完整放置一整行应用及位于末两列的 2×2 文件夹', () => {
+    const apps = Array.from({ length: 10 }, (_, index) => app(`app-${index}`, 0, 0, 0));
+    const reflowed = reflowDesktopData(data([apps]), 10, 4);
+
+    expect(reflowed.pages[0].map((item) => item.col)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(validateDesktopLayout(reflowed, { cols: 10, rows: 4 })).toEqual([]);
+
+    const edgeFolder = data([[folder('wide-folder', 0, 0, 8, '2x2')]]);
+    expect(validateDesktopLayout(edgeFolder, { cols: 10, rows: 4 })).toEqual([]);
+    expect(validateDesktopLayout(
+      data([[folder('overflow-folder', 0, 0, 9, '2x2')]]),
+      { cols: 10, rows: 4 },
+    )).not.toEqual([]);
+  });
+
   it('widget rowSpan 覆盖区不允许放普通应用', () => {
     expect(canPlaceItem([clock()], app('a', 0, 1, 2), 1, 2, 4, 8)).toBe(false);
     expect(canPlaceItem([clock()], app('a', 0, 2, 2), 2, 2, 4, 8)).toBe(true);

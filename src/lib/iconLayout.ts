@@ -8,10 +8,15 @@ const ICON_LABEL_PADDING_X_PX = 8;
 const FOLDER_PREVIEW_SCALE = 0.78;
 const FOLDER_PREVIEW_GAP_PX = 3;
 const LARGE_FOLDER_RADIUS = '12%';
+const WIDE_GRID_VERTICAL_RESERVED_PX = 48;
+const WIDE_COLUMN_BREATHING_MIN_PX = 32;
+const WIDE_COLUMN_BREATHING_MAX_PX = 44;
+const WIDE_COLUMN_BREATHING_RATIO = 0.78;
 
 /** 桌面行、列统一间隔；组件、普通图标和大文件夹共用同一几何基准。 */
 export const DESKTOP_GRID_GAP_PX = 12;
 export const DESKTOP_GRID_MAX_WIDTH_PX = 672;
+export const DESKTOP_GRID_WIDE_MAX_WIDTH_PX = 1080;
 export const DESKTOP_GRID_BREAKPOINT_PX = 768;
 export const DESKTOP_GRID_COMPACT_PADDING_X_PX = 32;
 export const DESKTOP_GRID_WIDE_PADDING_X_PX = 64;
@@ -44,8 +49,13 @@ export interface IconLayoutMetrics {
 
 export interface DesktopGridLayoutMetrics {
   contentWidthPx: number;
+  contentHeightPx: number;
   columnWidthPx: number;
+  rowHeightPx: number;
+  columnGapPx: number;
+  rowGapPx: number;
   iconPx: number;
+  isWide: boolean;
 }
 
 export interface LargeFolderLayoutMetrics {
@@ -67,38 +77,121 @@ export function resolveIconPx(size: IconSizeVariant = 'normal', iconPx?: number)
 }
 
 /**
- * 根据真实视口和“应用视图”列数计算有效图标尺寸。
- * 设置值是期望尺寸；窄屏下自动等比收缩，确保图标与名称都不会越过列边界。
+ * 根据真实视口和“应用视图”的行列数计算统一网格几何。
+ *
+ * 紧凑视口保持原有满宽布局；电脑端则以 2×2 文件夹为几何锚点：
+ * - 两列宽度 + 列间隔 = 文件夹正方形边长；
+ * - 两行高度 + 行间隔 = 文件夹边长 + 名称区域；
+ * - 行数越多，优先收紧留白和间隔，不缩小用户指定的图标尺寸；空间仍不足时滚动。
  */
 export function getDesktopGridLayoutMetrics(
   viewportWidthPx: number,
   cols: number,
   preferredIconPx: number,
+  viewportHeightPx = Number.POSITIVE_INFINITY,
+  rows = 8,
 ): DesktopGridLayoutMetrics {
   const safeViewportWidth = Number.isFinite(viewportWidthPx)
     ? Math.max(0, viewportWidthPx)
     : DESKTOP_GRID_MAX_WIDTH_PX;
   const safeCols = Number.isInteger(cols) && cols > 0 ? cols : 4;
-  const horizontalPadding = safeViewportWidth >= DESKTOP_GRID_BREAKPOINT_PX
+  const safeRows = Number.isInteger(rows) && rows > 0 ? rows : 8;
+  const isWide = safeViewportWidth >= DESKTOP_GRID_BREAKPOINT_PX;
+  const horizontalPadding = isWide
     ? DESKTOP_GRID_WIDE_PADDING_X_PX
     : DESKTOP_GRID_COMPACT_PADDING_X_PX;
-  const contentWidthPx = Math.min(
-    DESKTOP_GRID_MAX_WIDTH_PX,
+  const availableContentWidthPx = Math.min(
+    isWide ? DESKTOP_GRID_WIDE_MAX_WIDTH_PX : DESKTOP_GRID_MAX_WIDTH_PX,
     Math.max(0, safeViewportWidth - horizontalPadding),
-  );
-  const columnWidthPx = Math.max(
-    0,
-    (contentWidthPx - DESKTOP_GRID_GAP_PX * (safeCols - 1)) / safeCols,
   );
   const requestedIconPx = Number.isFinite(preferredIconPx)
     ? Math.max(1, preferredIconPx)
     : DEFAULT_ICON_PX;
+  const labelAreaPx = ICON_LABEL_GAP_PX + LABEL_HEIGHT_MAP.normal;
+
+  if (!isWide) {
+    const columnGapPx = DESKTOP_GRID_GAP_PX;
+    const rowGapPx = DESKTOP_GRID_GAP_PX;
+    const columnWidthPx = Math.max(
+      0,
+      (availableContentWidthPx - columnGapPx * (safeCols - 1)) / safeCols,
+    );
+    const iconPx = Math.max(
+      1,
+      Math.min(requestedIconPx, columnWidthPx - ICON_LABEL_PADDING_X_PX),
+    );
+    const rowHeightPx = iconPx + labelAreaPx;
+    return {
+      contentWidthPx: availableContentWidthPx,
+      contentHeightPx: rowHeightPx * safeRows + rowGapPx * (safeRows - 1),
+      columnWidthPx,
+      rowHeightPx,
+      columnGapPx,
+      rowGapPx,
+      iconPx,
+      isWide,
+    };
+  }
+
+  // 8 行以内保持舒展；增加每页行数时逐级收紧，最低仍保留 12px 触控分隔。
+  const gridGapPx = safeRows <= 8 ? 16 : safeRows <= 10 ? 14 : 12;
+  const maxColumnWidthByViewportPx = Math.max(
+    0,
+    (availableContentWidthPx - gridGapPx * (safeCols - 1)) / safeCols,
+  );
+  const breathingPx = Math.min(
+    WIDE_COLUMN_BREATHING_MAX_PX,
+    Math.max(WIDE_COLUMN_BREATHING_MIN_PX, requestedIconPx * WIDE_COLUMN_BREATHING_RATIO),
+  );
+  const targetColumnWidthPx = requestedIconPx + breathingPx;
+
+  // rowHeight = columnWidth + labelArea / 2（行列 gap 相等）时，2×2 的横纵占位严格相等。
+  // 高度约束只压缩额外留白；达到图标可读下限后允许页面纵向滚动。
+  const minColumnWidthForRequestedIconPx = requestedIconPx + labelAreaPx / 2;
+  const safeViewportHeightPx = Number.isFinite(viewportHeightPx)
+    ? Math.max(0, viewportHeightPx)
+    : Number.POSITIVE_INFINITY;
+  const availableContentHeightPx = Math.max(
+    0,
+    safeViewportHeightPx - WIDE_GRID_VERTICAL_RESERVED_PX,
+  );
+  const maxRowHeightByViewportPx = Number.isFinite(availableContentHeightPx)
+    ? (availableContentHeightPx - gridGapPx * (safeRows - 1)) / safeRows
+    : Number.POSITIVE_INFINITY;
+  const maxColumnWidthByHeightPx = Math.max(
+    minColumnWidthForRequestedIconPx,
+    maxRowHeightByViewportPx - labelAreaPx / 2,
+  );
+  const columnWidthPx = Math.max(
+    0,
+    Math.min(
+      targetColumnWidthPx,
+      maxColumnWidthByViewportPx,
+      maxColumnWidthByHeightPx,
+    ),
+  );
+  // 极端窄的伪桌面视口仍以列宽为最终边界，避免名称或图标越过格子。
   const iconPx = Math.max(
     1,
-    Math.min(requestedIconPx, columnWidthPx - ICON_LABEL_PADDING_X_PX),
+    Math.min(requestedIconPx, columnWidthPx - labelAreaPx / 2),
   );
+  const rowHeightPx = Math.max(
+    iconPx + labelAreaPx,
+    columnWidthPx + labelAreaPx / 2,
+  );
+  const contentWidthPx = columnWidthPx * safeCols + gridGapPx * (safeCols - 1);
+  const contentHeightPx = rowHeightPx * safeRows + gridGapPx * (safeRows - 1);
 
-  return { contentWidthPx, columnWidthPx, iconPx };
+  return {
+    contentWidthPx,
+    contentHeightPx,
+    columnWidthPx,
+    rowHeightPx,
+    columnGapPx: gridGapPx,
+    rowGapPx: gridGapPx,
+    iconPx,
+    isWide,
+  };
 }
 
 export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: number, iconRadiusPct?: number): IconLayoutMetrics {
@@ -138,13 +231,19 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
  */
 export function getLargeFolderLayoutMetrics(
   iconMetrics: IconLayoutMetrics,
-  columnWidthPx: number,
+  gridMetrics: Pick<
+    DesktopGridLayoutMetrics,
+    'columnWidthPx' | 'rowHeightPx' | 'columnGapPx' | 'rowGapPx'
+  >,
 ): LargeFolderLayoutMetrics {
-  const twoRowHeightPx = iconMetrics.cellMinHeightPx * 2 + DESKTOP_GRID_GAP_PX;
+  const twoRowHeightPx = gridMetrics.rowHeightPx * 2 + gridMetrics.rowGapPx;
   const verticalSidePx = twoRowHeightPx
     - iconMetrics.labelGapPx
     - iconMetrics.labelHeightPx;
-  const horizontalSidePx = Math.max(0, columnWidthPx * 2 + DESKTOP_GRID_GAP_PX);
+  const horizontalSidePx = Math.max(
+    0,
+    gridMetrics.columnWidthPx * 2 + gridMetrics.columnGapPx,
+  );
   const sidePx = Math.max(0, Math.min(verticalSidePx, horizontalSidePx));
   // 无边线：整个正方形直接按 16 份分配，3 个缩略图各 4 份、四段间距各 1 份。
   const spacingPx = sidePx / 16;

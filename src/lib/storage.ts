@@ -1,7 +1,8 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
+import { normalizeAutoSyncDelaySeconds } from './autoSyncScheduler';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
-import { findFirstAvailableSlot } from './layoutEngine';
+import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
@@ -177,6 +178,7 @@ export function loadSyncConfig(): SyncConfig | null {
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
+      parsed.autoSyncDelaySeconds = normalizeAutoSyncDelaySeconds(parsed.autoSyncDelaySeconds);
       if (parsed.rememberToken === undefined) parsed.rememberToken = false;
       // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
       const legacyToken = parsed.token;
@@ -271,6 +273,7 @@ export function loadSettings(): import('@/types').DesktopSettings {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       delete parsed.pixabayKey; // 已移除共享/客户端壁纸 API Key 方案
       const settings = { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
+      settings.cols = normalizeDesktopColumnCount(Number(parsed.cols ?? DEFAULT_SETTINGS.cols));
       if (isBuiltInDefaultWallpaper(settings.bgImage)) settings.bgImage = DEFAULT_BG_IMAGE;
       return settings;
     }

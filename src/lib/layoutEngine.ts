@@ -1,6 +1,13 @@
 import { deepClone } from '@/lib/utils/deepClone';
 import { createWidgetItem, getWidgetConfig } from '@/lib/widgetConfig';
-import type { DesktopData, DesktopItem, DesktopSettings, FolderLayout, WidgetType } from '@/types';
+import type {
+  DesktopColumnCount,
+  DesktopData,
+  DesktopItem,
+  DesktopSettings,
+  FolderLayout,
+  WidgetType,
+} from '@/types';
 
 /**
  * 桌面布局的唯一规则源。
@@ -12,10 +19,31 @@ export const LAYOUT_LIMITS = Object.freeze({
   minRows: 1,
   maxRows: 16,
   minCols: 4,
-  maxCols: 5,
+  maxCols: 10,
   maxPages: 20,
   maxFolderApps: 9,
 });
+
+export const WIDE_VIEWPORT_MIN_COLS: DesktopColumnCount = 6;
+
+export function normalizeDesktopColumnCount(value?: number): DesktopColumnCount {
+  const rounded = Number.isFinite(value) ? Math.round(value ?? LAYOUT_LIMITS.minCols) : 4;
+  return Math.min(
+    LAYOUT_LIMITS.maxCols,
+    Math.max(LAYOUT_LIMITS.minCols, rounded),
+  ) as DesktopColumnCount;
+}
+
+/** 电脑端至少使用 6 列；窄屏继续允许 4/5 列紧凑布局。 */
+export function normalizeResponsiveColumnCount(
+  value: number | undefined,
+  isWide: boolean,
+): DesktopColumnCount {
+  const normalized = normalizeDesktopColumnCount(value);
+  return isWide && normalized < WIDE_VIEWPORT_MIN_COLS
+    ? WIDE_VIEWPORT_MIN_COLS
+    : normalized;
+}
 
 export type LayoutFailure =
   | 'invalid-page'

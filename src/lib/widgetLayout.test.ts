@@ -35,6 +35,12 @@ describe('widgetLayout', () => {
     expect(resolveGridRowAtY(340, top, rowHeight, gap, 8)).toBe(3);
   });
 
+  it('电脑端组件高度使用自适应行轨和间隔，而不是退回普通图标高度', () => {
+    expect(getWidgetLayoutMetrics('search', 46, true, 90, 16).cellMinHeightPx).toBe(90);
+    expect(getWidgetLayoutMetrics('clock', 46, true, 90, 16).cellMinHeightPx).toBe(196);
+    expect(getWidgetLayoutMetrics('combined', 46, true, 90, 16).cellMinHeightPx).toBe(302);
+  });
+
   it('拒绝网格外或无效几何数据', () => {
     expect(resolveGridRowAtY(99, 100, 68, 12, 8)).toBeNull();
     expect(resolveGridRowAtY(100, 100, 0, 12, 8)).toBeNull();
