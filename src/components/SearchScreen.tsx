@@ -198,9 +198,14 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     suggestTimer.current = setTimeout(() => {
-      fetchBaiduSuggest(trimmed, ctrl.signal).then((list) => {
-        if (!ctrl.signal.aborted) setSuggests(list);
-      });
+      void fetchBaiduSuggest(trimmed, ctrl.signal)
+        .then((list) => {
+          if (!ctrl.signal.aborted) setSuggests(list);
+        })
+        .catch(() => {
+          // 快速输入会主动取消上一请求；网络或策略失败也应静默降级为直接搜索。
+          if (!ctrl.signal.aborted) setSuggests([]);
+        });
     }, 150);
     return () => {
       if (suggestTimer.current) clearTimeout(suggestTimer.current);
