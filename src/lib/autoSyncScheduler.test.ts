@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AUTO_SYNC_DELAY_MS,
   type AutoSyncRunOutcome,
   AutoSyncScheduler,
   type AutoSyncTaskContext,
-  getAutoSyncDelayMs,
-  normalizeAutoSyncDelaySeconds,
 } from './autoSyncScheduler';
 
 function deferred<T>() {
@@ -18,11 +17,8 @@ describe('automatic sync scheduler', () => {
     vi.useRealTimers();
   });
 
-  it('normalizes persisted intervals and defaults legacy configs to 15 seconds', () => {
-    expect(normalizeAutoSyncDelaySeconds(undefined)).toBe(15);
-    expect(normalizeAutoSyncDelaySeconds(30)).toBe(30);
-    expect(normalizeAutoSyncDelaySeconds(10)).toBe(15);
-    expect(getAutoSyncDelayMs(60)).toBe(60_000);
+  it('uses the fixed 60 second quiet interval', () => {
+    expect(AUTO_SYNC_DELAY_MS).toBe(60_000);
   });
 
   it('coalesces a burst of changes into one trailing-edge upload', async () => {

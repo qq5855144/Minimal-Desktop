@@ -1,6 +1,5 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
-import { normalizeAutoSyncDelaySeconds } from './autoSyncScheduler';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
@@ -173,18 +172,25 @@ export function loadSyncConfig(): SyncConfig | null {
   try {
     const raw = localStorage.getItem(SYNC_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as SyncConfig;
+      const parsed = JSON.parse(raw) as SyncConfig & { autoSyncDelaySeconds?: unknown };
       // 迁移旧字段
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
-      parsed.autoSyncDelaySeconds = normalizeAutoSyncDelaySeconds(parsed.autoSyncDelaySeconds);
+      // 短暂版本曾提供可选间隔；现统一固定为 60 秒，不再持久化该字段。
+      const hadObsoleteAutoSyncDelay = Object.prototype.hasOwnProperty.call(
+        parsed,
+        'autoSyncDelaySeconds',
+      );
+      delete parsed.autoSyncDelaySeconds;
       if (parsed.rememberToken === undefined) parsed.rememberToken = false;
       // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
       const legacyToken = parsed.token;
       if (legacyToken) {
         try { sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, legacyToken); } catch { /* ignore */ }
         parsed.token = '';
+        try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
+      } else if (hadObsoleteAutoSyncDelay) {
         try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
       // 恢复 Token：勾选"保持登录"时持久化于 localStorage，否则仅当前会话副本。

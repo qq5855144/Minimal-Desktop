@@ -1,17 +1,5 @@
-import type { AutoSyncDelaySeconds } from '@/types';
-
-export const DEFAULT_AUTO_SYNC_DELAY_SECONDS: AutoSyncDelaySeconds = 15;
-export const AUTO_SYNC_DELAY_OPTIONS = [5, 15, 30, 60] as const satisfies readonly AutoSyncDelaySeconds[];
-
-export function normalizeAutoSyncDelaySeconds(value: unknown): AutoSyncDelaySeconds {
-  return AUTO_SYNC_DELAY_OPTIONS.includes(value as AutoSyncDelaySeconds)
-    ? value as AutoSyncDelaySeconds
-    : DEFAULT_AUTO_SYNC_DELAY_SECONDS;
-}
-
-export function getAutoSyncDelayMs(value: unknown): number {
-  return normalizeAutoSyncDelaySeconds(value) * 1000;
-}
+/** GitHub 端存在约一分钟的缓存窗口，自动同步统一等待 60 秒。 */
+export const AUTO_SYNC_DELAY_MS = 60_000;
 
 export type AutoSyncRunOutcome = 'complete' | 'paused';
 

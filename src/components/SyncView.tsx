@@ -14,7 +14,6 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { AUTO_SYNC_DELAY_OPTIONS, DEFAULT_AUTO_SYNC_DELAY_SECONDS } from '@/lib/autoSyncScheduler';
 import { type DesktopDiffSummary, summarizeDesktopDiff } from '@/lib/desktopDiff';
 import { downloadFromGithub, ensureRepo, getBranchHead, verifyToken } from '@/lib/github';
 import { getPanelTheme } from '@/lib/panelTheme';
@@ -33,7 +32,7 @@ import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnap
 import { preserveSyncStateForReconnect } from '@/lib/syncTarget';
 import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB } from '@/lib/wallpaperStorage';
-import type { AutoSyncDelaySeconds, DesktopBackup, SyncConfig } from '@/types';
+import type { DesktopBackup, SyncConfig } from '@/types';
 
 interface SyncViewProps {
   open: boolean;
@@ -47,7 +46,6 @@ const DEFAULT_CONFIG: SyncConfig = {
   token: '', owner: '', repo: DEFAULT_REPO, branch: 'main',
   path: DEFAULT_FILE, fileName: DEFAULT_FILE,
   syncInterval: 'manual', autoSync: false,
-  autoSyncDelaySeconds: DEFAULT_AUTO_SYNC_DELAY_SECONDS,
   rememberToken: false,
 };
 
@@ -160,12 +158,6 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       ?? { ...config, autoSync: !config.autoSync };
     setConfig(next);
     toast.success(next.autoSync ? '已开启自动同步' : '已关闭自动同步');
-  }, [config]);
-
-  const handleAutoSyncDelayChange = useCallback((seconds: AutoSyncDelaySeconds) => {
-    const next = updateSyncConfig({ autoSyncDelaySeconds: seconds })
-      ?? { ...config, autoSyncDelaySeconds: seconds };
-    setConfig(next);
   }, [config]);
 
   const performUpload = useCallback(async (force = false) => {
@@ -479,12 +471,12 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               </div>
 
               {/* 自动同步开关 */}
-              <div className={`rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3 space-y-3`}>
-                <div className="flex items-center justify-between">
+              <div className={`flex items-center justify-between rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3`}>
+                <div className="flex w-full items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium ${t.textPrimary}`}>自动同步</p>
                     <p className={`text-xs ${config.pendingConflictHead ? 'text-amber-500' : `${t.textDim} opacity-70`}`}>
-                      {config.pendingConflictHead ? '等待处理云端版本冲突' : '数据变更后自动上传到云端'}
+                      {config.pendingConflictHead ? '等待处理云端版本冲突' : '停止改动 60 秒后自动上传'}
                     </p>
                   </div>
                   <button type="button" onClick={handleAutoSyncToggle} className="shrink-0 ml-3 transition-transform active:scale-95">
@@ -492,30 +484,6 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                       ? <ToggleRight className="w-9 h-9 text-emerald-500" />
                       : <ToggleLeft className={`w-9 h-9 ${t.textDim} opacity-40`} />}
                   </button>
-                </div>
-                <div className={`border-t pt-3 ${t.itemBorder}`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className={`text-xs ${t.textMuted}`}>改动停止后同步</span>
-                    <div className="flex gap-1">
-                      {AUTO_SYNC_DELAY_OPTIONS.map((seconds) => (
-                        <button
-                          key={seconds}
-                          type="button"
-                          onClick={() => handleAutoSyncDelayChange(seconds)}
-                          className={`min-w-10 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors ${
-                            config.autoSyncDelaySeconds === seconds
-                              ? 'border-emerald-500 bg-emerald-500/15 text-emerald-500'
-                              : `${t.itemBorder} ${t.textDim}`
-                          }`}
-                        >
-                          {seconds} 秒
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className={`mt-2 text-[11px] leading-4 ${t.textDim} opacity-70`}>
-                    连续拖拽会重新计时；上传中的新改动会合并到下一次，不会并发覆盖。
-                  </p>
                 </div>
               </div>
 

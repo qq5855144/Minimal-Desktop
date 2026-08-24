@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
-import { AutoSyncScheduler, getAutoSyncDelayMs } from '@/lib/autoSyncScheduler';
+import { AUTO_SYNC_DELAY_MS, AutoSyncScheduler } from '@/lib/autoSyncScheduler';
 import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
@@ -256,7 +256,7 @@ const Desktop: React.FC = () => {
 
   useEffect(() => {
     const scheduler = new AutoSyncScheduler({
-      getDelayMs: () => getAutoSyncDelayMs(loadSyncConfig()?.autoSyncDelaySeconds),
+      getDelayMs: () => AUTO_SYNC_DELAY_MS,
       run: async ({ isSuperseded }) => {
         const initialConfig = loadSyncConfig();
         if (

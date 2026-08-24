@@ -11,7 +11,6 @@ const previous: SyncConfig = {
   fileName: 'desktop_backup.json',
   syncInterval: '1d',
   autoSync: true,
-  autoSyncDelaySeconds: 30,
   lastSyncAt: '2026-08-24T00:00:00.000Z',
   lastRemoteHead: 'known-head',
   lastBackupBlobSha: 'known-blob',
@@ -43,7 +42,6 @@ describe('sync target reconnect state', () => {
     expect(next).toMatchObject({
       token: 'new-session-token',
       autoSync: true,
-      autoSyncDelaySeconds: 30,
       syncInterval: '1d',
       lastRemoteHead: 'known-head',
       lastBackupBlobSha: 'known-blob',
