@@ -13,9 +13,13 @@ describe('iconLayout', () => {
     const folder = getLargeFolderLayoutMetrics(icon, grid);
     const adjacentIconOuterWidth = grid.columnWidthPx + grid.columnGapPx + icon.iconPx;
 
-    expect(folder.sidePx).toBe(131);
+    expect(folder.sidePx).toBe(132);
     expect(folder.radius).toBe('12%');
     expect(folder.sidePx).toBeCloseTo(adjacentIconOuterWidth, 8);
+    expect(folder.sidePx).toBeCloseTo(
+      grid.rowHeightPx + grid.rowGapPx + icon.iconPx,
+      8,
+    );
     expect(folder.totalHeightPx).toBe(folder.sidePx + icon.labelGapPx + icon.labelHeightPx);
   });
 
@@ -58,6 +62,31 @@ describe('iconLayout', () => {
     );
   });
 
+  it.each([
+    [360, 4, 36],
+    [360, 4, 46],
+    [360, 4, 64],
+    [360, 5, 36],
+    [360, 5, 64],
+    [1440, 6, 36],
+    [1440, 8, 46],
+    [1440, 10, 64],
+  ])('在 %ipx/%i 列/%ipx 图标下保持文件夹四边对齐', (width, cols, iconPx) => {
+    const grid = getDesktopGridLayoutMetrics(width, cols, iconPx, 900, 8);
+    const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
+    const folder = getLargeFolderLayoutMetrics(icon, grid);
+    const horizontalOuterEdgeSpan = grid.columnWidthPx + grid.columnGapPx + icon.iconPx;
+    const verticalOuterEdgeSpan = grid.rowHeightPx + grid.rowGapPx + icon.iconPx;
+
+    expect(grid.rowHeightPx).toBeCloseTo(grid.columnWidthPx, 8);
+    expect(grid.rowGapPx).toBe(grid.columnGapPx);
+    expect(folder.sidePx).toBeCloseTo(horizontalOuterEdgeSpan, 8);
+    expect(folder.sidePx).toBeCloseTo(verticalOuterEdgeSpan, 8);
+    expect(icon.cellMinHeightPx).toBeLessThanOrEqual(
+      grid.rowHeightPx + grid.rowGapPx,
+    );
+  });
+
   it('电脑端 2×2 文件夹同样以普通应用的实际图标边缘为横向锚点', () => {
     const grid = getDesktopGridLayoutMetrics(1440, 8, 46, 900, 8);
     const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
@@ -69,6 +98,10 @@ describe('iconLayout', () => {
     expect(grid.rowGapPx).toBe(16);
     expect(folder.sidePx).toBeCloseTo(
       grid.columnWidthPx + grid.columnGapPx + grid.iconPx,
+      8,
+    );
+    expect(folder.sidePx).toBeCloseTo(
+      grid.rowHeightPx + grid.rowGapPx + grid.iconPx,
       8,
     );
     expect(folder.sidePx).toBeLessThan(

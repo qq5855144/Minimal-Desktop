@@ -14,7 +14,7 @@ const WIDE_COLUMN_BREATHING_MAX_PX = 44;
 const WIDE_COLUMN_BREATHING_RATIO = 0.78;
 
 /** 桌面行、列统一间隔；组件、普通图标和大文件夹共用同一几何基准。 */
-export const DESKTOP_GRID_GAP_PX = 12;
+export const DESKTOP_GRID_GAP_PX = 16;
 export const DESKTOP_GRID_MAX_WIDTH_PX = 672;
 export const DESKTOP_GRID_WIDE_MAX_WIDTH_PX = 1080;
 export const DESKTOP_GRID_BREAKPOINT_PX = 768;
@@ -120,7 +120,9 @@ export function getDesktopGridLayoutMetrics(
       1,
       Math.min(requestedIconPx, columnWidthPx - ICON_LABEL_PADDING_X_PX),
     );
-    const rowHeightPx = iconPx + labelAreaPx;
+    // 行高与列宽相等、行列 gap 相等，保证相邻图标的横纵中心距一致。
+    // 图标与名称允许使用紧随轨道的 gap；最大图标下仍保留至少 2px 分隔。
+    const rowHeightPx = columnWidthPx;
     return {
       contentWidthPx: availableContentWidthPx,
       contentHeightPx: rowHeightPx * safeRows + rowGapPx * (safeRows - 1),
@@ -145,7 +147,8 @@ export function getDesktopGridLayoutMetrics(
   );
   const targetColumnWidthPx = requestedIconPx + breathingPx;
 
-  // rowHeight = columnWidth + labelArea / 2（行列 gap 相等）时，2×2 的横纵占位严格相等。
+  // rowHeight = columnWidth 且行列 gap 相等时，相邻应用图标的横纵中心距严格相等，
+  // 正方形 2×2 文件夹才能同时对齐两列的左右边和两行的上下边。
   // 高度约束只压缩额外留白；达到图标可读下限后允许页面纵向滚动。
   const minColumnWidthForRequestedIconPx = requestedIconPx + labelAreaPx / 2;
   const safeViewportHeightPx = Number.isFinite(viewportHeightPx)
@@ -160,7 +163,7 @@ export function getDesktopGridLayoutMetrics(
     : Number.POSITIVE_INFINITY;
   const maxColumnWidthByHeightPx = Math.max(
     minColumnWidthForRequestedIconPx,
-    maxRowHeightByViewportPx - labelAreaPx / 2,
+    maxRowHeightByViewportPx,
   );
   const columnWidthPx = Math.max(
     0,
@@ -175,10 +178,7 @@ export function getDesktopGridLayoutMetrics(
     1,
     Math.min(requestedIconPx, columnWidthPx - labelAreaPx / 2),
   );
-  const rowHeightPx = Math.max(
-    iconPx + labelAreaPx,
-    columnWidthPx + labelAreaPx / 2,
-  );
+  const rowHeightPx = columnWidthPx;
   const contentWidthPx = columnWidthPx * safeCols + gridGapPx * (safeCols - 1);
   const contentHeightPx = rowHeightPx * safeRows + gridGapPx * (safeRows - 1);
 
@@ -227,6 +227,7 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
  * 2×2 文件夹的统一尺寸公式：
  * - 外框始终为正方形，并保持 2×2 数据占位；
  * - 外框左右边缘与相邻两列普通应用图标的外边缘严格对齐；
+ * - 网格横纵中心距相等，因此上下边也与相邻两行普通应用图标严格对齐；
  * - 外框在四格数据占位内居中，不把列轨为名称预留的呼吸空间算进宽度；
  * - 名称间距沿用普通应用的 labelGap；
  * - 内部 3×3 使用 3 个 1/4 单元 + 4 个 1/16 间距，四周与行列间距完全相等。
