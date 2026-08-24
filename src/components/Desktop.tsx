@@ -25,11 +25,6 @@ import {
   type SwipeAxis,
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
-import {
-  getVisiblePageIndicatorCount,
-  PAGE_INDICATOR_IDLE_MS,
-  shouldRenderPageIndicator,
-} from '@/lib/pageIndicator';
 import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
 import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
@@ -134,8 +129,6 @@ const Desktop: React.FC = () => {
   const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
-  const [pageIndicatorVisible, setPageIndicatorVisible] = useState(true);
-  const pageIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bgImageSource = getRenderableWallpaperSource(settings.bgImage);
   const bgVideoSource = settings.bgVideo === IDB_VIDEO_MARKER ? undefined : settings.bgVideo;
   // 壁纸加载失败标记：失败时回退默认渐变背景；切换壁纸后重置
@@ -213,51 +206,11 @@ const Desktop: React.FC = () => {
   const gridColumnGapPx = desktopGridMetrics.columnGapPx;
   const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
-  const pageIndicatorCount = getVisiblePageIndicatorCount(
-    data.pages.length,
-    privacyPageCount,
-    leadingPrivacyDropPage,
-    trailingDropPage,
-  );
-  const hasPageIndicator = shouldRenderPageIndicator(pageIndicatorCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
   const pageVerticalPaddingStyle: React.CSSProperties = {
     paddingTop: 8 + gridRowGapPx,
     paddingBottom: 8,
   };
-
-  const revealPageIndicator = useCallback((keepVisible = false) => {
-    if (pageIndicatorTimerRef.current) {
-      clearTimeout(pageIndicatorTimerRef.current);
-      pageIndicatorTimerRef.current = null;
-    }
-    if (!hasPageIndicator) {
-      setPageIndicatorVisible(false);
-      return;
-    }
-    setPageIndicatorVisible(true);
-    if (keepVisible) return;
-    pageIndicatorTimerRef.current = setTimeout(() => {
-      pageIndicatorTimerRef.current = null;
-      setPageIndicatorVisible(false);
-    }, PAGE_INDICATOR_IDLE_MS);
-  }, [hasPageIndicator]);
-
-  useEffect(() => {
-    revealPageIndicator(isDragging || leadingPrivacyDropPage || trailingDropPage);
-  }, [
-    currentPage,
-    data.pages.length,
-    isDragging,
-    leadingPrivacyDropPage,
-    privacyPageCount,
-    revealPageIndicator,
-    trailingDropPage,
-  ]);
-
-  useEffect(() => () => {
-    if (pageIndicatorTimerRef.current) clearTimeout(pageIndicatorTimerRef.current);
-  }, []);
 
   // 已有用户若仍保存 4/5 列，首次进入电脑端时原子重排并持久化为 6 列。
   useEffect(() => {
@@ -1191,7 +1144,6 @@ const Desktop: React.FC = () => {
       );
       axis = 'pending';
       tracking = true;
-      revealPageIndicator(true);
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -1230,7 +1182,6 @@ const Desktop: React.FC = () => {
     const onTouchEnd = (e: TouchEvent) => {
       if (!tracking) return;
       tracking = false;
-      revealPageIndicator(false);
       const touch = Array.from(e.changedTouches).find((candidate) => candidate.identifier === touchId);
       if (!touch) {
         settleTrack(getPageTrackIndex(currentPageRef.current, privacyPageCountRef.current));
@@ -1267,7 +1218,6 @@ const Desktop: React.FC = () => {
       tracking = false;
       axis = 'pending';
       settleTrack(getPageTrackIndex(currentPageRef.current, privacyPageCountRef.current));
-      revealPageIndicator(false);
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -1281,7 +1231,7 @@ const Desktop: React.FC = () => {
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchCancel);
     };
-  }, [navigateToPage, revealPageIndicator]);
+  }, [navigateToPage]);
 
   /**
    * 渲染网格
@@ -1469,7 +1419,6 @@ const Desktop: React.FC = () => {
       data-viewport-wide={viewport.isWide ? 'true' : 'false'}
       data-style={settings.style}
       style={desktopShellStyle}
-      onPointerDownCapture={() => revealPageIndicator(isDraggingRef.current)}
       onContextMenu={(e) => {
         // 输入框 / 文本域长按唤起系统菜单，不拦截
         const target = e.target as HTMLElement;
@@ -1638,12 +1587,7 @@ const Desktop: React.FC = () => {
 
         {/* 页面指示器：隐私页 + 普通页 */}
         <div
-          aria-hidden={!pageIndicatorVisible}
-          className={`flex items-center justify-center gap-1.5 transition-all duration-300 motion-reduce:transition-none ${
-            pageIndicatorVisible && hasPageIndicator
-              ? 'opacity-100 translate-y-0 pointer-events-auto'
-              : 'opacity-0 translate-y-1 pointer-events-none'
-          }`}
+          className="flex items-center justify-center gap-1.5"
           style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}
         >
           {leadingPrivacyDropPage && (
@@ -1656,7 +1600,6 @@ const Desktop: React.FC = () => {
             <button
               key={`privacy-page-${privacyPage}`}
               type="button"
-              tabIndex={pageIndicatorVisible ? 0 : -1}
               title={currentPage === privacyPage && privacyUnlocked
                 ? '再次点击锁定隐私桌面'
                 : `打开隐私桌面 ${privacyPage}`}
@@ -1684,7 +1627,6 @@ const Desktop: React.FC = () => {
             <button
               key={`page-${i}`}
               type="button"
-              tabIndex={pageIndicatorVisible ? 0 : -1}
               onClick={() => navigateToPage(i)}
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 i === currentPage
