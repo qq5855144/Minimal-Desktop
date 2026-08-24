@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import { AUTO_SYNC_DELAY_MS, AutoSyncScheduler } from '@/lib/autoSyncScheduler';
-import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
+import { isNoopGridDrop, resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
   getIconLayoutMetrics,
@@ -874,6 +874,14 @@ const Desktop: React.FC = () => {
         } else if (isLargeFolderDrop) {
           // 2×2 文件夹以四格占位中心吸附；始终交给矩形布局引擎判断完整目标区域，
           // 不能再根据指针恰好命中的某一个子格直接交换，否则会产生一行/一列偏移。
+          // 命中自身四格或解析回原坐标属于有效取消，不应进入碰撞提示。
+          if (isNoopGridDrop(
+            { ...src, id: g.source.itemId },
+            targetPage,
+            targetRow,
+            targetCol,
+            targetItemId,
+          )) return;
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
           if (!moved) toast.error('目标四格区域不可用，请对准可放置区域');

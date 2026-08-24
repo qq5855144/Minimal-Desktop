@@ -10,6 +10,24 @@ export interface GridDropPosition {
   col: number;
 }
 
+export interface GridDropSourcePosition extends GridDropPosition {
+  id: string;
+  page: number;
+}
+
+/** 命中拖拽源自身，或解析后仍是原坐标时，属于有效的原位放回。 */
+export function isNoopGridDrop(
+  source: GridDropSourcePosition,
+  targetPage: number,
+  targetRow: number,
+  targetCol: number,
+  targetItemId?: string | null,
+): boolean {
+  if (source.page !== targetPage) return false;
+  return targetItemId === source.id
+    || (source.row === targetRow && source.col === targetCol);
+}
+
 /**
  * 将拖拽对象的视觉中心吸附到其完整网格占位区域中心。
  *

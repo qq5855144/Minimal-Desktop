@@ -581,7 +581,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       sourceData, id, fromPage, toPage, row, col,
       settings.cols ?? 4, settings.rows ?? 8,
     );
-    if (!result.ok || result.data === dataRef.current) return false;
+    if (!result.ok) return false;
+    // 原位放回是成功的无变化操作；调用层不应把它误报为空间冲突。
+    if (result.data === dataRef.current) return true;
     return commitDesktopData(result.data);
   }, [commitDesktopData, settings.cols, settings.rows]);
 
