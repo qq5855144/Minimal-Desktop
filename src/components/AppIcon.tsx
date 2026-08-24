@@ -346,7 +346,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={pressIntent.onPointerCancel}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
+        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0 justify-end' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
         style={{ gap: metrics.labelGapPx }}
       >
         {renderIconContent()}

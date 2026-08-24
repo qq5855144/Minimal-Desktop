@@ -225,7 +225,9 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
 
 /**
  * 2×2 文件夹的统一尺寸公式：
- * - 外框始终为正方形，并同时受两列宽度与两行高度约束；
+ * - 外框始终为正方形，并保持 2×2 数据占位；
+ * - 可视顶部与第一行应用图标顶部对齐，底部与第二行应用图标底部对齐；
+ * - 电脑端列轨含额外呼吸空间时，外框会在四格占位内居中，不吞入行首留白；
  * - 名称间距沿用普通应用的 labelGap；
  * - 内部 3×3 使用 3 个 1/4 单元 + 4 个 1/16 间距，四周与行列间距完全相等。
  */
@@ -237,9 +239,9 @@ export function getLargeFolderLayoutMetrics(
   >,
 ): LargeFolderLayoutMetrics {
   const twoRowHeightPx = gridMetrics.rowHeightPx * 2 + gridMetrics.rowGapPx;
-  const verticalSidePx = twoRowHeightPx
-    - iconMetrics.labelGapPx
-    - iconMetrics.labelHeightPx;
+  const verticalSidePx = gridMetrics.rowHeightPx
+    + gridMetrics.rowGapPx
+    + iconMetrics.iconPx;
   const horizontalSidePx = Math.max(
     0,
     gridMetrics.columnWidthPx * 2 + gridMetrics.columnGapPx,

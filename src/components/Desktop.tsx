@@ -203,6 +203,10 @@ const Desktop: React.FC = () => {
   const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
+  const pageVerticalPaddingStyle: React.CSSProperties = {
+    paddingTop: 8 + (viewport.isWide ? gridRowGapPx : 0),
+    paddingBottom: 8,
+  };
 
   // 已有用户若仍保存 4/5 列，首次进入电脑端时原子重排并持久化为 6 列。
   useEffect(() => {
@@ -1459,7 +1463,10 @@ const Desktop: React.FC = () => {
         >
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
-            <div className={`${pagePaddingClass} pt-2 pb-2 flex justify-center`}>
+            <div
+              className={`${pagePaddingClass} flex justify-center`}
+              style={pageVerticalPaddingStyle}
+            >
               <div className="w-full" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                 <div
                   className="grid"
@@ -1493,7 +1500,11 @@ const Desktop: React.FC = () => {
               }}
             >
               {leadingPrivacyDropPage && (
-                <div key="page-layer-leading-privacy-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
+                <div
+                  key="page-layer-leading-privacy-drop"
+                  className={`w-full shrink-0 ${pagePaddingClass}`}
+                  style={pageVerticalPaddingStyle}
+                >
                   <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
@@ -1505,7 +1516,11 @@ const Desktop: React.FC = () => {
                 </div>
               )}
               {privacyPageNumbers.map((privacyPage) => (
-                <div key={`privacy-page-layer-${privacyPage}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
+                <div
+                  key={`privacy-page-layer-${privacyPage}`}
+                  className={`w-full shrink-0 ${pagePaddingClass}`}
+                  style={pageVerticalPaddingStyle}
+                >
                   <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(
                       privacyPage,
@@ -1515,14 +1530,22 @@ const Desktop: React.FC = () => {
                 </div>
               ))}
               {data.pages.map((pageData, i) => (
-                <div key={`page-layer-${i}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
+                <div
+                  key={`page-layer-${i}`}
+                  className={`w-full shrink-0 ${pagePaddingClass}`}
+                  style={pageVerticalPaddingStyle}
+                >
                   <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(i, pageData)}
                   </div>
                 </div>
               ))}
               {trailingDropPage && (
-                <div key="page-layer-trailing-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
+                <div
+                  key="page-layer-trailing-drop"
+                  className={`w-full shrink-0 ${pagePaddingClass}`}
+                  style={pageVerticalPaddingStyle}
+                >
                   <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'

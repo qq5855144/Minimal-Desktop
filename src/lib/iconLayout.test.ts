@@ -57,7 +57,7 @@ describe('iconLayout', () => {
     );
   });
 
-  it('电脑端 2×2 文件夹完整填充两列两行，名称与第二行应用基线一致', () => {
+  it('电脑端 2×2 文件夹在四格占位内与两行应用图标上下对称', () => {
     const grid = getDesktopGridLayoutMetrics(1440, 8, 46, 900, 8);
     const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
     const folder = getLargeFolderLayoutMetrics(icon, grid);
@@ -67,12 +67,15 @@ describe('iconLayout', () => {
     expect(grid.columnGapPx).toBe(16);
     expect(grid.rowGapPx).toBe(16);
     expect(folder.sidePx).toBeCloseTo(
-      grid.columnWidthPx * 2 + grid.columnGapPx,
+      grid.rowHeightPx + grid.rowGapPx + grid.iconPx,
       8,
     );
-    expect(folder.totalHeightPx).toBeCloseTo(
-      grid.rowHeightPx * 2 + grid.rowGapPx,
-      8,
+    const appTopInsetPx = grid.rowHeightPx - icon.cellMinHeightPx;
+    const folderTopInsetPx = grid.rowHeightPx * 2 + grid.rowGapPx
+      - folder.totalHeightPx;
+    expect(folderTopInsetPx).toBeCloseTo(appTopInsetPx, 8);
+    expect(folder.sidePx).toBeLessThan(
+      grid.columnWidthPx * 2 + grid.columnGapPx,
     );
   });
 
