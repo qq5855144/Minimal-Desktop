@@ -1342,7 +1342,13 @@ const Desktop: React.FC = () => {
               />
             </div>,
           );
-        } else if (!coveredCells.has(`${r}:${c}`)) {
+        // 空格只在当前页拖拽期间临时挂载：保留精确命中与骨架反馈，
+        // 静止时不再让布局检查器/无障碍树识别整页空 DOM 网格。
+        } else if (
+          isDragging
+          && pageIndex === currentPage
+          && !coveredCells.has(`${r}:${c}`)
+        ) {
           cells.push(
             <div
               key={`empty-${r}-${c}`}
@@ -1350,6 +1356,7 @@ const Desktop: React.FC = () => {
               data-row={r}
               data-col={c}
               data-page={pageIndex}
+              aria-hidden="true"
               className="flex items-end justify-center rounded-xl"
               style={{
                 gridColumnStart: c + 1,
@@ -1357,7 +1364,7 @@ const Desktop: React.FC = () => {
                 minHeight: desktopGridMetrics.rowHeightPx,
               }}
             >
-              {isDragging && <SkeletonIcon iconPx={desktopIconMetrics.iconPx} />}
+              <SkeletonIcon iconPx={desktopIconMetrics.iconPx} />
             </div>,
           );
         }
@@ -1527,6 +1534,8 @@ const Desktop: React.FC = () => {
               {leadingPrivacyDropPage && (
                 <div
                   key="page-layer-leading-privacy-drop"
+                  aria-hidden={currentPage !== -(privacyPageCount + 1)}
+                  {...(currentPage === -(privacyPageCount + 1) ? {} : { inert: '' })}
                   className={`w-full shrink-0 ${pagePaddingClass}`}
                   style={pageVerticalPaddingStyle}
                 >
@@ -1543,6 +1552,8 @@ const Desktop: React.FC = () => {
               {privacyPageNumbers.map((privacyPage) => (
                 <div
                   key={`privacy-page-layer-${privacyPage}`}
+                  aria-hidden={currentPage !== privacyPage}
+                  {...(currentPage === privacyPage ? {} : { inert: '' })}
                   className={`w-full shrink-0 ${pagePaddingClass}`}
                   style={pageVerticalPaddingStyle}
                 >
@@ -1557,6 +1568,8 @@ const Desktop: React.FC = () => {
               {data.pages.map((pageData, i) => (
                 <div
                   key={`page-layer-${i}`}
+                  aria-hidden={currentPage !== i}
+                  {...(currentPage === i ? {} : { inert: '' })}
                   className={`w-full shrink-0 ${pagePaddingClass}`}
                   style={pageVerticalPaddingStyle}
                 >
@@ -1568,6 +1581,8 @@ const Desktop: React.FC = () => {
               {trailingDropPage && (
                 <div
                   key="page-layer-trailing-drop"
+                  aria-hidden={currentPage !== data.pages.length}
+                  {...(currentPage === data.pages.length ? {} : { inert: '' })}
                   className={`w-full shrink-0 ${pagePaddingClass}`}
                   style={pageVerticalPaddingStyle}
                 >
