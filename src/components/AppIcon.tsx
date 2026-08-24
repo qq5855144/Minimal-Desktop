@@ -225,7 +225,7 @@ const AppIcon: React.FC<AppIconProps> = ({
                 ? `repeat(3, ${cellPx}px)`
                 : undefined,
             } : {}),
-            background: isNeu ? '#ffffff' : 'rgba(255,255,255,0.18)',
+            background: isNeu ? '#e8edf5' : 'rgba(255,255,255,0.18)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
           }}

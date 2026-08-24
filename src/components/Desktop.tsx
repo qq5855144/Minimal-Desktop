@@ -223,7 +223,7 @@ const Desktop: React.FC = () => {
   useEffect(() => {
     let bg: string;
     if (settings.style === 'neumorphism') {
-      bg = '#ffffff';
+      bg = '#e8edf5';
     } else if (settings.bgType === 'image' || settings.bgType === 'video') {
       bg = '#1a1a2e';
     } else {

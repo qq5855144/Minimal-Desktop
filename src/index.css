@@ -251,30 +251,30 @@ input, textarea, [contenteditable="true"] {
      应用于 [data-style="neumorphism"] 容器内
   ────────────────────────────────────────── */
   :root {
-    --neu-base: #ffffff;
-    --neu-shadow-dark: rgba(15, 23, 42, 0.14);
-    --neu-shadow-soft: rgba(71, 85, 105, 0.07);
-    --neu-highlight: rgba(255, 255, 255, 1);
-    --neu-edge: rgba(15, 23, 42, 0.035);
+    --neu-base: #e8edf5;
+    --neu-shadow-dark: rgba(151, 163, 180, 0.55);
+    --neu-shadow-soft: rgba(97, 111, 130, 0.15);
+    --neu-highlight: rgba(255, 255, 255, 0.92);
+    --neu-edge: rgba(114, 128, 148, 0.08);
   }
 
   .neu-bg {
     background: var(--neu-base);
   }
 
-  /* 纯白底上的浮起层：冷灰环境阴影负责轮廓，白色高光负责方向感。 */
+  /* 浅冷灰蓝底上的浮起层：同色暗面与柔白亮面形成自然的软质浮雕。 */
   [data-style="neumorphism"] .ios-icon-shadow {
     box-shadow:
-      6px 7px 16px var(--neu-shadow-dark),
-      -5px -5px 14px var(--neu-highlight),
+      6px 7px 15px rgba(151, 163, 180, 0.52),
+      -6px -6px 15px var(--neu-highlight),
       0 1px 2px var(--neu-shadow-soft),
       inset 1px 1px 0 var(--neu-highlight),
       inset -1px -1px 0 var(--neu-edge);
   }
   [data-style="neumorphism"] .ios-icon-shadow-hover {
     box-shadow:
-      9px 11px 24px rgba(15, 23, 42, 0.17),
-      -7px -7px 18px var(--neu-highlight),
+      9px 10px 22px rgba(151, 163, 180, 0.62),
+      -8px -8px 20px rgba(255, 255, 255, 0.96),
       0 2px 4px var(--neu-shadow-soft),
       inset 1px 1px 0 var(--neu-highlight),
       inset -1px -1px 0 var(--neu-edge);
@@ -299,25 +299,26 @@ input, textarea, [contenteditable="true"] {
   .neu-raised {
     background: var(--neu-base);
     box-shadow:
-      8px 9px 22px rgba(15, 23, 42, 0.13),
-      -6px -6px 18px var(--neu-highlight),
+      8px 8px 18px rgba(151, 163, 180, 0.5),
+      -8px -8px 18px var(--neu-highlight),
       0 1px 3px var(--neu-shadow-soft),
       inset 1px 1px 0 var(--neu-highlight),
       inset -1px -1px 0 var(--neu-edge);
   }
+  /* 搜索框保持纯外阴影，不使用边线、聚焦环或凹陷阴影。 */
   .neu-raised-focused {
     background: var(--neu-base);
+    border: 0;
+    outline: 0;
     box-shadow:
-      inset 3px 3px 8px rgba(15, 23, 42, 0.11),
-      inset -3px -3px 8px var(--neu-highlight),
-      5px 6px 16px rgba(15, 23, 42, 0.09),
-      0 0 0 1px rgba(91, 141, 238, 0.18);
+      8px 8px 18px rgba(151, 163, 180, 0.54),
+      -8px -8px 18px rgba(255, 255, 255, 0.94);
   }
   /* 搜索建议条目——与桌面拟态底色一致，悬停时轻微上浮 */
   .neu-suggest-item {
     background: var(--neu-base);
     box-shadow:
-      4px 5px 12px rgba(15, 23, 42, 0.11),
+      4px 5px 12px rgba(151, 163, 180, 0.48),
       -3px -3px 10px var(--neu-highlight),
       inset 1px 1px 0 var(--neu-highlight),
       inset -1px -1px 0 var(--neu-edge);
@@ -326,7 +327,7 @@ input, textarea, [contenteditable="true"] {
   .neu-suggest-item:hover {
     transform: translateY(-1px);
     box-shadow:
-      6px 7px 16px rgba(15, 23, 42, 0.14),
+      6px 7px 16px rgba(151, 163, 180, 0.58),
       -4px -4px 12px var(--neu-highlight),
       inset 1px 1px 0 var(--neu-highlight),
       inset -1px -1px 0 var(--neu-edge);
@@ -334,7 +335,7 @@ input, textarea, [contenteditable="true"] {
   .neu-suggest-item:active {
     transform: translateY(0);
     box-shadow:
-      inset 3px 3px 8px rgba(15, 23, 42, 0.12),
+      inset 3px 3px 8px rgba(151, 163, 180, 0.5),
       inset -3px -3px 8px var(--neu-highlight);
   }
   /* 隐藏滚动条（搜索建议列表等内部滚动区域使用） */
@@ -348,7 +349,7 @@ input, textarea, [contenteditable="true"] {
   .neu-inset {
     background: var(--neu-base);
     box-shadow:
-      inset 4px 4px 10px rgba(15, 23, 42, 0.13),
+      inset 4px 4px 10px rgba(151, 163, 180, 0.52),
       inset -4px -4px 10px var(--neu-highlight),
       0 0 0 1px var(--neu-edge);
   }

@@ -289,7 +289,7 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
         onChange={(e) => handleUrlChange(e.target.value)}
         placeholder="输入搜索引擎网址，如 https://bing.com"
         className={`w-full rounded-xl text-sm px-3 py-2 outline-none focus:ring-1 ${isNeu
-          ? 'bg-white text-slate-800 placeholder:text-slate-400 shadow-[inset_3px_3px_8px_rgba(15,23,42,0.10),inset_-3px_-3px_8px_rgba(255,255,255,1)] focus:ring-primary/30'
+          ? 'bg-[#e8edf5] text-slate-800 placeholder:text-slate-400 shadow-[inset_3px_3px_8px_rgba(151,163,180,0.42),inset_-3px_-3px_8px_rgba(255,255,255,0.9)] focus:ring-primary/30'
           : 'bg-white/10 text-white placeholder:text-white/40 focus:ring-white/40'}`}
         style={{ fontSize: 16 }}
         autoComplete="off"
@@ -298,13 +298,13 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 
       {/* 自动识别预览 */}
       {parsed && (
-        <div className={`flex items-center gap-3 rounded-xl px-3 py-2 ${isNeu ? 'bg-white shadow-[4px_5px_14px_rgba(15,23,42,0.09)]' : 'bg-white/8'}`}>
+        <div className={`flex items-center gap-3 rounded-xl px-3 py-2 ${isNeu ? 'bg-[#e8edf5] shadow-[5px_6px_14px_rgba(151,163,180,0.42),-4px_-4px_12px_rgba(255,255,255,0.9)]' : 'bg-white/8'}`}>
           {/* 图标区：点击可替换为本地图片 */}
           <button
             type="button"
             title="点击选择本地图标"
             onClick={() => fileInputRef.current?.click()}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 transition-all ${isNeu ? 'bg-white hover:ring-primary/30 shadow-[3px_4px_10px_rgba(15,23,42,0.11)]' : 'hover:ring-white/40'}`}
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 transition-all ${isNeu ? 'bg-[#e8edf5] hover:ring-primary/30 shadow-[4px_5px_11px_rgba(151,163,180,0.46),-3px_-3px_9px_rgba(255,255,255,0.9)]' : 'hover:ring-white/40'}`}
             style={isNeu ? undefined : { background: 'rgba(255,255,255,0.12)' }}
           >
             {previewCandidates.length > 0 ? (
@@ -349,7 +349,7 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={onCancel}
-          className={`flex-1 rounded-xl py-2 text-sm transition-colors ${isNeu ? 'text-slate-600 bg-white shadow-[3px_4px_10px_rgba(15,23,42,0.10)] hover:bg-slate-50' : 'text-white/60 bg-white/10 hover:bg-white/15'}`}>
+          className={`flex-1 rounded-xl py-2 text-sm transition-colors ${isNeu ? 'text-slate-600 bg-[#e8edf5] shadow-[4px_5px_11px_rgba(151,163,180,0.46),-3px_-3px_9px_rgba(255,255,255,0.9)] hover:bg-[#edf1f7]' : 'text-white/60 bg-white/10 hover:bg-white/15'}`}>
           取消
         </button>
         <button type="submit" disabled={!canSubmit || submitting}
@@ -605,12 +605,12 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           ...horizontalStyle,
           ...positionStyle,
           overflowY: 'auto',
-          background: isNeu ? '#ffffff' : 'rgba(28,28,32,0.94)',
+          background: isNeu ? '#e8edf5' : 'rgba(28,28,32,0.94)',
           backdropFilter: isNeu ? undefined : 'blur(24px)',
           WebkitBackdropFilter: isNeu ? undefined : 'blur(24px)',
-          border: isNeu ? '1px solid rgba(15,23,42,0.04)' : '1px solid rgba(255,255,255,0.13)',
+          border: isNeu ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.13)',
           boxShadow: isNeu
-            ? '8px 10px 28px rgba(15,23,42,0.16), -5px -5px 16px rgba(255,255,255,1)'
+            ? '8px 10px 26px rgba(151,163,180,0.58), -6px -6px 18px rgba(255,255,255,0.94)'
             : '0 8px 32px rgba(0,0,0,0.45)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -666,7 +666,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
                 className="flex flex-col items-center gap-1 py-0.5"
               >
                 <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center ${isNeu ? 'bg-white shadow-[3px_4px_10px_rgba(15,23,42,0.11)]' : ''}`}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center ${isNeu ? 'bg-[#e8edf5] shadow-[4px_5px_11px_rgba(151,163,180,0.46),-3px_-3px_9px_rgba(255,255,255,0.9)]' : ''}`}
                   style={isNeu ? undefined : { background: 'rgba(255,255,255,0.12)' }}
                 >
                   <Plus className={`w-5 h-5 ${isNeu ? 'text-slate-500' : 'text-white/70'}`} />
@@ -702,11 +702,11 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
             style={{
               left,
               top,
-              background: isNeu ? '#ffffff' : 'rgba(30,30,40,0.94)',
+              background: isNeu ? '#e8edf5' : 'rgba(30,30,40,0.94)',
               backdropFilter: isNeu ? undefined : 'blur(24px)',
               WebkitBackdropFilter: isNeu ? undefined : 'blur(24px)',
-              border: isNeu ? '1px solid rgba(15,23,42,0.04)' : '1px solid rgba(255,255,255,0.15)',
-              boxShadow: isNeu ? '6px 8px 22px rgba(15,23,42,0.16), -4px -4px 12px rgba(255,255,255,1)' : undefined,
+              border: isNeu ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.15)',
+              boxShadow: isNeu ? '6px 8px 22px rgba(151,163,180,0.58), -4px -4px 12px rgba(255,255,255,0.94)' : undefined,
             }}
             onClick={(event) => event.stopPropagation()}
           >

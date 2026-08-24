@@ -240,7 +240,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const isGlass = !isNeu;
   const overlayBg = isGlass
     ? 'bg-black/30 backdrop-blur-2xl'
-    : 'bg-white';
+    : 'bg-[#e8edf5]';
   const inputBar = isGlass
     ? 'flex items-center gap-2 px-3 py-[9px] rounded-full bg-white/25 shadow-lg'
     : 'flex items-center gap-2 px-3 py-[9px] rounded-full neu-raised-focused';
