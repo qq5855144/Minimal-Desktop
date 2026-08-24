@@ -12,6 +12,10 @@ import { createPortal } from 'react-dom';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { openExternalUrl } from '@/lib/openExternal';
 import { buildSearchUrl, getEngineById, getEngineIconSrc } from '@/lib/searchEngines';
+import {
+  fetchSandboxedBaiduSuggest,
+  normalizeSuggestionList,
+} from '@/lib/searchSuggestions';
 
 // ── 历史记录工具 ──────────────────────────────────────────────────────────────
 const HISTORY_KEY = 'search-history';
@@ -35,8 +39,8 @@ function pushHistory(query: string) {
 }
 
 // ── 搜索建议 ─────────────────────────────────────────────────────────────────
-// 扩展环境由 background SW 请求；Web 环境只接受部署方配置的 JSON API。
-// 禁止 JSONP / 动态远程 <script>：否则第三方脚本会在本站 origin 执行并读取本地数据。
+// 扩展环境由 background SW 请求；Web 优先使用部署方配置的同源 JSON API，
+// 静态部署则在无同源权限的 sandbox iframe 内请求 JSONP，隔离第三方脚本。
 
 // 内存缓存：最近 30 条，避免重复请求同一关键词
 const suggestCache = new Map<string, string[]>();
@@ -69,26 +73,34 @@ async function fetchBaiduSuggest(wd: string, signal: AbortSignal): Promise<strin
     }
   }
 
-  // Web：默认关闭远程建议。部署方可配置一个返回 JSON 的可信同源/边缘代理，
+  // Web：部署方可优先配置可信同源/边缘代理，
   // 例如 { suggestions: ["..."] } 或 { data: ["..."] }。
   const endpoint = import.meta.env.VITE_SUGGEST_API_URL?.trim();
-  if (!endpoint) return [];
-  try {
-    const url = new URL(endpoint, window.location.origin);
-    if (url.origin !== window.location.origin) return [];
-    url.searchParams.set('q', wd);
-    const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
-    if (!response.ok) return [];
-    const body = await response.json() as { suggestions?: unknown; data?: unknown };
-    const raw = Array.isArray(body.suggestions) ? body.suggestions : body.data;
-    if (!Array.isArray(raw)) return [];
-    const result = raw.filter((value): value is string => typeof value === 'string')
-      .map((value) => value.trim()).filter(Boolean).slice(0, 10);
-    if (result.length) cacheSet(wd, result);
-    return result;
-  } catch {
-    return [];
+  if (endpoint) {
+    try {
+      const url = new URL(endpoint, window.location.origin);
+      if (url.origin === window.location.origin) {
+        url.searchParams.set('q', wd);
+        const response = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+        if (response.ok) {
+          const body = await response.json() as { suggestions?: unknown; data?: unknown };
+          const raw = Array.isArray(body.suggestions) ? body.suggestions : body.data;
+          const result = normalizeSuggestionList(raw);
+          if (result.length) {
+            cacheSet(wd, result);
+            return result;
+          }
+        }
+      }
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // 同源代理暂时不可用时，继续使用下方的静态站点安全降级。
+    }
   }
+
+  const result = await fetchSandboxedBaiduSuggest(wd, signal);
+  if (result.length) cacheSet(wd, result);
+  return result;
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
