@@ -6,6 +6,11 @@ import { getColorStyle } from '@/lib/colors';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
 import {
+  resolveFolderChildVisualKind,
+  SYSTEM_GLYPH_SCALE,
+  SYSTEM_GLYPH_STROKE_WIDTH,
+} from '@/lib/iconPresentation';
+import {
   DESKTOP_GRID_GAP_PX,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
@@ -46,6 +51,7 @@ const FolderChildIcon: React.FC<{
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
   const crop = child.iconCrop;
   const SystemIcon = child.type === 'system' ? (SYSTEM_ICON_MAP[child.id] ?? Globe) : null;
+  const visualKind = resolveFolderChildVisualKind(child, Boolean(src));
 
   // 有裁剪参数时用 CSS transform 渲染，与 AppIcon 保持一致
   const imgStyle: React.CSSProperties = crop ? {
@@ -70,22 +76,25 @@ const FolderChildIcon: React.FC<{
         height: cellPx,
         borderRadius: radius,
         flexShrink: 0,
-        background: src ? '#fff' : getColorStyle(child.color),
+        background: visualKind === 'image' ? '#fff' : getColorStyle(child.color),
       }}
     >
-      {src ? (
+      {visualKind === 'system' && SystemIcon ? (
+        <SystemIcon
+          className="text-white drop-shadow"
+          style={{
+            width: cellPx * SYSTEM_GLYPH_SCALE,
+            height: cellPx * SYSTEM_GLYPH_SCALE,
+          }}
+          strokeWidth={SYSTEM_GLYPH_STROKE_WIDTH}
+        />
+      ) : visualKind === 'image' && src ? (
         <img
           src={src}
           alt=""
           draggable={false}
           decoding="async"
           style={imgStyle}
-        />
-      ) : SystemIcon ? (
-        <SystemIcon
-          className="text-white drop-shadow"
-          style={{ width: cellPx * 0.52, height: cellPx * 0.52 }}
-          strokeWidth={2.2}
         />
       ) : (
         <span className="text-white font-bold drop-shadow" style={{ fontSize: iconFontPx }}>
@@ -177,7 +186,11 @@ const AppIcon: React.FC<AppIconProps> = ({
       return (
         <div className="flex items-center justify-center ios-icon-shadow transition-transform duration-200"
           style={{ ...iconStyle, background: getColorStyle(item.color) }}>
-          <Icon style={{ width: px * 0.5, height: px * 0.5 }} className="text-white" strokeWidth={2} />
+          <Icon
+            style={{ width: px * SYSTEM_GLYPH_SCALE, height: px * SYSTEM_GLYPH_SCALE }}
+            className="text-white"
+            strokeWidth={SYSTEM_GLYPH_STROKE_WIDTH}
+          />
         </div>
       );
     }
