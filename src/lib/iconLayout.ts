@@ -226,8 +226,8 @@ export function getIconLayoutMetrics(size: IconSizeVariant = 'normal', iconPx?: 
 /**
  * 2×2 文件夹的统一尺寸公式：
  * - 外框始终为正方形，并保持 2×2 数据占位；
- * - 可视顶部与第一行应用图标顶部对齐，底部与第二行应用图标底部对齐；
- * - 电脑端列轨含额外呼吸空间时，外框会在四格占位内居中，不吞入行首留白；
+ * - 外框左右边缘与相邻两列普通应用图标的外边缘严格对齐；
+ * - 外框在四格数据占位内居中，不把列轨为名称预留的呼吸空间算进宽度；
  * - 名称间距沿用普通应用的 labelGap；
  * - 内部 3×3 使用 3 个 1/4 单元 + 4 个 1/16 间距，四周与行列间距完全相等。
  */
@@ -235,18 +235,16 @@ export function getLargeFolderLayoutMetrics(
   iconMetrics: IconLayoutMetrics,
   gridMetrics: Pick<
     DesktopGridLayoutMetrics,
-    'columnWidthPx' | 'rowHeightPx' | 'columnGapPx' | 'rowGapPx'
+    'columnWidthPx' | 'columnGapPx'
   >,
 ): LargeFolderLayoutMetrics {
-  const twoRowHeightPx = gridMetrics.rowHeightPx * 2 + gridMetrics.rowGapPx;
-  const verticalSidePx = gridMetrics.rowHeightPx
-    + gridMetrics.rowGapPx
-    + iconMetrics.iconPx;
-  const horizontalSidePx = Math.max(
+  // 相邻两列图标的中心距为 columnWidth + columnGap；在其两端各延伸半个
+  // iconPx，得到的正方形才能在任意图标尺寸下都与普通应用的左右边缘对齐。
+  // 不能直接使用完整两列轨道宽度，否则图标越大，文件夹越会侵入轨道留白。
+  const sidePx = Math.max(
     0,
-    gridMetrics.columnWidthPx * 2 + gridMetrics.columnGapPx,
+    gridMetrics.columnWidthPx + gridMetrics.columnGapPx + iconMetrics.iconPx,
   );
-  const sidePx = Math.max(0, Math.min(verticalSidePx, horizontalSidePx));
   // 无边线：整个正方形直接按 16 份分配，3 个缩略图各 4 份、四段间距各 1 份。
   const spacingPx = sidePx / 16;
   const previewCellPx = sidePx / 4;

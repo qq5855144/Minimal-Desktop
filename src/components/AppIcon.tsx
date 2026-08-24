@@ -135,10 +135,8 @@ const AppIcon: React.FC<AppIconProps> = ({
   const isLargeFolder = item.type === 'folder' && item.folderLayout === '2x2';
   const resolvedLargeFolderLayout = isLargeFolder
     ? (largeFolderLayout ?? getLargeFolderLayoutMetrics(metrics, {
-      columnWidthPx: Number.POSITIVE_INFINITY,
-      rowHeightPx: metrics.cellMinHeightPx,
+      columnWidthPx: metrics.iconPx,
       columnGapPx: DESKTOP_GRID_GAP_PX,
-      rowGapPx: DESKTOP_GRID_GAP_PX,
     }))
     : null;
 

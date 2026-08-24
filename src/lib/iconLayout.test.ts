@@ -7,16 +7,16 @@ import {
 } from './iconLayout';
 
 describe('iconLayout', () => {
-  it('2×2 文件夹以两行可用高度生成严格正方形并保持名称基线', () => {
+  it('2×2 文件夹与相邻两列普通应用图标的左右边缘严格对齐', () => {
     const grid = getDesktopGridLayoutMetrics(360, 4, 46, 800, 8);
     const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
     const folder = getLargeFolderLayoutMetrics(icon, grid);
-    const twoRowHeight = grid.rowHeightPx * 2 + grid.rowGapPx;
+    const adjacentIconOuterWidth = grid.columnWidthPx + grid.columnGapPx + icon.iconPx;
 
-    expect(folder.sidePx).toBe(126);
+    expect(folder.sidePx).toBe(131);
     expect(folder.radius).toBe('12%');
-    expect(folder.totalHeightPx).toBe(twoRowHeight);
-    expect(folder.sidePx + icon.labelGapPx + icon.labelHeightPx).toBe(twoRowHeight);
+    expect(folder.sidePx).toBeCloseTo(adjacentIconOuterWidth, 8);
+    expect(folder.totalHeightPx).toBe(folder.sidePx + icon.labelGapPx + icon.labelHeightPx);
   });
 
   it('3×3 缩略图四周、行间和列间使用完全相等的间距单元', () => {
@@ -52,12 +52,13 @@ describe('iconLayout', () => {
     expect(fourColumnFolder.sidePx).toBeGreaterThan(smallFolder.sidePx);
     expect(fiveColumns.iconPx).toBeLessThan(fourColumns.iconPx);
     expect(fiveColumnFolder.sidePx).toBeLessThan(fourColumnFolder.sidePx);
-    expect(fiveColumnFolder.sidePx).toBeLessThanOrEqual(
-      fiveColumns.columnWidthPx * 2 + DESKTOP_GRID_GAP_PX,
+    expect(fiveColumnFolder.sidePx).toBeCloseTo(
+      fiveColumns.columnWidthPx + DESKTOP_GRID_GAP_PX + fiveColumns.iconPx,
+      8,
     );
   });
 
-  it('电脑端 2×2 文件夹在四格占位内与两行应用图标上下对称', () => {
+  it('电脑端 2×2 文件夹同样以普通应用的实际图标边缘为横向锚点', () => {
     const grid = getDesktopGridLayoutMetrics(1440, 8, 46, 900, 8);
     const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
     const folder = getLargeFolderLayoutMetrics(icon, grid);
@@ -67,13 +68,9 @@ describe('iconLayout', () => {
     expect(grid.columnGapPx).toBe(16);
     expect(grid.rowGapPx).toBe(16);
     expect(folder.sidePx).toBeCloseTo(
-      grid.rowHeightPx + grid.rowGapPx + grid.iconPx,
+      grid.columnWidthPx + grid.columnGapPx + grid.iconPx,
       8,
     );
-    const appTopInsetPx = grid.rowHeightPx - icon.cellMinHeightPx;
-    const folderTopInsetPx = grid.rowHeightPx * 2 + grid.rowGapPx
-      - folder.totalHeightPx;
-    expect(folderTopInsetPx).toBeCloseTo(appTopInsetPx, 8);
     expect(folder.sidePx).toBeLessThan(
       grid.columnWidthPx * 2 + grid.columnGapPx,
     );
