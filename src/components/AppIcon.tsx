@@ -328,7 +328,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   return (
     <div
-      className={`relative ${isLargeFolder ? 'h-full min-h-0' : ''} ${ghost ? 'opacity-40' : ''}`}
+      className={`relative ${ghost ? 'opacity-40' : ''}`}
       style={isLargeFolder ? {
         width: resolvedLargeFolderLayout!.sidePx,
         maxWidth: '100%',
@@ -344,7 +344,7 @@ const AppIcon: React.FC<AppIconProps> = ({
         onPointerCancel={pressIntent.onPointerCancel}
         onDragStart={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full h-full min-h-0 justify-end' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
+        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
         style={{ gap: metrics.labelGapPx }}
       >
         {renderIconContent()}

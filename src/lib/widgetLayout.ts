@@ -10,6 +10,20 @@ export interface WidgetLayoutMetrics {
   ghostRadiusPx: number;
 }
 
+/** 组件后紧跟应用行时，避让应用“图标＋名称”向上超出行轨的部分。 */
+export function getWidgetBottomClearancePx(
+  iconCellHeightPx: number,
+  rowHeightPx: number,
+  isFollowedByDesktopItem: boolean,
+): number {
+  if (
+    !isFollowedByDesktopItem
+    || !Number.isFinite(iconCellHeightPx)
+    || !Number.isFinite(rowHeightPx)
+  ) return 0;
+  return Math.max(0, iconCellHeightPx - rowHeightPx);
+}
+
 export function getWidgetLayoutMetrics(
   widgetType?: WidgetType,
   iconPx?: number,

@@ -30,7 +30,11 @@ import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
-import { getWidgetLayoutMetrics, resolveGridRowAtY } from '@/lib/widgetLayout';
+import {
+  getWidgetBottomClearancePx,
+  getWidgetLayoutMetrics,
+  resolveGridRowAtY,
+} from '@/lib/widgetLayout';
 import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
 import type { ContextMenuPosition } from './ContextMenu';
@@ -1255,6 +1259,15 @@ const Desktop: React.FC = () => {
           const gridSpanHeightPx = desktopGridMetrics.rowHeightPx * rowSpan
             + gridRowGapPx * (rowSpan - 1);
           if (item.type === 'widget') {
+            const nextRow = r + rowSpan;
+            const isFollowedByDesktopItem = items.some((candidate) => (
+              candidate.row === nextRow && candidate.type !== 'widget'
+            ));
+            const widgetBottomClearancePx = getWidgetBottomClearancePx(
+              desktopIconMetrics.cellMinHeightPx,
+              desktopGridMetrics.rowHeightPx,
+              isFollowedByDesktopItem,
+            );
             cells.push(
               <div
                 key={item.id}
@@ -1277,6 +1290,7 @@ const Desktop: React.FC = () => {
                   ghost={ghost?.source.itemId === item.id}
                   iconPx={desktopIconMetrics.iconPx}
                   cellHeightPx={gridSpanHeightPx}
+                  bottomClearancePx={widgetBottomClearancePx}
                   onDragBegin={dragBegin}
                   onLongPress={handleLongPress}
                 />
@@ -1302,6 +1316,9 @@ const Desktop: React.FC = () => {
                 alignSelf: spansMultipleCells ? 'stretch' : 'end',
                 width: spansMultipleCells ? '100%' : undefined,
                 height: spansMultipleCells ? '100%' : undefined,
+                display: spansMultipleCells ? 'flex' : undefined,
+                alignItems: spansMultipleCells ? 'flex-end' : undefined,
+                justifyContent: spansMultipleCells ? 'center' : undefined,
               }}
               className={`relative min-w-0 transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
             >

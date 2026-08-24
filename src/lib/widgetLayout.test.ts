@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { getIconLayoutMetrics } from './iconLayout';
 import { getWidgetGridRowGapPx } from './widgetConfig';
-import { getWidgetLayoutMetrics, resolveGridRowAtY } from './widgetLayout';
+import {
+  getWidgetBottomClearancePx,
+  getWidgetLayoutMetrics,
+  resolveGridRowAtY,
+} from './widgetLayout';
 
 describe('widgetLayout', () => {
   it('所有组件严格按声明的 rowSpan 和当前图标行高计算占用高度', () => {
@@ -39,6 +43,12 @@ describe('widgetLayout', () => {
     expect(getWidgetLayoutMetrics('search', 46, true, 90, 16).cellMinHeightPx).toBe(90);
     expect(getWidgetLayoutMetrics('clock', 46, true, 90, 16).cellMinHeightPx).toBe(196);
     expect(getWidgetLayoutMetrics('combined', 46, true, 90, 16).cellMinHeightPx).toBe(302);
+  });
+
+  it('5 列紧凑布局为组件避让下一行应用的名称溢出区', () => {
+    expect(getWidgetBottomClearancePx(66.8, 52.8, true)).toBeCloseTo(14, 8);
+    expect(getWidgetBottomClearancePx(66.8, 52.8, false)).toBe(0);
+    expect(getWidgetBottomClearancePx(52.8, 52.8, true)).toBe(0);
   });
 
   it('拒绝网格外或无效几何数据', () => {
