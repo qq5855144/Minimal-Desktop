@@ -68,6 +68,12 @@ describe('sync credential storage', () => {
     });
   });
 
+  it('migrates legacy automatic sync settings to the 15 second debounce interval', () => {
+    localStorage.setItem('ios_sync_config', JSON.stringify(config));
+
+    expect(loadSyncConfig()?.autoSyncDelaySeconds).toBe(15);
+  });
+
   it('migrates the legacy built-in wallpaper to the current local WebP asset', () => {
     localStorage.setItem('ios_desktop_settings', JSON.stringify({
       style: 'glassmorphism',

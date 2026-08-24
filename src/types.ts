@@ -69,6 +69,7 @@ export interface DesktopData {
 }
 
 // GitHub 同步配置
+export type AutoSyncDelaySeconds = 5 | 15 | 30 | 60;
 export interface SyncConfig {
   token: string;
   owner: string;
@@ -78,6 +79,8 @@ export interface SyncConfig {
   fileName: string;
   syncInterval: 'manual' | '1d' | '7d' | '30d';
   autoSync: boolean;   // 数据变更时自动上传
+  /** 连续本地变更停止多久后上传；用于合并短时间内的拖拽与布局调整。 */
+  autoSyncDelaySeconds?: AutoSyncDelaySeconds;
   lastSyncAt?: string; // ISO string
   /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
   lastRemoteHead?: string;

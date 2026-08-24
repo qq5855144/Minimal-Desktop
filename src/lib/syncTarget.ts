@@ -31,6 +31,7 @@ export function preserveSyncStateForReconnect(
     ...next,
     syncInterval: previous.syncInterval,
     autoSync: previous.autoSync,
+    autoSyncDelaySeconds: previous.autoSyncDelaySeconds ?? next.autoSyncDelaySeconds,
     lastSyncAt: previous.lastSyncAt,
     lastRemoteHead: previous.lastRemoteHead,
     lastBackupBlobSha: previous.lastBackupBlobSha,

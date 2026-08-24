@@ -2,18 +2,20 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
+import { AutoSyncScheduler, getAutoSyncDelayMs } from '@/lib/autoSyncScheduler';
+import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
 } from '@/lib/iconLayout';
-import { resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   canPlaceItem,
   folderContainsSystemItem,
   getItemGridSpan,
   getPrivacyPageNumbers,
   LAYOUT_LIMITS,
+  normalizeResponsiveColumnCount,
 } from '@/lib/layoutEngine';
 import {
   getPageTrackIndex,
@@ -23,7 +25,7 @@ import {
   type SwipeAxis,
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
-import { loadSyncConfig } from '@/lib/storage';
+import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
 import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
@@ -80,6 +82,7 @@ const Desktop: React.FC = () => {
     setEditMode,
     loading,
     settings,
+    updateSettings,
     addItem,
     updateItem,
     removeItem,
@@ -177,8 +180,8 @@ const Desktop: React.FC = () => {
     y: y - viewport.shell.top,
   }), [viewport.shell.left, viewport.shell.top]);
 
-  // 行列数量完全跟随“应用视图”设置（4–10 列），不再由媒体查询偷偷改写。
-  const gridCols = settings.cols ?? 4;
+  // 窄屏允许 4/5 列；有效宽度达到电脑端断点后至少使用 6 列。
+  const gridCols = normalizeResponsiveColumnCount(settings.cols, viewport.isWide);
   const gridRows = settings.rows ?? 8;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
     viewport.shell.width,
@@ -200,6 +203,11 @@ const Desktop: React.FC = () => {
   const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
+
+  // 已有用户若仍保存 4/5 列，首次进入电脑端时原子重排并持久化为 6 列。
+  useEffect(() => {
+    if (settings.cols !== gridCols) updateSettings({ cols: gridCols });
+  }, [gridCols, settings.cols, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
@@ -239,33 +247,84 @@ const Desktop: React.FC = () => {
     });
   }, [addItem]);
 
-  // 自动同步：普通桌面或加密隐私 vault 变更时，防抖 3s 后上传同一种完整快照。
-  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstRenderRef = useRef(true);
+  // 自动同步：静默期防抖 + 单任务在途。快照生成期间若又发生拖拽，旧快照会被丢弃；
+  // 上传期间的后续改动则合并为下一次任务，避免旧快照晚到和同设备自相冲突。
+  const autoSyncLatestRef = useRef({ data, settings });
+  autoSyncLatestRef.current = { data, settings };
+  const autoSyncSchedulerRef = useRef<AutoSyncScheduler | null>(null);
+  const isFirstAutoSyncRenderRef = useRef(true);
+
+  useEffect(() => {
+    const scheduler = new AutoSyncScheduler({
+      getDelayMs: () => getAutoSyncDelayMs(loadSyncConfig()?.autoSyncDelaySeconds),
+      run: async ({ isSuperseded }) => {
+        const initialConfig = loadSyncConfig();
+        if (
+          !initialConfig?.autoSync
+          || !initialConfig.token
+          || !initialConfig.owner
+          || !initialConfig.repo
+          || initialConfig.pendingConflictHead
+        ) {
+          return 'paused';
+        }
+
+        try {
+          const latest = autoSyncLatestRef.current;
+          const snapshot = await buildSyncSnapshot(latest.data, latest.settings);
+          if (isSuperseded()) return 'complete';
+
+          // 构建壁纸快照可能耗时，上传前再次读取配置，避免使用已切换或已暂停的目标。
+          const currentConfig = loadSyncConfig();
+          if (
+            !currentConfig?.autoSync
+            || !currentConfig.token
+            || !currentConfig.owner
+            || !currentConfig.repo
+            || currentConfig.pendingConflictHead
+          ) {
+            return 'paused';
+          }
+
+          const result = await uploadSyncSnapshot(
+            { ...currentConfig, path: currentConfig.path || 'desktop_backup.json' },
+            snapshot,
+            { source: 'auto' },
+          );
+          if (result.conflict && !result.suppressed) {
+            toast.error('检测到云端新版本，自动同步已暂停', {
+              description: '请在云同步中下载确认，或选择“本次覆盖”。',
+              action: { label: '立即处理', onClick: () => setOpenSync(true) },
+            });
+          }
+          return result.conflict ? 'paused' : 'complete';
+        } catch {
+          // 网络错误保持静默；下一次本地变更仍可重新触发。
+          return 'complete';
+        }
+      },
+    });
+    autoSyncSchedulerRef.current = scheduler;
+    const handleConfigChange = () => scheduler.reschedule();
+    window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
+    window.addEventListener('storage', handleConfigChange);
+    return () => {
+      window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
+      window.removeEventListener('storage', handleConfigChange);
+      scheduler.dispose();
+      if (autoSyncSchedulerRef.current === scheduler) autoSyncSchedulerRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     // 即使首次挂载不上传，也立即触发旧版 PAT → sessionStorage 的安全迁移。
-    const cfg = loadSyncConfig();
+    loadSyncConfig();
     // 跳过首次挂载（避免页面刚加载就触发上传）
-    if (isFirstRenderRef.current) { isFirstRenderRef.current = false; return; }
-    if (!cfg?.autoSync || !cfg.token || !cfg.owner || !cfg.repo) return;
-    // 冲突只提示一次并持久暂停；由同步面板执行“下载确认”或“本次覆盖”后恢复。
-    if (cfg.pendingConflictHead) return;
-    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    autoSyncTimerRef.current = setTimeout(async () => {
-      try {
-        // 真正执行时由协调器重新读取最新基线，不能继续使用定时器创建时的旧 HEAD。
-        const syncCfg = { ...cfg, path: cfg.path || 'desktop_backup.json' };
-        const snapshot = await buildSyncSnapshot(data, settings);
-        const result = await uploadSyncSnapshot(syncCfg, snapshot, { source: 'auto' });
-        if (result.conflict && !result.suppressed) {
-          toast.error('检测到云端新版本，自动同步已暂停', {
-            description: '请在云同步中下载确认，或选择“本次覆盖”。',
-            action: { label: '立即处理', onClick: () => setOpenSync(true) },
-          });
-        }
-      } catch { /* 静默失败，不打扰用户 */ }
-    }, 3000);
-    return () => { if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current); };
+    if (isFirstAutoSyncRenderRef.current) {
+      isFirstAutoSyncRenderRef.current = false;
+      return;
+    }
+    autoSyncSchedulerRef.current?.request();
   }, [data, privacyRevision, settings]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);

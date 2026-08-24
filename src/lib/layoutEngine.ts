@@ -24,12 +24,25 @@ export const LAYOUT_LIMITS = Object.freeze({
   maxFolderApps: 9,
 });
 
+export const WIDE_VIEWPORT_MIN_COLS: DesktopColumnCount = 6;
+
 export function normalizeDesktopColumnCount(value?: number): DesktopColumnCount {
   const rounded = Number.isFinite(value) ? Math.round(value ?? LAYOUT_LIMITS.minCols) : 4;
   return Math.min(
     LAYOUT_LIMITS.maxCols,
     Math.max(LAYOUT_LIMITS.minCols, rounded),
   ) as DesktopColumnCount;
+}
+
+/** 电脑端至少使用 6 列；窄屏继续允许 4/5 列紧凑布局。 */
+export function normalizeResponsiveColumnCount(
+  value: number | undefined,
+  isWide: boolean,
+): DesktopColumnCount {
+  const normalized = normalizeDesktopColumnCount(value);
+  return isWide && normalized < WIDE_VIEWPORT_MIN_COLS
+    ? WIDE_VIEWPORT_MIN_COLS
+    : normalized;
 }
 
 export type LayoutFailure =

@@ -6,7 +6,8 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
+import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
+import { minimumRowsForEnabledWidgets, WIDE_VIEWPORT_MIN_COLS } from '@/lib/layoutEngine';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { DEFAULT_BG_IMAGE, defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
@@ -98,6 +99,7 @@ interface SettingsViewProps {
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
   const { data, importData, settings, setWidgetEnabled, updateSettings } = useDesktop();
+  const viewport = useViewportGeometry();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -654,7 +656,9 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 应用视图设置面板 ──
   const renderView = () => {
     const minRows = minimumRowsForEnabledWidgets(data);
-    const columnOptions: DesktopColumnCount[] = [4, 5, 6, 7, 8, 9, 10];
+    const columnOptions: DesktopColumnCount[] = viewport.isWide
+      ? [6, 7, 8, 9, 10]
+      : [4, 5, 6, 7, 8, 9, 10];
     const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
       { label: '图标大小', value: settings.iconSize, min: 36, max: 64, step: 2, unit: 'px', key: 'iconSize' },
       { label: '图标圆角', value: settings.iconRadiusPct ?? 25, min: 0, max: 50, step: 1, unit: '%', key: 'iconRadiusPct' },
@@ -711,7 +715,10 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         ))}
 
         <p className={`px-1 text-[11px] leading-4 ${t.textDim}`}>
-          4/5 列适合手机，6–10 列适合电脑。2×2 文件夹会随图标大小、行列数量和间隔实时缩放，
+          {viewport.isWide
+            ? `电脑端至少 ${WIDE_VIEWPORT_MIN_COLS} 列；当前布局可选择 6–10 列。`
+            : '4/5 列适合手机，6–10 列适合电脑。'}
+          2×2 文件夹会随图标大小、行列数量和间隔实时缩放，
           外框固定为 12% 圆角；图标圆角仅作用于 1×1 文件夹和文件夹内缩略图。
         </p>
       </div>

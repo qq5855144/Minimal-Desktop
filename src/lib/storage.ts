@@ -1,5 +1,6 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
+import { normalizeAutoSyncDelaySeconds } from './autoSyncScheduler';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
@@ -177,6 +178,7 @@ export function loadSyncConfig(): SyncConfig | null {
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
+      parsed.autoSyncDelaySeconds = normalizeAutoSyncDelaySeconds(parsed.autoSyncDelaySeconds);
       if (parsed.rememberToken === undefined) parsed.rememberToken = false;
       // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
       const legacyToken = parsed.token;

@@ -10,6 +10,7 @@ import {
   moveDesktopItem,
   movePrivacyItem,
   normalizeDesktopColumnCount,
+  normalizeResponsiveColumnCount,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren,
@@ -54,6 +55,14 @@ describe('layoutEngine', () => {
     expect(normalizeDesktopColumnCount(10)).toBe(10);
     expect(normalizeDesktopColumnCount(3)).toBe(4);
     expect(normalizeDesktopColumnCount(12)).toBe(10);
+  });
+
+  it('电脑端以 6 列为下限，窄屏仍保留 4/5 列', () => {
+    expect(normalizeResponsiveColumnCount(4, true)).toBe(6);
+    expect(normalizeResponsiveColumnCount(5, true)).toBe(6);
+    expect(normalizeResponsiveColumnCount(8, true)).toBe(8);
+    expect(normalizeResponsiveColumnCount(4, false)).toBe(4);
+    expect(normalizeResponsiveColumnCount(5, false)).toBe(5);
   });
 
   it('10 列布局可完整放置一整行应用及位于末两列的 2×2 文件夹', () => {
