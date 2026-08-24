@@ -1483,13 +1483,13 @@ const Desktop: React.FC = () => {
         {/* 统一网格：widget 行 + 应用图标行全在同一个 grid 中；监听 swipe 手势翻页 */}
         <div
           ref={swipeContainerRef}
-          className="flex-1 overflow-x-hidden overflow-y-auto min-h-0"
+          className="flex flex-1 flex-col overflow-x-hidden overflow-y-auto min-h-0"
           style={{ touchAction: 'pan-y' }}
         >
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
             <div
-              className={`${pagePaddingClass} flex justify-center`}
+              className={`${pagePaddingClass} flex shrink-0 justify-center`}
               style={pageVerticalPaddingStyle}
             >
               <div className="w-full" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
@@ -1515,7 +1515,7 @@ const Desktop: React.FC = () => {
                transform 由页面切换 effect / 跟手手势直接驱动（不走 React 渲染，保证流畅） */
             <div
               ref={pageTrackRef}
-              className="flex items-start will-change-transform"
+              className="flex shrink-0 items-start will-change-transform"
               style={{
                 transform: `translateX(${-getPageTrackIndex(
                   currentPage,
@@ -1583,64 +1583,64 @@ const Desktop: React.FC = () => {
               )}
             </div>
           )}
-        </div>
-
-        {/* 页面指示器：隐私页 + 普通页 */}
-        <div
-          className="flex items-center justify-center gap-1.5"
-          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}
-        >
-          {leadingPrivacyDropPage && (
-            <span
-              className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
-              aria-label={`拖拽新隐私页 ${-(privacyPageCount + 1)}`}
-            />
-          )}
-          {privacyPageNumbers.map((privacyPage) => (
-            <button
-              key={`privacy-page-${privacyPage}`}
-              type="button"
-              title={currentPage === privacyPage && privacyUnlocked
-                ? '再次点击锁定隐私桌面'
-                : `打开隐私桌面 ${privacyPage}`}
-              aria-label={`隐私桌面 ${privacyPage}`}
-              onClick={() => {
-                if (currentPage === privacyPage && privacyUnlocked) {
-                  void lockPrivacy()
-                    .then(() => navigateToPage(-1))
-                    .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
-                  return;
-                }
-                navigateToPage(privacyPage);
-              }}
-              className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
-                currentPage === privacyPage ? 'opacity-100' : 'opacity-40 hover:opacity-70'
-              }`}
-            >
-              <svg viewBox="0 0 12 14" fill="none" className={`w-3 h-3 ${settings.style === 'neumorphism' ? 'text-blue-500' : 'text-white'}`}>
-                <rect x="1" y="6" width="10" height="7" rx="1.5" fill="currentColor" opacity={currentPage === privacyPage ? '1' : '0.7'} />
-                <path d="M3 6V4a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-              </svg>
-            </button>
-          ))}
-          {data.pages.map((_, i) => (
-            <button
-              key={`page-${i}`}
-              type="button"
-              onClick={() => navigateToPage(i)}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === currentPage
-                  ? `w-4 ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`
-                  : `w-1.5 ${settings.style === 'neumorphism' ? 'bg-slate-400 hover:bg-slate-500' : 'bg-white/40 hover:bg-white/60'}`
-              }`}
-            />
-          ))}
-          {trailingDropPage && (
-            <span
-              className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
-              aria-label="拖拽新桌面页"
-            />
-          )}
+          {/* 短网格用剩余空间将指示器推至视口底部；长网格则让它自然排在网格末尾。 */}
+          <div
+            data-page-indicator-flow="true"
+            className="mt-auto flex shrink-0 items-center justify-center gap-1.5"
+            style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}
+          >
+            {leadingPrivacyDropPage && (
+              <span
+                className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
+                aria-label={`拖拽新隐私页 ${-(privacyPageCount + 1)}`}
+              />
+            )}
+            {privacyPageNumbers.map((privacyPage) => (
+              <button
+                key={`privacy-page-${privacyPage}`}
+                type="button"
+                title={currentPage === privacyPage && privacyUnlocked
+                  ? '再次点击锁定隐私桌面'
+                  : `打开隐私桌面 ${privacyPage}`}
+                aria-label={`隐私桌面 ${privacyPage}`}
+                onClick={() => {
+                  if (currentPage === privacyPage && privacyUnlocked) {
+                    void lockPrivacy()
+                      .then(() => navigateToPage(-1))
+                      .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
+                    return;
+                  }
+                  navigateToPage(privacyPage);
+                }}
+                className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
+                  currentPage === privacyPage ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+                }`}
+              >
+                <svg viewBox="0 0 12 14" fill="none" className={`w-3 h-3 ${settings.style === 'neumorphism' ? 'text-blue-500' : 'text-white'}`}>
+                  <rect x="1" y="6" width="10" height="7" rx="1.5" fill="currentColor" opacity={currentPage === privacyPage ? '1' : '0.7'} />
+                  <path d="M3 6V4a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                </svg>
+              </button>
+            ))}
+            {data.pages.map((_, i) => (
+              <button
+                key={`page-${i}`}
+                type="button"
+                onClick={() => navigateToPage(i)}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  i === currentPage
+                    ? `w-4 ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`
+                    : `w-1.5 ${settings.style === 'neumorphism' ? 'bg-slate-400 hover:bg-slate-500' : 'bg-white/40 hover:bg-white/60'}`
+                }`}
+              />
+            ))}
+            {trailingDropPage && (
+              <span
+                className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
+                aria-label="拖拽新桌面页"
+              />
+            )}
+          </div>
         </div>
       </div>
 
