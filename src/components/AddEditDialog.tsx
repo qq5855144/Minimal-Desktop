@@ -207,7 +207,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} flex flex-col`}
         style={{
           maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
-          ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : t.sheetStyle),
+          ...t.sheetStyle,
         }}
         onClick={(e) => e.stopPropagation()}
       >

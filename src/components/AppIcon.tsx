@@ -175,9 +175,6 @@ const AppIcon: React.FC<AppIconProps> = ({
     width: px, height: px,
     borderRadius: metrics.iconRadius,
     flexShrink: 0,
-    ...(isNeumorphism ? {
-      boxShadow: '4px 4px 10px rgba(0,0,0,0.12), -4px -4px 10px rgba(255,255,255,0.7)',
-    } : {}),
   };
 
   const renderIconContent = () => {
@@ -228,7 +225,7 @@ const AppIcon: React.FC<AppIconProps> = ({
                 ? `repeat(3, ${cellPx}px)`
                 : undefined,
             } : {}),
-            background: isNeu ? 'rgba(232,237,245,0.55)' : 'rgba(255,255,255,0.18)',
+            background: isNeu ? '#ffffff' : 'rgba(255,255,255,0.18)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
           }}

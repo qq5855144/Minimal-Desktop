@@ -203,12 +203,14 @@ function pickFirstLoadableIcon(candidates: string[]): Promise<string | null> {
 
 interface EngineEditorFormProps {
   initialEngine?: AnyEngine;
+  isNeu: boolean;
   onSave: (engine: CustomSearchEngine) => void;
   onCancel: () => void;
 }
 
 const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
   initialEngine,
+  isNeu,
   onSave,
   onCancel,
 }) => {
@@ -276,7 +278,7 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="p-4 space-y-3">
-      <p className="text-white text-sm font-semibold">
+      <p className={`${isNeu ? 'text-slate-800' : 'text-white'} text-sm font-semibold`}>
         {initialEngine ? '编辑搜索引擎' : '添加搜索引擎'}
       </p>
 
@@ -286,7 +288,9 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
         value={rawUrl}
         onChange={(e) => handleUrlChange(e.target.value)}
         placeholder="输入搜索引擎网址，如 https://bing.com"
-        className="w-full rounded-xl bg-white/10 text-white placeholder:text-white/40 text-sm px-3 py-2 outline-none focus:ring-1 focus:ring-white/40"
+        className={`w-full rounded-xl text-sm px-3 py-2 outline-none focus:ring-1 ${isNeu
+          ? 'bg-white text-slate-800 placeholder:text-slate-400 shadow-[inset_3px_3px_8px_rgba(15,23,42,0.10),inset_-3px_-3px_8px_rgba(255,255,255,1)] focus:ring-primary/30'
+          : 'bg-white/10 text-white placeholder:text-white/40 focus:ring-white/40'}`}
         style={{ fontSize: 16 }}
         autoComplete="off"
         autoCapitalize="none"
@@ -294,14 +298,14 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 
       {/* 自动识别预览 */}
       {parsed && (
-        <div className="flex items-center gap-3 rounded-xl bg-white/8 px-3 py-2">
+        <div className={`flex items-center gap-3 rounded-xl px-3 py-2 ${isNeu ? 'bg-white shadow-[4px_5px_14px_rgba(15,23,42,0.09)]' : 'bg-white/8'}`}>
           {/* 图标区：点击可替换为本地图片 */}
           <button
             type="button"
             title="点击选择本地图标"
             onClick={() => fileInputRef.current?.click()}
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 hover:ring-white/40 transition-all"
-            style={{ background: 'rgba(255,255,255,0.12)' }}
+            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 relative group overflow-hidden hover:ring-2 transition-all ${isNeu ? 'bg-white hover:ring-primary/30 shadow-[3px_4px_10px_rgba(15,23,42,0.11)]' : 'hover:ring-white/40'}`}
+            style={isNeu ? undefined : { background: 'rgba(255,255,255,0.12)' }}
           >
             {previewCandidates.length > 0 ? (
               <MultiSourceImg
@@ -312,7 +316,7 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
                 fallbackLetter={displayName.slice(0, 1) || '?'}
               />
             ) : (
-              <span className="text-white font-bold text-sm">{displayName.slice(0, 1) || '?'}</span>
+              <span className={`${isNeu ? 'text-slate-700' : 'text-white'} font-bold text-sm`}>{displayName.slice(0, 1) || '?'}</span>
             )}
             <span className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="text-white text-[9px] leading-tight text-center px-0.5">本地<br/>图标</span>
@@ -326,13 +330,13 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
             value={customName}
             onChange={(e) => setCustomName(e.target.value)}
             placeholder="引擎名称"
-            className="flex-1 bg-transparent text-white text-sm outline-none placeholder:text-white/40 border-b border-white/20 pb-0.5"
+            className={`flex-1 bg-transparent text-sm outline-none pb-0.5 border-b ${isNeu ? 'text-slate-800 placeholder:text-slate-400 border-slate-200' : 'text-white placeholder:text-white/40 border-white/20'}`}
             style={{ fontSize: 15 }}
           />
 
           {selectedIconUrl && (
             <button type="button" title="重新自动识别图标" onClick={() => setSelectedIconUrl(null)}
-              className="shrink-0 text-white/40 hover:text-white/80 transition-colors">
+              className={`shrink-0 transition-colors ${isNeu ? 'text-slate-400 hover:text-slate-700' : 'text-white/40 hover:text-white/80'}`}>
               <X className="w-3.5 h-3.5" />
             </button>
           )}
@@ -345,7 +349,7 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={onCancel}
-          className="flex-1 rounded-xl py-2 text-sm text-white/60 bg-white/10 hover:bg-white/15 transition-colors">
+          className={`flex-1 rounded-xl py-2 text-sm transition-colors ${isNeu ? 'text-slate-600 bg-white shadow-[3px_4px_10px_rgba(15,23,42,0.10)] hover:bg-slate-50' : 'text-white/60 bg-white/10 hover:bg-white/15'}`}>
           取消
         </button>
         <button type="submit" disabled={!canSubmit || submitting}
@@ -360,11 +364,12 @@ const EngineEditorForm: React.FC<EngineEditorFormProps> = ({
 interface EngineTileProps {
   engine: AnyEngine;
   active: boolean;
+  isNeu: boolean;
   onSelect: () => void;
   onOpenMenu: (x: number, y: number) => void;
 }
 
-const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpenMenu }) => {
+const EngineTile: React.FC<EngineTileProps> = ({ engine, active, isNeu, onSelect, onOpenMenu }) => {
   const tileRef = useRef<HTMLButtonElement>(null);
   const pressIntent = useLongPressIntent<HTMLButtonElement>({
     onLongPress: onOpenMenu,
@@ -423,10 +428,10 @@ const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpe
       className="search-engine-tile relative flex flex-col items-center gap-1 group py-0.5 touch-none select-none"
       aria-label={`${engine.name}，长按可编辑或删除`}
     >
-      <div className={`rounded-xl transition-all ${active ? 'ring-2 ring-white/80 ring-offset-1 ring-offset-transparent' : ''}`}>
+      <div className={`rounded-xl transition-all ${active ? `ring-2 ${isNeu ? 'ring-primary/70' : 'ring-white/80'} ring-offset-1 ring-offset-transparent` : ''}`}>
         <EngineIcon engine={engine} size={36} />
       </div>
-      <span className="text-white/75 text-[10px] text-center leading-tight w-full truncate px-0.5">
+      <span className={`${isNeu ? 'text-slate-600' : 'text-white/75'} text-[10px] text-center leading-tight w-full truncate px-0.5`}>
         {engine.name}
       </span>
     </button>
@@ -436,6 +441,7 @@ const EngineTile: React.FC<EngineTileProps> = ({ engine, active, onSelect, onOpe
 // ── 主面板 ───────────────────────────────────────────────────────────────────
 const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClose }) => {
   const { settings, updateSettings } = useDesktop();
+  const isNeu = settings.style === 'neumorphism';
   const [showAdd, setShowAdd] = useState(false);
   const [editingEngine, setEditingEngine] = useState<AnyEngine | null>(null);
   const [engineMenu, setEngineMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -599,11 +605,13 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           ...horizontalStyle,
           ...positionStyle,
           overflowY: 'auto',
-          background: 'rgba(28,28,32,0.94)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.13)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+          background: isNeu ? '#ffffff' : 'rgba(28,28,32,0.94)',
+          backdropFilter: isNeu ? undefined : 'blur(24px)',
+          WebkitBackdropFilter: isNeu ? undefined : 'blur(24px)',
+          border: isNeu ? '1px solid rgba(15,23,42,0.04)' : '1px solid rgba(255,255,255,0.13)',
+          boxShadow: isNeu
+            ? '8px 10px 28px rgba(15,23,42,0.16), -5px -5px 16px rgba(255,255,255,1)'
+            : '0 8px 32px rgba(0,0,0,0.45)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -611,6 +619,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           <EngineEditorForm
             key={editingEngine?.id ?? 'new-engine'}
             initialEngine={editingEngine ?? undefined}
+            isNeu={isNeu}
             onSave={saveEngine}
             onCancel={() => {
               setShowAdd(false);
@@ -621,11 +630,11 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
           <div className="p-2.5">
             {/* 标题行 */}
             <div className="flex items-center justify-between px-1 pb-1.5">
-              <span className="text-white/60 text-xs font-medium">选择搜索引擎</span>
+              <span className={`${isNeu ? 'text-slate-500' : 'text-white/60'} text-xs font-medium`}>选择搜索引擎</span>
               <button
                 type="button"
                 onClick={onClose}
-                className="text-white/40 hover:text-white/70 transition-colors"
+                className={`${isNeu ? 'text-slate-400 hover:text-slate-700' : 'text-white/40 hover:text-white/70'} transition-colors`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -639,6 +648,7 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
                     key={eng.id}
                     engine={eng}
                     active={eng.id === activeId}
+                    isNeu={isNeu}
                     onSelect={() => selectEngine(eng.id)}
                     onOpenMenu={(x, y) => setEngineMenu({ id: eng.id, x, y })}
                   />
@@ -656,12 +666,12 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
                 className="flex flex-col items-center gap-1 py-0.5"
               >
                 <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ background: 'rgba(255,255,255,0.12)' }}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center ${isNeu ? 'bg-white shadow-[3px_4px_10px_rgba(15,23,42,0.11)]' : ''}`}
+                  style={isNeu ? undefined : { background: 'rgba(255,255,255,0.12)' }}
                 >
-                  <Plus className="w-5 h-5 text-white/70" />
+                  <Plus className={`w-5 h-5 ${isNeu ? 'text-slate-500' : 'text-white/70'}`} />
                 </div>
-                <span className="text-white/60 text-[10px]">添加</span>
+                <span className={`${isNeu ? 'text-slate-500' : 'text-white/60'} text-[10px]`}>添加</span>
               </button>
             </div>
           </div>
@@ -692,10 +702,11 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
             style={{
               left,
               top,
-              background: 'rgba(30,30,40,0.94)',
-              backdropFilter: 'blur(24px)',
-              WebkitBackdropFilter: 'blur(24px)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: isNeu ? '#ffffff' : 'rgba(30,30,40,0.94)',
+              backdropFilter: isNeu ? undefined : 'blur(24px)',
+              WebkitBackdropFilter: isNeu ? undefined : 'blur(24px)',
+              border: isNeu ? '1px solid rgba(15,23,42,0.04)' : '1px solid rgba(255,255,255,0.15)',
+              boxShadow: isNeu ? '6px 8px 22px rgba(15,23,42,0.16), -4px -4px 12px rgba(255,255,255,1)' : undefined,
             }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -703,17 +714,17 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
               type="button"
               role="menuitem"
               onClick={() => openEngineEditor(engineMenu.id)}
-              className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm text-white/90 hover:bg-white/15 transition-colors"
+              className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm transition-colors ${isNeu ? 'text-slate-700 hover:bg-slate-100' : 'text-white/90 hover:bg-white/15'}`}
             >
               <Pencil className="w-4 h-4 text-primary shrink-0" />
               编辑
             </button>
-            <div className="h-px bg-white/10 my-0.5" />
+            <div className={`h-px my-0.5 ${isNeu ? 'bg-slate-200' : 'bg-white/10'}`} />
             <button
               type="button"
               role="menuitem"
               onClick={() => removeEngine(engineMenu.id)}
-              className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-white/15 transition-colors"
+              className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 transition-colors ${isNeu ? 'hover:bg-red-50' : 'hover:bg-white/15'}`}
             >
               <Trash2 className="w-4 h-4 shrink-0" />
               删除

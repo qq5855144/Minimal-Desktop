@@ -814,7 +814,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         style={{
           maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
           overflow: 'hidden',
-          ...(isNeu ? { boxShadow: '0 -8px 32px rgba(0,0,0,0.08), 0 -2px 8px rgba(0,0,0,0.04)' } : (t.sheetStyle as React.CSSProperties)),
+          ...(t.sheetStyle as React.CSSProperties),
         }}
         onClick={(e) => e.stopPropagation()}
       >

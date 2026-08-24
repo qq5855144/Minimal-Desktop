@@ -223,7 +223,7 @@ const Desktop: React.FC = () => {
   useEffect(() => {
     let bg: string;
     if (settings.style === 'neumorphism') {
-      bg = '#dde4f0';
+      bg = '#ffffff';
     } else if (settings.bgType === 'image' || settings.bgType === 'video') {
       bg = '#1a1a2e';
     } else {
@@ -1589,57 +1589,57 @@ const Desktop: React.FC = () => {
             className="mt-auto flex shrink-0 items-center justify-center gap-1.5"
             style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))' }}
           >
-            {leadingPrivacyDropPage && (
-              <span
-                className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
-                aria-label={`拖拽新隐私页 ${-(privacyPageCount + 1)}`}
-              />
-            )}
-            {privacyPageNumbers.map((privacyPage) => (
-              <button
-                key={`privacy-page-${privacyPage}`}
-                type="button"
-                title={currentPage === privacyPage && privacyUnlocked
-                  ? '再次点击锁定隐私桌面'
-                  : `打开隐私桌面 ${privacyPage}`}
-                aria-label={`隐私桌面 ${privacyPage}`}
-                onClick={() => {
-                  if (currentPage === privacyPage && privacyUnlocked) {
-                    void lockPrivacy()
-                      .then(() => navigateToPage(-1))
-                      .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
-                    return;
-                  }
-                  navigateToPage(privacyPage);
-                }}
-                className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
-                  currentPage === privacyPage ? 'opacity-100' : 'opacity-40 hover:opacity-70'
-                }`}
-              >
-                <svg viewBox="0 0 12 14" fill="none" className={`w-3 h-3 ${settings.style === 'neumorphism' ? 'text-blue-500' : 'text-white'}`}>
-                  <rect x="1" y="6" width="10" height="7" rx="1.5" fill="currentColor" opacity={currentPage === privacyPage ? '1' : '0.7'} />
-                  <path d="M3 6V4a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                </svg>
-              </button>
-            ))}
-            {data.pages.map((_, i) => (
-              <button
-                key={`page-${i}`}
-                type="button"
-                onClick={() => navigateToPage(i)}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === currentPage
-                    ? `w-4 ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`
-                    : `w-1.5 ${settings.style === 'neumorphism' ? 'bg-slate-400 hover:bg-slate-500' : 'bg-white/40 hover:bg-white/60'}`
-                }`}
-              />
-            ))}
-            {trailingDropPage && (
-              <span
-                className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
-                aria-label="拖拽新桌面页"
-              />
-            )}
+          {leadingPrivacyDropPage && (
+            <span
+              className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
+              aria-label={`拖拽新隐私页 ${-(privacyPageCount + 1)}`}
+            />
+          )}
+          {privacyPageNumbers.map((privacyPage) => (
+            <button
+              key={`privacy-page-${privacyPage}`}
+              type="button"
+              title={currentPage === privacyPage && privacyUnlocked
+                ? '再次点击锁定隐私桌面'
+                : `打开隐私桌面 ${privacyPage}`}
+              aria-label={`隐私桌面 ${privacyPage}`}
+              onClick={() => {
+                if (currentPage === privacyPage && privacyUnlocked) {
+                  void lockPrivacy()
+                    .then(() => navigateToPage(-1))
+                    .catch(() => toast.error('隐私数据加密保存失败，请稍后重试'));
+                  return;
+                }
+                navigateToPage(privacyPage);
+              }}
+              className={`flex items-center justify-center w-4 h-4 transition-all duration-300 ${
+                currentPage === privacyPage ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+              }`}
+            >
+              <svg viewBox="0 0 12 14" fill="none" className={`w-3 h-3 ${settings.style === 'neumorphism' ? 'text-blue-500' : 'text-white'}`}>
+                <rect x="1" y="6" width="10" height="7" rx="1.5" fill="currentColor" opacity={currentPage === privacyPage ? '1' : '0.7'} />
+                <path d="M3 6V4a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              </svg>
+            </button>
+          ))}
+          {data.pages.map((_, i) => (
+            <button
+              key={`page-${i}`}
+              type="button"
+              onClick={() => navigateToPage(i)}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                i === currentPage
+                  ? `w-4 ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`
+                  : `w-1.5 ${settings.style === 'neumorphism' ? 'bg-slate-400 hover:bg-slate-500' : 'bg-white/40 hover:bg-white/60'}`
+              }`}
+            />
+          ))}
+          {trailingDropPage && (
+            <span
+              className={`h-1.5 w-4 rounded-full ${settings.style === 'neumorphism' ? 'bg-blue-500' : 'bg-white'}`}
+              aria-label="拖拽新桌面页"
+            />
+          )}
           </div>
         </div>
       </div>
