@@ -14,12 +14,20 @@ export function getWidgetLayoutMetrics(
   widgetType?: WidgetType,
   iconPx?: number,
   wide = false,
+  rowHeightPx?: number,
+  rowGapPx = getWidgetGridRowGapPx(),
 ): WidgetLayoutMetrics {
   const type = resolveWidgetType(widgetType);
   const rowSpan = getWidgetConfig(type).rowSpan;
   const iconMetrics = getIconLayoutMetrics('normal', iconPx);
+  const resolvedRowHeightPx = Number.isFinite(rowHeightPx)
+    ? Math.max(iconMetrics.cellMinHeightPx, rowHeightPx ?? iconMetrics.cellMinHeightPx)
+    : iconMetrics.cellMinHeightPx;
+  const resolvedRowGapPx = Number.isFinite(rowGapPx)
+    ? Math.max(0, rowGapPx)
+    : getWidgetGridRowGapPx();
   const cellMinHeightPx =
-    iconMetrics.cellMinHeightPx * rowSpan + getWidgetGridRowGapPx() * (rowSpan - 1);
+    resolvedRowHeightPx * rowSpan + resolvedRowGapPx * (rowSpan - 1);
 
   return {
     type,

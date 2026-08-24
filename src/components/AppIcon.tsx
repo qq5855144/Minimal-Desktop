@@ -6,6 +6,7 @@ import { getColorStyle } from '@/lib/colors';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
 import {
+  DESKTOP_GRID_GAP_PX,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
   type LargeFolderLayoutMetrics,
@@ -133,7 +134,12 @@ const AppIcon: React.FC<AppIconProps> = ({
   const px = metrics.iconPx;
   const isLargeFolder = item.type === 'folder' && item.folderLayout === '2x2';
   const resolvedLargeFolderLayout = isLargeFolder
-    ? (largeFolderLayout ?? getLargeFolderLayoutMetrics(metrics, Number.POSITIVE_INFINITY))
+    ? (largeFolderLayout ?? getLargeFolderLayoutMetrics(metrics, {
+      columnWidthPx: Number.POSITIVE_INFINITY,
+      rowHeightPx: metrics.cellMinHeightPx,
+      columnGapPx: DESKTOP_GRID_GAP_PX,
+      rowGapPx: DESKTOP_GRID_GAP_PX,
+    }))
     : null;
 
   // 新拟态风格阴影

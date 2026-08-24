@@ -13,7 +13,7 @@ import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { deepClone } from '@/lib/utils/deepClone';
 import { clearVideoDB, saveVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
-import type { DesktopSettings, DesktopStyle } from '@/types';
+import type { DesktopColumnCount, DesktopSettings, DesktopStyle } from '@/types';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
@@ -654,6 +654,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 应用视图设置面板 ──
   const renderView = () => {
     const minRows = minimumRowsForEnabledWidgets(data);
+    const columnOptions: DesktopColumnCount[] = [4, 5, 6, 7, 8, 9, 10];
     const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
       { label: '图标大小', value: settings.iconSize, min: 36, max: 64, step: 2, unit: 'px', key: 'iconSize' },
       { label: '图标圆角', value: settings.iconRadiusPct ?? 25, min: 0, max: 50, step: 1, unit: '%', key: 'iconRadiusPct' },
@@ -670,15 +671,18 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         </div>
 
         {/* 每行列数 */}
-        <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder}`}>
-          <span className={`text-xs ${t.textMuted} shrink-0`}>每行列数</span>
-          <div className="flex gap-1.5">
-            {([4, 5] as const).map((c) => (
+        <div className={`rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder} space-y-2`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-xs ${t.textMuted}`}>每行列数</span>
+            <span className="text-xs font-medium text-primary">{settings.cols} 列</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {columnOptions.map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => updateSettings({ cols: c })}
-                className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                   settings.cols === c
                     ? 'bg-primary/20 border-primary text-primary'
                     : `${t.itemBg} ${t.itemBorder} ${t.textDim}`
@@ -707,8 +711,8 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         ))}
 
         <p className={`px-1 text-[11px] leading-4 ${t.textDim}`}>
-          2×2 文件夹会随图标大小和 4/5 列布局实时缩放，外框固定为 12% 圆角；图标圆角作用于
-          1×1 文件夹和所有文件夹内缩略图。窄屏下会按实际列宽等比收缩。
+          4/5 列适合手机，6–10 列适合电脑。2×2 文件夹会随图标大小、行列数量和间隔实时缩放，
+          外框固定为 12% 圆角；图标圆角仅作用于 1×1 文件夹和文件夹内缩略图。
         </p>
       </div>
     );

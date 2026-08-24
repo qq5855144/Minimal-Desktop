@@ -80,6 +80,22 @@ describe('desktop backup schema', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('accepts 10 desktop columns and rejects values above the supported maximum', () => {
+    const settings = {
+      style: 'glassmorphism',
+      iconSize: 46,
+      iconRadiusPct: 25,
+      cols: 10,
+      rows: 8,
+    };
+
+    expect(parseDesktopBackup({ ...validData, settings }).ok).toBe(true);
+    expect(parseDesktopBackup({
+      ...validData,
+      settings: { ...settings, cols: 11 },
+    }).ok).toBe(false);
+  });
+
   it('accepts the extension build relative default wallpaper path', () => {
     expect(parseDesktopBackup({
       ...validData,

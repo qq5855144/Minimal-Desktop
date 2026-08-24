@@ -28,7 +28,6 @@ import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
-import { getWidgetGridRowGapPx } from '@/lib/widgetConfig';
 import { getWidgetLayoutMetrics, resolveGridRowAtY } from '@/lib/widgetLayout';
 import type { BgOverlayScheme, DesktopItem, DragSource } from '@/types';
 import AppIcon from './AppIcon';
@@ -178,12 +177,15 @@ const Desktop: React.FC = () => {
     y: y - viewport.shell.top,
   }), [viewport.shell.left, viewport.shell.top]);
 
-  // 实际渲染列数：始终使用用户设置（4 或 5），不随屏幕宽度强制变为 6
+  // 行列数量完全跟随“应用视图”设置（4–10 列），不再由媒体查询偷偷改写。
   const gridCols = settings.cols ?? 4;
+  const gridRows = settings.rows ?? 8;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
     viewport.shell.width,
     gridCols,
     settings.iconSize,
+    viewport.shell.height,
+    gridRows,
   );
   const desktopIconMetrics = getIconLayoutMetrics(
     'normal',
@@ -192,9 +194,10 @@ const Desktop: React.FC = () => {
   );
   const largeFolderLayout = getLargeFolderLayoutMetrics(
     desktopIconMetrics,
-    desktopGridMetrics.columnWidthPx,
+    desktopGridMetrics,
   );
-  const gridRowGapPx = getWidgetGridRowGapPx();
+  const gridColumnGapPx = desktopGridMetrics.columnGapPx;
+  const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
 
@@ -317,8 +320,10 @@ const Desktop: React.FC = () => {
 
   const latestRef = useRef({
     data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-    moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
-    gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
+    moveFromFolderToDesktop, gridRows,
+    gridRowHeightPx: desktopGridMetrics.rowHeightPx,
+    gridColumnGapPx,
+    gridRowGapPx,
     setCurrentPage: navigateToPage, clearEdgeFn: null as (() => void) | null,
     moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems,
     privacyPageItems, privacyPageCount, privacyUnlocked,
@@ -326,8 +331,10 @@ const Desktop: React.FC = () => {
   React.useLayoutEffect(() => {
     latestRef.current = {
       data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
-      moveFromFolderToDesktop, gridRows: settings.rows ?? 8,
-      gridRowHeightPx: desktopIconMetrics.cellMinHeightPx,
+      moveFromFolderToDesktop, gridRows,
+      gridRowHeightPx: desktopGridMetrics.rowHeightPx,
+      gridColumnGapPx,
+      gridRowGapPx,
       setCurrentPage: navigateToPage, clearEdgeFn: latestRef.current.clearEdgeFn,
       moveItemToPrivacy, movePrivacyToPage, reorderPrivacyItems,
       privacyPageItems, privacyPageCount, privacyUnlocked,
@@ -665,8 +672,8 @@ const Desktop: React.FC = () => {
             targetGridRect,
             gc,
             latestRef.current.gridRows,
-            getWidgetGridRowGapPx(),
-            getWidgetGridRowGapPx(),
+            latestRef.current.gridColumnGapPx,
+            latestRef.current.gridRowGapPx,
             colSpan,
             rowSpan,
           )
@@ -759,7 +766,7 @@ const Desktop: React.FC = () => {
               e.clientY,
               widgetGridRect.top,
               latestRef.current.gridRowHeightPx,
-              getWidgetGridRowGapPx(),
+              latestRef.current.gridRowGapPx,
               latestRef.current.gridRows,
             )
             : null;
@@ -1162,7 +1169,7 @@ const Desktop: React.FC = () => {
    */
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
-    const renderRows = settings.rows ?? 8;
+    const renderRows = gridRows;
     const itemsByCell = new Map(items.map((item) => [`${item.row}:${item.col}`, item] as const));
     const coveredCells = new Set<string>();
     const dragBegin = pageIndex < 0 ? handlePrivacyDragBegin : handleDesktopDragBegin;
@@ -1182,6 +1189,8 @@ const Desktop: React.FC = () => {
         if (item) {
           const { rowSpan, colSpan } = getItemGridSpan(item, gridCols);
           const spansMultipleCells = rowSpan > 1 || colSpan > 1;
+          const gridSpanHeightPx = desktopGridMetrics.rowHeightPx * rowSpan
+            + gridRowGapPx * (rowSpan - 1);
           if (item.type === 'widget') {
             cells.push(
               <div
@@ -1204,6 +1213,7 @@ const Desktop: React.FC = () => {
                   item={item}
                   ghost={ghost?.source.itemId === item.id}
                   iconPx={desktopIconMetrics.iconPx}
+                  cellHeightPx={gridSpanHeightPx}
                   onDragBegin={dragBegin}
                   onLongPress={handleLongPress}
                 />
@@ -1225,7 +1235,8 @@ const Desktop: React.FC = () => {
                 gridColumn: `${c + 1} / span ${colSpan}`,
                 gridRow: `${r + 1} / span ${rowSpan}`,
                 justifySelf: spansMultipleCells ? 'stretch' : 'center',
-                alignSelf: spansMultipleCells ? 'stretch' : 'start',
+                // 单格应用贴齐行轨底部；2×2 文件夹名称与第二行应用名称保持同一基线。
+                alignSelf: spansMultipleCells ? 'stretch' : 'end',
                 width: spansMultipleCells ? '100%' : undefined,
                 height: spansMultipleCells ? '100%' : undefined,
               }}
@@ -1251,11 +1262,11 @@ const Desktop: React.FC = () => {
               data-row={r}
               data-col={c}
               data-page={pageIndex}
-              className="flex items-center justify-center rounded-xl"
+              className="flex items-end justify-center rounded-xl"
               style={{
                 gridColumnStart: c + 1,
                 gridRowStart: r + 1,
-                minHeight: desktopIconMetrics.cellMinHeightPx,
+                minHeight: desktopGridMetrics.rowHeightPx,
               }}
             >
               {isDragging && <SkeletonIcon iconPx={desktopIconMetrics.iconPx} />}
@@ -1271,8 +1282,8 @@ const Desktop: React.FC = () => {
         className="grid"
         style={{
           gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${renderRows}, ${desktopIconMetrics.cellMinHeightPx}px)`,
-          columnGap: gridRowGapPx,
+          gridTemplateRows: `repeat(${renderRows}, ${desktopGridMetrics.rowHeightPx}px)`,
+          columnGap: gridColumnGapPx,
           rowGap: gridRowGapPx,
           justifyItems: 'center',
         }}
@@ -1283,7 +1294,13 @@ const Desktop: React.FC = () => {
   };
 
   const ghostWidgetLayout = ghost?.item.type === 'widget'
-    ? getWidgetLayoutMetrics(ghost.item.widgetType, desktopIconMetrics.iconPx, viewport.isWide)
+    ? getWidgetLayoutMetrics(
+      ghost.item.widgetType,
+      desktopIconMetrics.iconPx,
+      viewport.isWide,
+      desktopGridMetrics.rowHeightPx,
+      gridRowGapPx,
+    )
     : null;
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
@@ -1384,9 +1401,19 @@ const Desktop: React.FC = () => {
           {loading ? (
             /* 加载骨架屏：只在初次加载时显示 */
             <div className={`${pagePaddingClass} pt-2 pb-2 flex justify-center`}>
-              <div className="w-full max-w-2xl">
-                <div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
-                  {Array.from({ length: gridCols * (settings.rows ?? 8) }).map((_, i) => (
+              <div className="w-full" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${gridRows}, ${desktopGridMetrics.rowHeightPx}px)`,
+                    columnGap: gridColumnGapPx,
+                    rowGap: gridRowGapPx,
+                    alignItems: 'end',
+                    justifyItems: 'center',
+                  }}
+                >
+                  {Array.from({ length: gridCols * gridRows }).map((_, i) => (
                     <SkeletonIcon key={`sk-${i}`} iconPx={desktopIconMetrics.iconPx} />
                   ))}
                 </div>
@@ -1408,7 +1435,7 @@ const Desktop: React.FC = () => {
             >
               {leadingPrivacyDropPage && (
                 <div key="page-layer-leading-privacy-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="relative w-full max-w-2xl mx-auto">
+                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
                     }`}>
@@ -1420,7 +1447,7 @@ const Desktop: React.FC = () => {
               )}
               {privacyPageNumbers.map((privacyPage) => (
                 <div key={`privacy-page-layer-${privacyPage}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="w-full max-w-2xl mx-auto">
+                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(
                       privacyPage,
                       privacyPageItems.filter((item) => item.page === privacyPage),
@@ -1430,14 +1457,14 @@ const Desktop: React.FC = () => {
               ))}
               {data.pages.map((pageData, i) => (
                 <div key={`page-layer-${i}`} className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="w-full max-w-2xl mx-auto">
+                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     {renderPageGrid(i, pageData)}
                   </div>
                 </div>
               ))}
               {trailingDropPage && (
                 <div key="page-layer-trailing-drop" className={`w-full shrink-0 ${pagePaddingClass} pt-2 pb-2`}>
-                  <div className="relative w-full max-w-2xl mx-auto">
+                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
                     <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
                       settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
                     }`}>

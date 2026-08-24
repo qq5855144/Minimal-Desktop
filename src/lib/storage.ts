@@ -1,7 +1,7 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
-import { findFirstAvailableSlot } from './layoutEngine';
+import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
@@ -271,6 +271,7 @@ export function loadSettings(): import('@/types').DesktopSettings {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       delete parsed.pixabayKey; // 已移除共享/客户端壁纸 API Key 方案
       const settings = { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
+      settings.cols = normalizeDesktopColumnCount(Number(parsed.cols ?? DEFAULT_SETTINGS.cols));
       if (isBuiltInDefaultWallpaper(settings.bgImage)) settings.bgImage = DEFAULT_BG_IMAGE;
       return settings;
     }

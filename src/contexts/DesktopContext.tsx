@@ -18,6 +18,7 @@ import {
   minimumRowsForEnabledWidgets,
   moveDesktopItem,
   movePrivacyItem,
+  normalizeDesktopColumnCount,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren as reorderFolderChildrenLayout,
@@ -42,6 +43,7 @@ import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
 import { getWidgetConfig } from '@/lib/widgetConfig';
 import type {
+  DesktopColumnCount,
   DesktopData,
   DesktopItem,
   DesktopSettings,
@@ -137,7 +139,7 @@ function collectIconUrls(data: DesktopData): Set<string> {
 
 interface DesktopHistoryState {
   data: DesktopData;
-  cols: 4 | 5;
+  cols: DesktopColumnCount;
   rows: number;
 }
 
@@ -235,7 +237,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const captureHistoryState = useCallback((): DesktopHistoryState => ({
     data: dataForHistory(dataRef.current),
-    cols: settingsRef.current.cols === 5 ? 5 : 4,
+    cols: normalizeDesktopColumnCount(settingsRef.current.cols),
     rows: settingsRef.current.rows ?? 8,
   }), []);
 
@@ -311,10 +313,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     initialLayoutNormalizedRef.current = true;
     const minRows = minimumRowsForEnabledWidgets(dataRef.current);
     const safeRows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, settingsRef.current.rows ?? 8));
-    const safeCols = Math.min(
-      LAYOUT_LIMITS.maxCols,
-      Math.max(LAYOUT_LIMITS.minCols, settingsRef.current.cols ?? 4),
-    ) as 4 | 5;
+    const safeCols = normalizeDesktopColumnCount(settingsRef.current.cols);
     const safeSettings: DesktopSettings = { ...settingsRef.current, rows: safeRows, cols: safeCols };
     if (safeRows !== settingsRef.current.rows || safeCols !== settingsRef.current.cols) {
       settingsRef.current = safeSettings;
@@ -440,7 +439,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [applyCompactedPrivacyItems, commitDesktopData, settings.cols, settings.rows]);
 
   const setWidgetEnabled = useCallback((widgetType: WidgetType, enabled: boolean): boolean => {
-    const cols = settingsRef.current.cols === 5 ? 5 : 4;
+    const cols = normalizeDesktopColumnCount(settingsRef.current.cols);
     const currentRows = settingsRef.current.rows ?? 8;
     const rows = Math.min(
       LAYOUT_LIMITS.maxRows,
@@ -966,10 +965,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!parsed.ok) return false;
     try {
       const requestedSettings = options.settings ?? settingsRef.current;
-      const cols = Math.min(
-        LAYOUT_LIMITS.maxCols,
-        Math.max(LAYOUT_LIMITS.minCols, requestedSettings.cols ?? 4),
-      ) as 4 | 5;
+      const cols = normalizeDesktopColumnCount(requestedSettings.cols);
       const minRows = minimumRowsForEnabledWidgets(parsed.data);
       const rows = Math.min(
         LAYOUT_LIMITS.maxRows,
@@ -1120,7 +1116,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
     const prev = settingsRef.current;
     const requested = { ...prev, ...patch };
-    const cols = Math.min(LAYOUT_LIMITS.maxCols, Math.max(LAYOUT_LIMITS.minCols, requested.cols ?? 4)) as 4 | 5;
+    const cols = normalizeDesktopColumnCount(requested.cols);
     const minRows = minimumRowsForEnabledWidgets(dataRef.current);
     const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
     const next: DesktopSettings = { ...requested, cols, rows };

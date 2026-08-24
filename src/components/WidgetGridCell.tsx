@@ -8,6 +8,8 @@ interface WidgetGridCellProps {
   item: DesktopItem;
   ghost?: boolean;
   iconPx?: number;
+  /** 当前网格跨度的完整视觉高度，保证组件与电脑端自适应行轨一致。 */
+  cellHeightPx?: number;
   onDragBegin?: (item: DesktopItem, x: number, y: number, pointerId: number) => void;
   onLongPress?: (item: DesktopItem, x: number, y: number) => void;
 }
@@ -16,10 +18,14 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   item,
   ghost = false,
   iconPx,
+  cellHeightPx,
   onDragBegin,
   onLongPress,
 }) => {
   const layout = getWidgetLayoutMetrics(item.widgetType, iconPx);
+  const resolvedCellHeightPx = Number.isFinite(cellHeightPx)
+    ? Math.max(layout.cellMinHeightPx, cellHeightPx ?? layout.cellMinHeightPx)
+    : layout.cellMinHeightPx;
   const WidgetComponent = getWidgetComponent(item.widgetType);
 
   const pressIntent = useLongPressIntent<HTMLDivElement>({
@@ -32,7 +38,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     return (
       <div
         className="mx-0 rounded-2xl bg-white/10 animate-pulse"
-        style={{ minHeight: layout.cellMinHeightPx }}
+        style={{ height: resolvedCellHeightPx, minHeight: resolvedCellHeightPx }}
       />
     );
   }
@@ -40,7 +46,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   return (
     <div
       className="relative flex w-full touch-none items-center"
-      style={{ minHeight: layout.cellMinHeightPx }}
+      style={{ height: resolvedCellHeightPx, minHeight: resolvedCellHeightPx }}
       onPointerDown={pressIntent.onPointerDown}
       onPointerMove={pressIntent.onPointerMove}
       onPointerUp={pressIntent.onPointerUp}

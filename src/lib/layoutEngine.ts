@@ -1,6 +1,13 @@
 import { deepClone } from '@/lib/utils/deepClone';
 import { createWidgetItem, getWidgetConfig } from '@/lib/widgetConfig';
-import type { DesktopData, DesktopItem, DesktopSettings, FolderLayout, WidgetType } from '@/types';
+import type {
+  DesktopColumnCount,
+  DesktopData,
+  DesktopItem,
+  DesktopSettings,
+  FolderLayout,
+  WidgetType,
+} from '@/types';
 
 /**
  * 桌面布局的唯一规则源。
@@ -12,10 +19,18 @@ export const LAYOUT_LIMITS = Object.freeze({
   minRows: 1,
   maxRows: 16,
   minCols: 4,
-  maxCols: 5,
+  maxCols: 10,
   maxPages: 20,
   maxFolderApps: 9,
 });
+
+export function normalizeDesktopColumnCount(value?: number): DesktopColumnCount {
+  const rounded = Number.isFinite(value) ? Math.round(value ?? LAYOUT_LIMITS.minCols) : 4;
+  return Math.min(
+    LAYOUT_LIMITS.maxCols,
+    Math.max(LAYOUT_LIMITS.minCols, rounded),
+  ) as DesktopColumnCount;
+}
 
 export type LayoutFailure =
   | 'invalid-page'
