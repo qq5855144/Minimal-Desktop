@@ -28,7 +28,8 @@ const FolderView: React.FC<FolderViewProps> = ({
   folder, onClose, onLongPress, onItemClick, triggerRenameId, onRenameDone,
   onDragIntentStart, onDragOutBegin,
 }) => {
-  const { loading, renameFolder, reorderFolderChildren } = useDesktop();
+  const { loading, renameFolder, reorderFolderChildren, settings } = useDesktop();
+  const isNeu = settings.style === 'neumorphism';
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(folder.name);
 
@@ -217,7 +218,9 @@ const FolderView: React.FC<FolderViewProps> = ({
         className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
         onClick={onClose}
       >
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div
+          className={`absolute inset-0 ${isNeu ? 'neu-bg' : 'bg-black/50 backdrop-blur-sm'}`}
+        />
 
         <div
           className="relative z-10 w-[92%] max-w-xs animate-scale-in"
@@ -232,17 +235,29 @@ const FolderView: React.FC<FolderViewProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleRename()}
-                  className="bg-white/20 text-white text-center text-lg font-semibold rounded-lg px-3 py-1 outline-none border border-white/30 max-w-[200px]"
+                  className={`text-center text-lg font-semibold rounded-lg px-3 py-1 outline-none max-w-[200px] ${
+                    isNeu
+                      ? 'neu-inset border-0 text-slate-700 placeholder:text-slate-400'
+                      : 'bg-white/20 text-white border border-white/30'
+                  }`}
                   maxLength={20}
                 />
-                <button type="button" onClick={handleRename} className="text-white/80 hover:text-white">
+                <button
+                  type="button"
+                  onClick={handleRename}
+                  className={isNeu ? 'text-slate-500 hover:text-slate-700' : 'text-white/80 hover:text-white'}
+                >
                   <Check className="w-5 h-5" />
                 </button>
               </>
             ) : (
               <button
                 type="button"
-                className="text-white text-lg font-semibold drop-shadow-md hover:text-white/80 transition-colors"
+                className={`text-lg font-semibold transition-colors ${
+                  isNeu
+                    ? 'text-slate-700 hover:text-slate-500'
+                    : 'text-white drop-shadow-md hover:text-white/80'
+                }`}
                 onClick={() => setEditing(true)}
               >
                 {folder.name}
@@ -251,7 +266,10 @@ const FolderView: React.FC<FolderViewProps> = ({
           </div>
 
           {/* ── 3×3 固定 9 格网格 ── */}
-          <div ref={gridRef} className="glass rounded-3xl p-4">
+          <div
+            ref={gridRef}
+            className={`${isNeu ? 'neu-raised' : 'glass'} rounded-3xl p-4`}
+          >
             {loading ? (
               <div className="grid grid-cols-3 gap-3">
                 {Array.from({ length: 9 }).map((_, i) => (
@@ -303,7 +321,11 @@ const FolderView: React.FC<FolderViewProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-10 h-10 rounded-full glass flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                isNeu
+                  ? 'neu-raised text-slate-600 hover:text-slate-800'
+                  : 'glass text-white hover:bg-white/20'
+              }`}
             >
               <X className="w-5 h-5" />
             </button>
