@@ -118,30 +118,34 @@ export function loadDesktopData(): DesktopData {
           }
         }
 
-        // ── 迁移 2：拆分旧的 combined widget / 确保两个独立 widget 存在 ──
-        // 移除旧的合并 widget
+        // ── 迁移 2：仅在确实存在旧 combined widget 时拆分为两个独立组件 ──
+        // 当前数据中缺失的 clock/search 代表用户明确隐藏，不能在每次启动时补回。
+        const hadLegacyCombinedWidget = ensured.pages.some((page) => (
+          page.some((item) => item.id === 'widget-combined')
+        ));
         for (let p = 0; p < ensured.pages.length; p++) {
           ensured.pages[p] = ensured.pages[p].filter((it) => it.id !== 'widget-combined');
         }
-        // 确保两个独立 widget 存在
-        for (const w of WIDGET_ITEMS) {
-          const exists = ensured.pages.flat().some((it) => it.id === w.id);
-          if (!exists) {
-            const migrationRows = Math.max(
-              layoutSettings.rows,
-              getWidgetConfig(w.widgetType).rowSpan,
-            );
-            const slot = findFirstAvailableSlot(
-              ensured.pages[0],
-              w,
-              layoutSettings.cols,
-              migrationRows,
-            );
-            if (slot) {
-              ensured.pages[0].push({ ...w, page: 0, ...slot });
-            } else {
-              const newPage = ensured.pages.length;
-              ensured.pages.push([{ ...w, page: newPage, row: 0, col: 0 }]);
+        if (hadLegacyCombinedWidget) {
+          for (const w of WIDGET_ITEMS) {
+            const exists = ensured.pages.flat().some((it) => it.id === w.id);
+            if (!exists) {
+              const migrationRows = Math.max(
+                layoutSettings.rows,
+                getWidgetConfig(w.widgetType).rowSpan,
+              );
+              const slot = findFirstAvailableSlot(
+                ensured.pages[0],
+                w,
+                layoutSettings.cols,
+                migrationRows,
+              );
+              if (slot) {
+                ensured.pages[0].push({ ...w, page: 0, ...slot });
+              } else {
+                const newPage = ensured.pages.length;
+                ensured.pages.push([{ ...w, page: newPage, row: 0, col: 0 }]);
+              }
             }
           }
         }

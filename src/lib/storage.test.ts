@@ -127,4 +127,42 @@ describe('sync credential storage', () => {
     expect(ids.filter((id) => id === 'sys-sync')).toHaveLength(1);
     expect(restored.pages.flat().find((item) => item.id === 'tools')?.folderLayout).toBe('2x2');
   });
+
+  it('preserves widgets explicitly removed by the user across reloads', () => {
+    localStorage.setItem('ios_desktop_data', JSON.stringify({
+      version: CURRENT_DESKTOP_VERSION,
+      pages: [[
+        { id: 'sys-add', type: 'system', name: '添加应用', color: 'blue', page: 0, row: 0, col: 0 },
+        { id: 'sys-settings', type: 'system', name: '设置', color: 'gray', page: 0, row: 0, col: 1 },
+        { id: 'sys-sync', type: 'system', name: '同步', color: 'indigo', page: 0, row: 0, col: 2 },
+      ]],
+    }));
+
+    const restored = loadDesktopData();
+
+    expect(restored.pages.flat().some((item) => item.type === 'widget')).toBe(false);
+  });
+
+  it('still splits a legacy combined widget into the independent defaults', () => {
+    localStorage.setItem('ios_desktop_data', JSON.stringify({
+      version: CURRENT_DESKTOP_VERSION,
+      pages: [[{
+        id: 'widget-combined',
+        type: 'widget',
+        widgetType: 'combined',
+        name: '时钟与搜索',
+        color: 'gray',
+        page: 0,
+        row: 0,
+        col: 0,
+      }]],
+    }));
+
+    const restored = loadDesktopData();
+    const ids = restored.pages.flat().map((item) => item.id);
+
+    expect(ids).not.toContain('widget-combined');
+    expect(ids).toContain('widget-clock');
+    expect(ids).toContain('widget-search');
+  });
 });
