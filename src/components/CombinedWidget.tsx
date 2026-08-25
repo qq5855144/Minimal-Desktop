@@ -1,4 +1,4 @@
-import { Camera, Mic, Search } from 'lucide-react';
+import { Camera, Mic } from 'lucide-react';
 import React, { useCallback, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { useMinuteClock } from '@/hooks/use-minute-clock';
@@ -104,11 +104,11 @@ const CombinedWidget: React.FC = () => {
         <form
           onSubmit={handleSubmit}
           className={isOutline
-            ? `flex items-center gap-3 px-3.5 py-2.5 rounded-[22px] border-[3px] border-white/95 text-white shadow-[0_10px_28px_rgba(0,0,0,0.10)] transition-all duration-200 ${focused ? 'bg-white/14' : 'bg-white/[0.06]'}`
-            : `flex items-center gap-2 px-3 py-[9px] rounded-full transition-all duration-200 ${
+            ? `flex h-[42px] items-center gap-2 rounded-full border-2 border-white/90 bg-transparent px-3 transition-all duration-200 ${focused ? 'shadow-[0_0_0_2px_rgba(255,255,255,0.22)]' : 'shadow-[0_4px_14px_rgba(0,0,0,0.10)]'}`
+            : `flex h-[42px] items-center gap-2 rounded-full px-3 transition-all duration-200 ${
               focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
             }`}
-          style={{ backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+          style={isOutline ? {} : { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
           {/* 搜索引擎图标（可点击） */}
           <button
@@ -116,11 +116,9 @@ const CombinedWidget: React.FC = () => {
             type="button"
             onClick={openPanel}
             aria-label="切换搜索引擎"
-            className={`shrink-0 flex items-center justify-center transition-transform active:scale-90 ${isOutline ? 'w-9 h-9 rounded-full border-[3px] border-current' : 'w-6 h-6'}`}
+            className="shrink-0 w-6 h-6 flex items-center justify-center transition-transform active:scale-90"
           >
-            {isOutline ? (
-              <Search className="w-5 h-5" strokeWidth={3} />
-            ) : iconSrc && !iconErr ? (
+            {iconSrc && !iconErr ? (
               <img src={iconSrc} alt={currentEngine.name} width={20} height={20} className="object-contain" onError={() => setIconErr(true)} />
             ) : (
               <span className="w-6 h-6 rounded-md flex items-center justify-center text-white text-[10px] font-bold" style={{ background: currentEngine.color }}>
@@ -137,15 +135,15 @@ const CombinedWidget: React.FC = () => {
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder="搜索或输入网址"
-            className={`flex-1 min-w-0 bg-transparent text-white placeholder:text-white/70 outline-none ${isOutline ? 'font-semibold tracking-tight' : ''}`}
+            className="flex-1 min-w-0 bg-transparent text-white text-sm placeholder:text-white/50 outline-none"
             style={{ fontSize: 16 }}
           />
           <div className="flex items-center gap-2 shrink-0">
             <button type="button" aria-label="语音搜索" className="text-white/60 hover:text-white transition-colors">
-              <Mic className={isOutline ? 'w-5 h-5' : 'w-4 h-4'} />
+              <Mic className="w-4 h-4" />
             </button>
             <button type="button" aria-label="图片搜索" className="text-white/60 hover:text-white transition-colors">
-              <Camera className={isOutline ? 'w-6 h-6' : 'w-4 h-4'} />
+              <Camera className="w-4 h-4" />
             </button>
           </div>
         </form>

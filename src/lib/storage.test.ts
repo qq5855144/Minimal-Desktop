@@ -91,13 +91,8 @@ describe('sync credential storage', () => {
 
   it('defaults legacy settings to the soft search bar style', () => {
     localStorage.setItem('ios_desktop_settings', JSON.stringify({
-      style: 'glassmorphism',
-      iconSize: 46,
-      iconRadiusPct: 25,
-      cols: 4,
-      rows: 8,
+      style: 'glassmorphism', iconSize: 46, iconRadiusPct: 25, cols: 4, rows: 8,
     }));
-
     expect(loadSettings().searchBarStyle).toBe('soft');
   });
 

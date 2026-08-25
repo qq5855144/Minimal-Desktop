@@ -120,7 +120,7 @@ export interface DesktopSettings {
   bgOverlayEnabled?: boolean;
   bgOverlayScheme?: BgOverlayScheme;
   applyOverlayToWallpaper?: boolean;
-  /** 搜索框视觉样式；旧数据缺省时使用柔和填充。 */
+  /** 搜索框外壳样式；两种样式保持相同组件高度。 */
   searchBarStyle?: SearchBarStyle;
   searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
   /** 用户新增的搜索引擎，以及对同 ID 内置引擎的本地覆盖。 */

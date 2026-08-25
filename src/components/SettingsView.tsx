@@ -782,33 +782,33 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           })}
         </div>
         <div className="space-y-2 pt-1">
-          <div>
-            <p className={`text-sm font-medium ${t.textPrimary}`}>搜索框样式</p>
-            <p className={`text-xs ${t.textDim}`}>选择后立即应用到桌面搜索组件</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={`text-sm font-medium ${t.textPrimary}`}>搜索框样式</p>
+              <p className={`text-[11px] ${t.textDim}`}>高度不变，仅切换外壳效果</p>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             {([
-              { id: 'soft', label: '柔和填充', preview: 'bg-white/20 border border-white/20' },
-              { id: 'outline', label: '描边通透', preview: 'bg-transparent border-[3px] border-white/90' },
-            ] as { id: SearchBarStyle; label: string; preview: string }[]).map((option) => {
+              { id: 'soft', label: '柔和填充', shell: 'border border-white/20 bg-white/20' },
+              { id: 'outline', label: '通透描边', shell: 'border-2 border-white/90 bg-transparent' },
+            ] as { id: SearchBarStyle; label: string; shell: string }[]).map((option) => {
               const active = (settings.searchBarStyle ?? 'soft') === option.id;
               return (
                 <button
                   key={option.id}
                   type="button"
                   onClick={() => updateSettings({ searchBarStyle: option.id })}
-                  className={`rounded-2xl border p-3 text-left transition-all ${
-                    active ? 'border-primary bg-primary/10' : `${t.itemBorder} ${t.itemBg}`
-                  }`}
+                  className={`rounded-xl border p-2 transition-colors ${active ? 'border-primary bg-primary/10' : `${t.itemBorder} ${t.itemBg}`}`}
                 >
-                  <div className={`mb-2 flex h-10 items-center gap-2 rounded-2xl px-2.5 ${option.preview} ${isNeu ? 'border-slate-300' : ''}`}>
-                    <Search className={`h-4 w-4 ${isNeu ? 'text-slate-500' : 'text-white'}`} />
-                    <span className={`h-1.5 flex-1 rounded-full ${isNeu ? 'bg-slate-400/50' : 'bg-white/70'}`} />
-                    <span className={`h-3 w-3 rounded-full border ${isNeu ? 'border-slate-400' : 'border-white/80'}`} />
+                  <div className={`flex h-8 items-center gap-1.5 rounded-full px-2 ${option.shell} ${isNeu ? 'border-slate-300' : ''}`}>
+                    <span className={`h-4 w-4 rounded-md ${isNeu ? 'bg-slate-400' : 'bg-white/90'}`} />
+                    <span className={`h-1 flex-1 rounded-full ${isNeu ? 'bg-slate-400/45' : 'bg-white/65'}`} />
+                    <span className={`h-2.5 w-2.5 rounded-full border ${isNeu ? 'border-slate-400' : 'border-white/80'}`} />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-medium ${active ? 'text-primary' : t.textMuted}`}>{option.label}</span>
-                    {active && <Check className="h-3.5 w-3.5 text-primary" strokeWidth={3} />}
+                  <div className="mt-1.5 flex items-center justify-between">
+                    <span className={`text-[11px] font-medium ${active ? 'text-primary' : t.textMuted}`}>{option.label}</span>
+                    {active && <Check className="h-3 w-3 text-primary" strokeWidth={3} />}
                   </div>
                 </button>
               );
@@ -821,11 +821,11 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   };
 
   const panelMeta: Record<Panel, { title: string; description: string; icon: React.ReactNode; iconClassName: string }> = {
-    main: { title: '设置', description: '桌面外观、布局与组件', icon: <Palette className="h-5 w-5" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
-    bg: { title: '背景', description: '壁纸、视频与在线图库', icon: <Image className="h-5 w-5" />, iconClassName: 'bg-blue-500/15 text-blue-500' },
-    view: { title: '应用视图', description: '网格密度与图标尺寸', icon: <LayoutGrid className="h-5 w-5" />, iconClassName: 'bg-indigo-500/15 text-indigo-500' },
-    style: { title: '桌面风格', description: '材质、色彩与光影', icon: <Palette className="h-5 w-5" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
-    widgets: { title: '桌面组件', description: '管理组件与搜索框样式', icon: <Layers className="h-5 w-5" />, iconClassName: 'bg-teal-500/15 text-teal-500' },
+    main: { title: '设置', description: '外观、布局与桌面组件', icon: <Palette className="h-4 w-4" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
+    bg: { title: '背景', description: '壁纸、视频与在线图库', icon: <Image className="h-4 w-4" />, iconClassName: 'bg-blue-500/15 text-blue-500' },
+    view: { title: '应用视图', description: '网格与图标尺寸', icon: <LayoutGrid className="h-4 w-4" />, iconClassName: 'bg-indigo-500/15 text-indigo-500' },
+    style: { title: '桌面风格', description: '材质与光影效果', icon: <Palette className="h-4 w-4" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
+    widgets: { title: '桌面组件', description: '显示状态与搜索样式', icon: <Layers className="h-4 w-4" />, iconClassName: 'bg-teal-500/15 text-teal-500' },
   };
   const meta = panelMeta[panel];
 
@@ -839,14 +839,14 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
       iconClassName={meta.iconClassName}
       onClose={handleClose}
       onBack={panel === 'main' ? undefined : () => setPanel('main')}
-      bodyClassName={panel === 'bg' ? 'min-h-0 overflow-hidden' : 'overflow-y-auto'}
+      bodyClassName={panel === 'bg' ? 'overflow-hidden' : 'overflow-y-auto'}
     >
       {panel === 'main'    && renderMain()}
       {panel === 'bg'      && renderBg()}
       {panel === 'view'    && renderView()}
       {panel === 'style'   && renderStyle()}
       {panel === 'widgets' && renderWidgets()}
-      {panel !== 'bg' && <div className="pb-6" />}
+      {panel !== 'bg' && <div className="pb-4" />}
     </SystemSheet>
   );
 };
