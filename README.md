@@ -2,6 +2,10 @@
 
 一款运行在浏览器里的 iOS 风格桌面，支持应用管理、文件夹、组件、隐私桌面与多端同步。同时提供 Chrome / Firefox 浏览器扩展（新标签页）。
 
+<p align="center">
+  <img src="docs/preview.webp" alt="Minimal Desktop 桌面预览" width="720" />
+</p>
+
 ## 基础操作
 
 ### 添加应用
