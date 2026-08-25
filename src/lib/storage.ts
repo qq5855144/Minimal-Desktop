@@ -271,6 +271,7 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   bgOverlayEnabled: false,
   bgOverlayScheme: 'aurora',
   applyOverlayToWallpaper: false,
+  searchBarStyle: 'soft',
   searchEngine: 'bing',
   customEngines: [],
   deletedSearchEngineIds: [],

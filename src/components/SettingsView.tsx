@@ -1,7 +1,7 @@
 import {
-  Check, ChevronLeft, ChevronRight, Clock,
+  Check, ChevronRight, Clock,
   Image, Layers, LayoutGrid, Loader2, Palette,
-  RotateCcw, Search, Video, X,
+  RotateCcw, Search, Video,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -14,7 +14,8 @@ import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { deepClone } from '@/lib/utils/deepClone';
 import { clearVideoDB, saveVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wallpaperStorage';
-import type { DesktopColumnCount, DesktopSettings, DesktopStyle } from '@/types';
+import type { DesktopColumnCount, DesktopSettings, DesktopStyle, SearchBarStyle } from '@/types';
+import SystemSheet from './SystemSheet';
 
 type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
@@ -380,7 +381,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 主面板 ──
   const renderMain = () => (
     <div className="px-5 py-4 space-y-2">
-      <h2 className={`text-base font-semibold mb-3 ${t.textPrimary}`}>设置</h2>
       {[
         {
           id: 'bg' as Panel,
@@ -539,12 +539,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     return (
       <div className="flex flex-col h-full">
         {/* 固定头部 */}
-        <div className="px-5 pt-3 pb-2 shrink-0 flex items-center justify-between">
-          <button type="button" onClick={() => setPanel('main')}
-            className={`flex items-center gap-1 text-sm ${t.backText}`}>
-            <ChevronLeft className="w-4 h-4" /> 返回
-          </button>
-          <h3 className={`text-sm font-semibold ${t.textPrimary}`}>壁纸</h3>
+        <div className="px-5 pt-3 pb-2 shrink-0 flex items-center justify-end">
           <div className="flex items-center gap-2">
             {bgCat === 'bing' ? (
               <button type="button" onClick={fetchBingWallpapers} disabled={bingLoading}
@@ -666,14 +661,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     ];
     return (
       <div className="px-4 py-3 space-y-3">
-        <div className="flex items-center justify-between">
-          <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1 text-sm ${t.backText}`}>
-            <ChevronLeft className="w-4 h-4" /> 返回
-          </button>
-          <h3 className={`text-sm font-semibold ${t.textPrimary}`}>应用视图设置</h3>
-          <div className="w-12" />
-        </div>
-
         {/* 每行列数 */}
         <div className={`rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder} space-y-2`}>
           <div className="flex items-center justify-between">
@@ -733,10 +720,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     ];
     return (
       <div className="px-5 py-4 space-y-4">
-        <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
-          <ChevronLeft className="w-4 h-4" /> 返回
-        </button>
-        <h3 className={`text-base font-semibold ${t.textPrimary}`}>风格设置</h3>
         <div className="space-y-3">
           {styles.map((s) => (
             <button
@@ -773,10 +756,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     ];
     return (
       <div className="px-5 py-4 space-y-4">
-        <button type="button" onClick={() => setPanel('main')} className={`flex items-center gap-1.5 text-sm ${t.backText}`}>
-          <ChevronLeft className="w-4 h-4" /> 返回
-        </button>
-        <h3 className={`text-base font-semibold ${t.textPrimary}`}>组件管理</h3>
         <p className={`text-xs ${t.textDim}`}>点击开关可在桌面上显示或隐藏对应组件</p>
         <div className="space-y-3">
           {widgetDefs.map((w) => {
@@ -802,35 +781,73 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
             );
           })}
         </div>
+        <div className="space-y-2 pt-1">
+          <div>
+            <p className={`text-sm font-medium ${t.textPrimary}`}>搜索框样式</p>
+            <p className={`text-xs ${t.textDim}`}>选择后立即应用到桌面搜索组件</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { id: 'soft', label: '柔和填充', preview: 'bg-white/20 border border-white/20' },
+              { id: 'outline', label: '描边通透', preview: 'bg-transparent border-[3px] border-white/90' },
+            ] as { id: SearchBarStyle; label: string; preview: string }[]).map((option) => {
+              const active = (settings.searchBarStyle ?? 'soft') === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => updateSettings({ searchBarStyle: option.id })}
+                  className={`rounded-2xl border p-3 text-left transition-all ${
+                    active ? 'border-primary bg-primary/10' : `${t.itemBorder} ${t.itemBg}`
+                  }`}
+                >
+                  <div className={`mb-2 flex h-10 items-center gap-2 rounded-2xl px-2.5 ${option.preview} ${isNeu ? 'border-slate-300' : ''}`}>
+                    <Search className={`h-4 w-4 ${isNeu ? 'text-slate-500' : 'text-white'}`} />
+                    <span className={`h-1.5 flex-1 rounded-full ${isNeu ? 'bg-slate-400/50' : 'bg-white/70'}`} />
+                    <span className={`h-3 w-3 rounded-full border ${isNeu ? 'border-slate-400' : 'border-white/80'}`} />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs font-medium ${active ? 'text-primary' : t.textMuted}`}>{option.label}</span>
+                    {active && <Check className="h-3.5 w-3.5 text-primary" strokeWidth={3} />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <p className={`text-xs ${t.textDim} pt-1`}>💡 搜索引擎切换：点击搜索框左侧的引擎图标即可打开选择面板</p>
       </div>
     );
   };
 
+  const panelMeta: Record<Panel, { title: string; description: string; icon: React.ReactNode; iconClassName: string }> = {
+    main: { title: '设置', description: '桌面外观、布局与组件', icon: <Palette className="h-5 w-5" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
+    bg: { title: '背景', description: '壁纸、视频与在线图库', icon: <Image className="h-5 w-5" />, iconClassName: 'bg-blue-500/15 text-blue-500' },
+    view: { title: '应用视图', description: '网格密度与图标尺寸', icon: <LayoutGrid className="h-5 w-5" />, iconClassName: 'bg-indigo-500/15 text-indigo-500' },
+    style: { title: '桌面风格', description: '材质、色彩与光影', icon: <Palette className="h-5 w-5" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
+    widgets: { title: '桌面组件', description: '管理组件与搜索框样式', icon: <Layers className="h-5 w-5" />, iconClassName: 'bg-teal-500/15 text-teal-500' },
+  };
+  const meta = panelMeta[panel];
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
-      <div
-        className={`w-full max-w-lg rounded-t-3xl animate-slide-up flex flex-col pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder}`}
-        style={{
-          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
-          overflow: 'hidden',
-          ...(t.sheetStyle as React.CSSProperties),
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-center pt-3 pb-1 shrink-0">
-          <div className={`w-10 h-1 rounded-full ${t.handle}`} />
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {panel === 'main'    && renderMain()}
-          {panel === 'bg'      && renderBg()}
-          {panel === 'view'    && renderView()}
-          {panel === 'style'   && renderStyle()}
-          {panel === 'widgets' && renderWidgets()}
-          {panel !== 'bg' && <div className="pb-6" />}
-        </div>
-      </div>
-    </div>
+    <SystemSheet
+      open={open}
+      isNeu={isNeu}
+      title={meta.title}
+      description={meta.description}
+      icon={meta.icon}
+      iconClassName={meta.iconClassName}
+      onClose={handleClose}
+      onBack={panel === 'main' ? undefined : () => setPanel('main')}
+      bodyClassName={panel === 'bg' ? 'min-h-0 overflow-hidden' : 'overflow-y-auto'}
+    >
+      {panel === 'main'    && renderMain()}
+      {panel === 'bg'      && renderBg()}
+      {panel === 'view'    && renderView()}
+      {panel === 'style'   && renderStyle()}
+      {panel === 'widgets' && renderWidgets()}
+      {panel !== 'bg' && <div className="pb-6" />}
+    </SystemSheet>
   );
 };
 

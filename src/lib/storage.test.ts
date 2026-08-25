@@ -89,6 +89,18 @@ describe('sync credential storage', () => {
     expect(DEFAULT_BG_IMAGE).toContain('images/wallpaper-default.webp');
   });
 
+  it('defaults legacy settings to the soft search bar style', () => {
+    localStorage.setItem('ios_desktop_settings', JSON.stringify({
+      style: 'glassmorphism',
+      iconSize: 46,
+      iconRadiusPct: 25,
+      cols: 4,
+      rows: 8,
+    }));
+
+    expect(loadSettings().searchBarStyle).toBe('soft');
+  });
+
   it('recognizes system entries inside a folder instead of recreating duplicates', () => {
     localStorage.setItem('ios_desktop_data', JSON.stringify({
       version: CURRENT_DESKTOP_VERSION,

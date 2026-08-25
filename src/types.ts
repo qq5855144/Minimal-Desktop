@@ -105,6 +105,7 @@ export interface CustomSearchEngine {
 
 // 桌面外观设置
 export type DesktopStyle = 'glassmorphism' | 'neumorphism';
+export type SearchBarStyle = 'soft' | 'outline';
 export type BgOverlayScheme = 'aurora' | 'sunset' | 'forest' | 'midnight' | 'warm';
 export type DesktopColumnCount = 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export interface DesktopSettings {
@@ -119,6 +120,8 @@ export interface DesktopSettings {
   bgOverlayEnabled?: boolean;
   bgOverlayScheme?: BgOverlayScheme;
   applyOverlayToWallpaper?: boolean;
+  /** 搜索框视觉样式；旧数据缺省时使用柔和填充。 */
+  searchBarStyle?: SearchBarStyle;
   searchEngine?: string;          // 当前搜索引擎 ID，默认 'bing'
   /** 用户新增的搜索引擎，以及对同 ID 内置引擎的本地覆盖。 */
   customEngines?: CustomSearchEngine[];

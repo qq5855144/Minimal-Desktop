@@ -6,10 +6,11 @@ import { probeFavicon, guessNameFromUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon } from '@/lib/iconCache';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { getPanelTheme } from '@/lib/panelTheme';
-import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, ChevronLeft, Crop } from 'lucide-react';
+import { Upload, Globe, Trash2, Loader2, RefreshCw, Link, ImagePlus, Sparkles, Crop } from 'lucide-react';
 import IconCropDialog from '@/components/IconCropDialog';
 import { optimizeIconFile } from '@/lib/imageOptimize';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
+import SystemSheet from './SystemSheet';
 
 interface AddEditDialogProps {
   open: boolean;
@@ -202,35 +203,45 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
         onCancel={handleCropCancel}
       />
     )}
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={handleClose}>
-      <div
-        className={`w-full max-w-lg rounded-t-3xl overflow-hidden animate-slide-up pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} flex flex-col`}
-        style={{
-          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
-          ...t.sheetStyle,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 拖拽把手 */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className={`w-10 h-1 rounded-full ${t.handle}`} />
+    <SystemSheet
+      open={open}
+      isNeu={isNeu}
+      title={isEdit ? '编辑应用' : '添加应用'}
+      description={isEdit ? '更新名称、网址与桌面图标' : '创建一个新的桌面快捷入口'}
+      icon={<Globe className="h-5 w-5" />}
+      iconClassName="bg-blue-500/15 text-blue-500"
+      onClose={handleClose}
+      bodyClassName="overflow-y-auto px-4 py-5 sm:px-6"
+      footer={(
+        <div className="flex items-center gap-2">
+          {isEdit && onDelete && (
+            <Button size="sm" variant="destructive" onClick={handleDelete} className="gap-1 rounded-xl">
+              <Trash2 className="w-3.5 h-3.5" />删除
+            </Button>
+          )}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={handleClose}
+            className={`px-4 py-2.5 rounded-xl text-sm ${t.textMuted} ${t.closeBtn} ${t.closeBtnHover} transition-colors`}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            {isEdit ? '保存' : '添加'}
+          </button>
         </div>
-
-        <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
-          {/* 标题行 */}
-          <div className="flex items-center gap-2">
-            {isEdit && (
-              <button type="button" onClick={handleClose} className={`flex items-center gap-1 text-sm ${t.backText}`}>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-            <h2 className={`text-base font-semibold ${t.textPrimary}`}>{isEdit ? '编辑应用' : '添加应用'}</h2>
-          </div>
-
+      )}
+    >
+        <div className="space-y-5">
           {/* 图标预览 + 名称/URL */}
-          <div className="flex gap-3 items-start">
+          <div className="flex flex-col gap-4 min-[390px]:flex-row min-[390px]:items-start">
             {/* 图标预览区 */}
-            <div className="relative shrink-0">
+            <div className="relative shrink-0 self-center min-[390px]:self-auto">
               <div className={`w-[60px] h-[60px] rounded-[22%] flex items-center justify-center overflow-hidden ios-icon-shadow ${t.iconPlaceholder}`}>
                 {fetching ? (
                   <Loader2 className={`w-6 h-6 animate-spin ${t.textDim}`} />
@@ -353,34 +364,7 @@ const AddEditDialog: React.FC<AddEditDialogProps> = ({
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
           </div>
         </div>
-
-        {/* 底部操作栏 */}
-        <div className={`flex items-center gap-2 px-5 py-3 border-t shrink-0 ${t.itemBorder}`}>
-          {isEdit && onDelete && (
-            <Button size="sm" variant="destructive" onClick={handleDelete} className="gap-1">
-              <Trash2 className="w-3.5 h-3.5" />删除
-            </Button>
-          )}
-          <div className="flex-1" />
-          <button
-            type="button"
-            onClick={handleClose}
-            className={`px-4 py-2 rounded-xl text-sm ${t.textMuted} ${t.closeBtn} ${t.closeBtnHover} transition-colors`}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className="px-4 py-2 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            {isEdit ? '保存' : '添加'}
-          </button>
-        </div>
-
-        <div className="pb-6" />
-      </div>
-    </div>
+    </SystemSheet>
     </>
   );
 

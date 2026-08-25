@@ -87,6 +87,7 @@ export const desktopSettingsSchema: z.ZodType<DesktopSettings> = z.object({
   bgOverlayEnabled: z.boolean().optional(),
   bgOverlayScheme: z.enum(['aurora', 'sunset', 'forest', 'midnight', 'warm']).optional(),
   applyOverlayToWallpaper: z.boolean().optional(),
+  searchBarStyle: z.enum(['soft', 'outline']).optional(),
   searchEngine: z.string().min(1).max(256).optional(),
   customEngines: z.array(customSearchEngineSchema).max(100).optional(),
   deletedSearchEngineIds: z.array(z.string().min(1).max(256)).max(100).optional(),

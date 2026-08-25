@@ -9,7 +9,6 @@ import {
   RefreshCw,
   ToggleLeft,
   ToggleRight,
-  X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -33,6 +32,7 @@ import { preserveSyncStateForReconnect } from '@/lib/syncTarget';
 import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
 import { clearWallpaperDB, saveWallpaperDB } from '@/lib/wallpaperStorage';
 import type { DesktopBackup, SyncConfig } from '@/types';
+import SystemSheet from './SystemSheet';
 
 interface SyncViewProps {
   open: boolean;
@@ -350,45 +350,23 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className={`w-full max-w-lg rounded-t-3xl pb-[env(safe-area-inset-bottom,0px)] ${t.sheetBg} ${t.sheetBorder} animate-slide-up flex flex-col overflow-hidden`}
-        style={{
-          maxHeight: 'var(--desktop-sheet-max-height, 85dvh)',
-          ...t.sheetStyle,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 拖拽条 */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className={`w-10 h-1 rounded-full ${t.handle}`} />
-        </div>
-
-        <div className="px-5 py-4 space-y-4 flex-1 min-h-0 overflow-y-auto">
-          {/* 头部 */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                <Github className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div>
-                <h2 className={`text-base font-semibold ${t.textPrimary}`}>云同步</h2>
-                <p className={`text-xs ${t.textDim} opacity-70`}>基于 GitHub 存储桌面数据</p>
-              </div>
-            </div>
-            <button
-              type="button" onClick={onClose}
-              className={`w-8 h-8 rounded-full ${t.closeBtn} ${t.closeBtnHover} flex items-center justify-center transition-colors`}
-            >
-              <X className={`w-4 h-4 ${t.textMuted}`} />
-            </button>
-          </div>
+    <SystemSheet
+      open={open}
+      isNeu={isNeu}
+      title="云同步"
+      description="安全备份桌面、外观与隐私数据"
+      icon={<Github className="h-5 w-5" />}
+      iconClassName="bg-emerald-500/15 text-emerald-500"
+      onClose={onClose}
+      bodyClassName="overflow-y-auto px-4 py-5 sm:px-6"
+    >
+      <div className="space-y-5">
 
           {/* ── 未登录状态 ── */}
           {!loggedIn && (
-            <div className="space-y-3">
+            <div className="space-y-5">
               {/* 说明卡片 */}
-              <div className={`rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} p-4 space-y-2`}>
+              <div className={`rounded-3xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} p-4 space-y-3`}>
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
@@ -403,14 +381,14 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               </div>
 
               {/* Token 输入 */}
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <label className={t.labelCls}>GitHub 个人访问令牌</label>
                 <input
-                  type="text"
+                  type="password"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
-                  autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   placeholder="github_pat_xxxxxxxxxxxx"
                   className={t.inputCls}
                 />
@@ -420,7 +398,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               </div>
 
               {/* 保持登录 */}
-              <div className={`flex items-center justify-between rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3`}>
+              <div className={`flex items-center justify-between rounded-3xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3.5`}>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-medium ${t.textPrimary}`}>保持登录</p>
                   <p className={`text-xs ${t.textDim} opacity-70`}>关闭浏览器后仍保持连接</p>
@@ -442,7 +420,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
               <button
                 type="button" onClick={handleConnect} disabled={connecting}
-                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 py-3.5 text-sm font-semibold text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 py-4 text-sm font-semibold text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
                 {connecting
                   ? <><Loader2 className="w-4 h-4 animate-spin" />连接中…</>
@@ -453,9 +431,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
           {/* ── 已登录状态 ── */}
           {loggedIn && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               {/* 用户信息卡 */}
-              <div className={`flex items-center gap-3 rounded-2xl ${isNeu ? 'bg-emerald-50 border border-emerald-200' : 'bg-emerald-500/10 border border-emerald-500/20'} px-4 py-3`}>
+              <div className={`flex items-center gap-3 rounded-3xl ${isNeu ? 'bg-emerald-50 border border-emerald-200' : 'bg-emerald-500/10 border border-emerald-500/20'} px-4 py-4`}>
                 <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
                   <Github className="w-5 h-5 text-emerald-500" />
                 </div>
@@ -471,7 +449,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               </div>
 
               {/* 自动同步开关 */}
-              <div className={`flex items-center justify-between rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-3`}>
+              <div className={`flex items-center justify-between rounded-3xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} px-4 py-4`}>
                 <div className="flex w-full items-center justify-between">
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium ${t.textPrimary}`}>自动同步</p>
@@ -511,7 +489,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                       )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
                     <button
                       type="button"
                       onClick={handleDownload}
@@ -595,7 +573,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               <div className={`h-px ${t.divider}`} />
 
               {/* 操作按钮 */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2">
                 <button
                   type="button" onClick={handleUpload} disabled={!!syncing || !!pendingRestore || !!config.pendingConflictHead}
                   className="flex items-center justify-center gap-2 rounded-2xl py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors disabled:opacity-40"
@@ -603,7 +581,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                   {syncing === 'upload'
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <CloudUpload className="w-4 h-4" />}
-                  上传备份
+                  <span><span className="block">上传备份</span><span className="block text-[10px] font-normal text-white/70">本机覆盖到云端</span></span>
                 </button>
                 <button
                   type="button" onClick={handleDownload} disabled={!!syncing || !!pendingRestore}
@@ -612,7 +590,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                   {syncing === 'download'
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <CloudDownload className="w-4 h-4" />}
-                  恢复数据
+                  <span><span className="block">恢复数据</span><span className="block text-[10px] font-normal text-white/70">读取并确认差异</span></span>
                 </button>
               </div>
 
@@ -625,10 +603,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               )}
             </div>
           )}
-        </div>
-        <div className="pb-8" />
       </div>
-    </div>
+    </SystemSheet>
   );
 };
 
