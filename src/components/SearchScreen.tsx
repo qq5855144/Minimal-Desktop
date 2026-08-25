@@ -123,6 +123,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const [iconErr, setIconErr] = useState(false);
 
   const isNeu = settings.style === 'neumorphism';
+  const isOutline = settings.searchBarStyle === 'outline';
   const currentEngine = getEngineById(
     settings.searchEngine ?? 'bing',
     settings.customEngines,
@@ -258,9 +259,13 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
   const overlayBg = isGlass
     ? 'bg-black/30 backdrop-blur-2xl'
     : 'bg-[#e8edf5]';
-  const inputBar = isGlass
-    ? 'flex items-center gap-2 px-3 py-[9px] rounded-full bg-white/25 shadow-lg'
-    : 'flex items-center gap-2 px-3 py-[9px] rounded-full neu-raised-focused';
+  const inputBar = isOutline
+    ? `flex h-[42px] items-center gap-2 rounded-[12px] border-2 bg-transparent px-3 ${
+      isGlass ? 'border-white/90 shadow-[0_4px_14px_rgba(0,0,0,0.10)]' : 'border-slate-400/80'
+    }`
+    : isGlass
+      ? 'flex h-[42px] items-center gap-2 rounded-full bg-white/25 px-3 shadow-lg'
+      : 'flex h-[42px] items-center gap-2 rounded-full px-3 neu-raised-focused';
   const inputCls = isGlass
     ? 'flex-1 min-w-0 bg-transparent text-white placeholder:text-white/50 outline-none text-sm'
     : 'flex-1 min-w-0 bg-transparent text-slate-700 placeholder:text-slate-400 outline-none text-sm';
@@ -296,7 +301,7 @@ const SearchScreen: React.FC<SearchScreenProps> = ({ open, onClose, initialQuery
       <div className="flex flex-col w-full max-w-xl mx-auto px-4 pt-12 gap-4 flex-1 min-h-0">
         {/* 搜索栏 */}
         <form onSubmit={handleSubmit}>
-          <div className={inputBar} style={isGlass ? { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' } : {}}>
+          <div className={inputBar} style={isGlass && !isOutline ? { backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' } : {}}>
             {/* 引擎图标 */}
             <span className="shrink-0 w-6 h-6 flex items-center justify-center">
               {iconSrc && !iconErr ? (
