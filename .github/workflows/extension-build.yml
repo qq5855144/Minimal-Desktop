@@ -65,6 +65,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # ── 2b. 自动迭代版本号（仅 main push）─────────────────────────────
+      # 每次分支构建自动提升 patch 版本（如 1.2.2 → 1.2.3），
+      # 同步更新 package.json 与 public/manifest.json 并提交回 main。
+      # 使用 GITHUB_TOKEN 推送不会再次触发 workflow（GitHub 官方防循环行为），
+      # 因此每次构建都能获得唯一的新版本号并以正式版发布。
+      - name: Bump version (patch +1)
+        id: bump
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          NEW_VERSION=$(node -e "
+            const pkg = require('./package.json');
+            const [maj, min, pat] = pkg.version.split('.').map(Number);
+            process.stdout.write(maj + '.' + min + '.' + (pat + 1));
+          ")
+          echo "next_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          node -e "
+            const fs = require('fs');
+            const v = process.argv[1];
+            const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+            pkg.version = v;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            const m = JSON.parse(fs.readFileSync('public/manifest.json','utf8'));
+            m.version = v;
+            fs.writeFileSync('public/manifest.json', JSON.stringify(m, null, 2) + '\n');
+          " "$NEW_VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json public/manifest.json
+          git commit -m "chore: bump version to ${NEW_VERSION}" -m "自动版本迭代（构建 #${GITHUB_RUN_NUMBER}）"
+          git push origin HEAD:main
+          echo "bump_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "✅ 版本已迭代至 v${NEW_VERSION}（提交 $(git rev-parse --short HEAD)）"
+
       # ── 2b. 解析正式发布目标 ────────────────────────────────────────────
       # tag push：沿用 tag；workflow_dispatch：使用输入版本；
       # main push：每次分支构建都发布正式版，tag 由版本号 + 构建序号组成
@@ -89,7 +123,13 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_RELEASE" ]; then
             RELEASE_TAG="$DISPATCH_RELEASE"
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            RELEASE_TAG="v${PACKAGE_VERSION}-r${GITHUB_RUN_NUMBER}"
+            # 版本号已由「Bump version」步骤迭代（patch +1），
+            # 每次构建都对应一个全新的正式 tag（如 v1.2.3）。
+            RELEASE_TAG="v${PACKAGE_VERSION}"
+            if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+              echo "ℹ️ tag ${RELEASE_TAG} 已存在（重复构建），本次仅更新 latest 滚动版"
+              RELEASE_TAG=""
+            fi
           fi
 
           if [ -n "$RELEASE_TAG" ]; then
@@ -250,7 +290,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release-meta.outputs.release_tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ steps.bump.outputs.bump_sha || github.sha }}
           name: "Minimal Desktop ${{ steps.release-meta.outputs.release_tag }}"
           body: |
             ## Minimal Desktop ${{ steps.release-meta.outputs.release_tag }} — 浏览器扩展正式版
