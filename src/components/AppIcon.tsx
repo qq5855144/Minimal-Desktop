@@ -6,7 +6,7 @@ import { getColorStyle } from '@/lib/colors';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
 import {
-  canOpenFolderChildDirectly,
+  canActivateFolderChildDirectly,
   getFolderPreviewGrid,
   resolveFolderChildVisualKind,
   SYSTEM_GLYPH_SCALE,
@@ -198,6 +198,14 @@ const AppIcon: React.FC<AppIconProps> = ({
     onDragStart: (x, y, pointerId) => onDragBegin?.(item, x, y, pointerId),
   });
 
+  const activateFolderChild = useCallback((child: DesktopItem) => {
+    if (child.type === 'app' && child.url) {
+      openExternalUrl(child.url);
+      return;
+    }
+    if (child.type === 'system') onClick?.(child);
+  }, [onClick]);
+
   const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
     const pressedFolderChildId = pressedFolderChildIdRef.current;
     pressedFolderChildIdRef.current = null;
@@ -208,8 +216,8 @@ const AppIcon: React.FC<AppIconProps> = ({
     if (editMode && item.type !== 'system') return;
     if (item.type === 'folder' && pressedFolderChildId) {
       const child = item.children?.find((candidate) => candidate.id === pressedFolderChildId);
-      if (child && canOpenFolderChildDirectly(folderLayout, child) && child.url) {
-        openExternalUrl(child.url);
+      if (child && canActivateFolderChildDirectly(folderLayout, child)) {
+        activateFolderChild(child);
         return;
       }
     }
@@ -219,7 +227,7 @@ const AppIcon: React.FC<AppIconProps> = ({
       return;
     }
     onClick?.(item);
-  }, [editMode, folderLayout, item, onClick, pressIntent]);
+  }, [activateFolderChild, editMode, folderLayout, item, onClick, pressIntent]);
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const target = event.target as Element;
@@ -301,11 +309,11 @@ const AppIcon: React.FC<AppIconProps> = ({
                   cellPx={cellPx}
                   iconFontPx={expandedFolderLayout!.previewFontPx}
                   radius={metrics.iconRadius}
-                  onActivate={canOpenFolderChildDirectly(folderLayout, child)
+                  onActivate={canActivateFolderChildDirectly(folderLayout, child)
                     ? () => {
                       pressedFolderChildIdRef.current = null;
-                      if (pressIntent.consumeClick() || editMode || !child.url) return;
-                      openExternalUrl(child.url);
+                      if (pressIntent.consumeClick() || editMode) return;
+                      activateFolderChild(child);
                     }
                     : undefined}
                 />

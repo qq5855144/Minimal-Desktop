@@ -26,12 +26,11 @@ export function getFolderPreviewGrid(layout: FolderLayout | undefined): {
   }
 }
 
-/** 1×1 保持传统整面点击；扩展布局中的网站应用允许缩略图直达。 */
-export function canOpenFolderChildDirectly(
+/** 1×1 保持传统整面点击；扩展布局中的网站应用和系统入口允许缩略图直达。 */
+export function canActivateFolderChildDirectly(
   layout: FolderLayout | undefined,
   child: DesktopItem,
 ): boolean {
   return (layout ?? '1x1') !== '1x1'
-    && child.type === 'app'
-    && Boolean(child.url);
+    && (child.type === 'system' || (child.type === 'app' && Boolean(child.url)));
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DesktopItem } from '@/types';
 import {
-  canOpenFolderChildDirectly,
+  canActivateFolderChildDirectly,
   getFolderPreviewGrid,
   resolveFolderChildVisualKind,
   SYSTEM_GLYPH_SCALE,
@@ -44,11 +44,22 @@ describe('iconPresentation', () => {
       type: 'app',
       url: 'https://example.com',
     };
-    expect(canOpenFolderChildDirectly('1x1', app)).toBe(false);
-    expect(canOpenFolderChildDirectly('1x2', app)).toBe(true);
-    expect(canOpenFolderChildDirectly('2x1', app)).toBe(true);
-    expect(canOpenFolderChildDirectly('2x2', app)).toBe(true);
-    expect(canOpenFolderChildDirectly('2x2', syncItem)).toBe(false);
-    expect(canOpenFolderChildDirectly('2x2', { ...app, url: undefined })).toBe(false);
+    expect(canActivateFolderChildDirectly('1x1', app)).toBe(false);
+    expect(canActivateFolderChildDirectly('1x1', syncItem)).toBe(false);
+    expect(canActivateFolderChildDirectly('1x2', app)).toBe(true);
+    expect(canActivateFolderChildDirectly('2x1', app)).toBe(true);
+    expect(canActivateFolderChildDirectly('2x2', app)).toBe(true);
+    expect(canActivateFolderChildDirectly('2x2', { ...app, url: undefined })).toBe(false);
   });
+
+  it.each(['sys-sync', 'sys-settings', 'sys-add'])(
+    '扩展布局中的系统入口 %s 允许直接触发',
+    (id) => {
+      const systemItem = { ...syncItem, id };
+      expect(canActivateFolderChildDirectly('1x1', systemItem)).toBe(false);
+      expect(canActivateFolderChildDirectly('1x2', systemItem)).toBe(true);
+      expect(canActivateFolderChildDirectly('2x1', systemItem)).toBe(true);
+      expect(canActivateFolderChildDirectly('2x2', systemItem)).toBe(true);
+    },
+  );
 });
