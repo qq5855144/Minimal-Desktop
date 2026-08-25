@@ -27,6 +27,11 @@ function createRequestToken(): string {
  * GitHub Pages 等纯静态部署无法代理跨域请求。这里把百度 JSONP 放进没有
  * allow-same-origin 权限的 sandbox iframe：远程脚本可运行并回传建议，但无法
  * 读取父页面 DOM、localStorage、IndexedDB 或桌面状态。
+ *
+ * 注意：iframe 必须通过 src 加载同源的 suggest.html，而不是 srcdoc——
+ * srcdoc 文档会继承父页面的 CSP（当前 index.html 为 script-src 'self'，
+ * 不支持内联脚本），导致引导脚本与百度 JSONP 都被阻止；独立子页面不受
+ * 父 CSP 约束，沙箱隔离依然生效（sandbox 仅 allow-scripts）。
  */
 export function fetchSandboxedBaiduSuggest(
   query: string,
@@ -50,6 +55,18 @@ export function fetchSandboxedBaiduSuggest(
     requestUrl.searchParams.set('ie', 'utf-8');
     requestUrl.searchParams.set('wd', query);
     requestUrl.searchParams.set('cb', '__minimalDesktopSuggest');
+
+    // 参数经 hash 传递：不触发服务器请求/重写，也不出现在服务端日志。
+    // 相对路径解析可适配 GitHub Pages 子路径（/Minimal-Desktop/）部署。
+    const helperUrl = new URL('suggest.html', window.location.href);
+    helperUrl.hash = encodeURIComponent(
+      JSON.stringify({
+        type: SUGGEST_MESSAGE_TYPE,
+        token,
+        url: requestUrl.toString(),
+      }),
+    );
+    iframe.src = helperUrl.toString();
 
     let settled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -81,28 +98,6 @@ export function fetchSandboxedBaiduSuggest(
       ) return;
       finish(normalizeSuggestionList(message.data));
     };
-
-    const bootstrap = JSON.stringify({
-      messageType: SUGGEST_MESSAGE_TYPE,
-      requestUrl: requestUrl.toString(),
-      token,
-    }).replace(/</g, '\\u003c');
-    iframe.srcdoc = `<!doctype html><meta charset="utf-8"><script>
-      (() => {
-        const config = ${bootstrap};
-        let sent = false;
-        const send = (data) => {
-          if (sent) return;
-          sent = true;
-          parent.postMessage({ type: config.messageType, token: config.token, data }, '*');
-        };
-        window.__minimalDesktopSuggest = (payload) => send(payload && payload.s);
-        const script = document.createElement('script');
-        script.src = config.requestUrl;
-        script.onerror = () => send([]);
-        document.head.appendChild(script);
-      })();
-    <\/script>`;
 
     signal.addEventListener('abort', onAbort, { once: true });
     window.addEventListener('message', onMessage);

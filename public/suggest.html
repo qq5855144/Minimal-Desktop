@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>suggest</title>
+  </head>
+  <body>
+    <script>
+      // 沙箱建议桥接页：仅在无 allow-same-origin 的 sandbox iframe 中被加载。
+      // 以 src 方式加载（而非 srcdoc），因此不会继承父页面的 CSP
+      // （script-src 'self'），内联脚本与百度 JSONP 均可执行；
+      // 同时沙箱保持 opaque origin，远程脚本无法访问父页面 DOM / 存储。
+      (() => {
+        let config = null;
+        try {
+          config = JSON.parse(decodeURIComponent((location.hash || '').slice(1)));
+        } catch (_) {
+          // 参数缺失或损坏时静默退出，父页面按超时处理。
+        }
+        if (
+          !config ||
+          typeof config.type !== 'string' ||
+          typeof config.token !== 'string' ||
+          typeof config.url !== 'string'
+        ) {
+          return;
+        }
+
+        let sent = false;
+        const send = (data) => {
+          if (sent) return;
+          sent = true;
+          parent.postMessage({ type: config.type, token: config.token, data }, '*');
+        };
+
+        // 百度 JSONP 回调入口
+        window.__minimalDesktopSuggest = (payload) => send(payload && payload.s);
+
+        const script = document.createElement('script');
+        script.src = config.url;
+        script.onerror = () => send([]);
+        document.head.appendChild(script);
+      })();
+    </script>
+  </body>
+</html>
