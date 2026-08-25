@@ -6,9 +6,6 @@ interface SystemSheetProps {
   open: boolean;
   isNeu: boolean;
   title: string;
-  description?: string;
-  icon: React.ReactNode;
-  iconClassName: string;
   onClose: () => void;
   onBack?: () => void;
   children: React.ReactNode;
@@ -17,7 +14,7 @@ interface SystemSheetProps {
 
 /** 设置与同步共用的紧凑型响应式弹层。 */
 const SystemSheet: React.FC<SystemSheetProps> = ({
-  open, isNeu, title, description, icon, iconClassName,
+  open, isNeu, title,
   onClose, onBack, children, bodyClassName = 'overflow-y-auto',
 }) => {
   const t = getPanelTheme(isNeu);
@@ -45,11 +42,7 @@ const SystemSheet: React.FC<SystemSheetProps> = ({
               <ChevronLeft className={`h-4 w-4 ${t.textMuted}`} />
             </button>
           )}
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconClassName}`}>{icon}</div>
-          <div className="min-w-0 flex-1">
-            <h2 className={`truncate text-sm font-semibold ${t.textPrimary}`}>{title}</h2>
-            {description && <p className={`truncate text-[11px] ${t.textDim}`}>{description}</p>}
-          </div>
+          <h2 className={`min-w-0 flex-1 truncate text-sm font-semibold ${t.textPrimary}`}>{title}</h2>
           <button type="button" onClick={onClose} aria-label="关闭" className={`flex h-8 w-8 items-center justify-center rounded-xl ${t.closeBtn} ${t.closeBtnHover}`}>
             <X className={`h-4 w-4 ${t.textMuted}`} />
           </button>

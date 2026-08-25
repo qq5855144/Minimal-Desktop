@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
-import { minimumRowsForEnabledWidgets, WIDE_VIEWPORT_MIN_COLS } from '@/lib/layoutEngine';
+import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { DEFAULT_BG_IMAGE, defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
@@ -701,13 +701,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           </div>
         ))}
 
-        <p className={`px-1 text-[11px] leading-4 ${t.textDim}`}>
-          {viewport.isWide
-            ? `电脑端至少 ${WIDE_VIEWPORT_MIN_COLS} 列；当前布局可选择 6–10 列。`
-            : '4/5 列适合手机，6–10 列适合电脑。'}
-          2×2 文件夹会随图标大小、行列数量和间隔实时缩放，
-          外框固定为 12% 圆角；图标圆角仅作用于 1×1 文件夹和文件夹内缩略图。
-        </p>
       </div>
     );
   };
@@ -756,7 +749,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     ];
     return (
       <div className="px-5 py-4 space-y-4">
-        <p className={`text-xs ${t.textDim}`}>点击开关可在桌面上显示或隐藏对应组件</p>
         <div className="space-y-3">
           {widgetDefs.map((w) => {
             const enabled = widgetExists(w.id);
@@ -783,10 +775,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         </div>
         <div className="space-y-2 pt-1">
           <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-sm font-medium ${t.textPrimary}`}>搜索框样式</p>
-              <p className={`text-[11px] ${t.textDim}`}>高度不变，仅切换外壳效果</p>
-            </div>
+            <p className={`text-sm font-medium ${t.textPrimary}`}>搜索框样式</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             {([
@@ -815,17 +804,16 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
             })}
           </div>
         </div>
-        <p className={`text-xs ${t.textDim} pt-1`}>💡 搜索引擎切换：点击搜索框左侧的引擎图标即可打开选择面板</p>
       </div>
     );
   };
 
-  const panelMeta: Record<Panel, { title: string; description: string; icon: React.ReactNode; iconClassName: string }> = {
-    main: { title: '设置', description: '外观、布局与桌面组件', icon: <Palette className="h-4 w-4" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
-    bg: { title: '背景', description: '壁纸、视频与在线图库', icon: <Image className="h-4 w-4" />, iconClassName: 'bg-blue-500/15 text-blue-500' },
-    view: { title: '应用视图', description: '网格与图标尺寸', icon: <LayoutGrid className="h-4 w-4" />, iconClassName: 'bg-indigo-500/15 text-indigo-500' },
-    style: { title: '桌面风格', description: '材质与光影效果', icon: <Palette className="h-4 w-4" />, iconClassName: 'bg-purple-500/15 text-purple-500' },
-    widgets: { title: '桌面组件', description: '显示状态与搜索样式', icon: <Layers className="h-4 w-4" />, iconClassName: 'bg-teal-500/15 text-teal-500' },
+  const panelMeta: Record<Panel, { title: string }> = {
+    main: { title: '设置' },
+    bg: { title: '背景' },
+    view: { title: '应用视图' },
+    style: { title: '桌面风格' },
+    widgets: { title: '桌面组件' },
   };
   const meta = panelMeta[panel];
 
@@ -834,9 +822,6 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
       open={open}
       isNeu={isNeu}
       title={meta.title}
-      description={meta.description}
-      icon={meta.icon}
-      iconClassName={meta.iconClassName}
       onClose={handleClose}
       onBack={panel === 'main' ? undefined : () => setPanel('main')}
       bodyClassName={panel === 'bg' ? 'overflow-hidden' : 'overflow-y-auto'}

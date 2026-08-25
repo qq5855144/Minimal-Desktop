@@ -354,9 +354,6 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       open={open}
       isNeu={isNeu}
       title="云同步"
-      description="备份桌面、外观与加密隐私数据"
-      icon={<Github className="h-4 w-4" />}
-      iconClassName="bg-emerald-500/15 text-emerald-500"
       onClose={onClose}
       bodyClassName="overflow-y-auto px-4 py-3"
     >
@@ -365,36 +362,18 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           {/* ── 未登录状态 ── */}
           {!loggedIn && (
             <div className="space-y-3">
-              {/* 说明卡片 */}
-              <div className={`rounded-2xl ${isNeu ? 'bg-white/60 border border-gray-200' : 'bg-white/5 border border-white/10'} p-4 space-y-2`}>
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  </div>
-                  <span className={`text-xs font-medium ${t.textPrimary}`}>输入 Token 即可完成所有配置</span>
-                </div>
-                <ul className={`text-xs ${t.textDim} space-y-1 ml-8`}>
-                  <li>✦ 自动验证账号</li>
-                  <li>✦ 自动创建私有备份仓库</li>
-                  <li>✦ 可选保持登录，关闭浏览器后仍可同步</li>
-                </ul>
-              </div>
-
               {/* Token 输入 */}
               <div className="space-y-1.5">
                 <label className={t.labelCls}>GitHub 个人访问令牌</label>
                 <input
-                  type="password"
+                  type="text"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
-                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   placeholder="github_pat_xxxxxxxxxxxx"
                   className={t.inputCls}
                 />
-                <p className={`text-xs ${t.textDim} opacity-60`}>
-                  推荐 Fine-grained Token，仅授予备份仓库 Contents 读写权限
-                </p>
               </div>
 
               {/* 保持登录 */}
