@@ -49,6 +49,7 @@ describe('iconLayout', () => {
     expect(folder.previewCols).toBe(cols);
     expect(folder.widthPx).toBe(layout === '1x2' ? large.sidePx : icon.iconPx);
     expect(folder.heightPx).toBe(layout === '2x1' ? large.sidePx : icon.iconPx);
+    expect(folder.radius).toBe(`${Math.round(icon.iconPx * 0.3 * 100) / 100}px`);
     expect(
       folder.previewCols * folder.previewCellPx
         + (folder.previewCols - 1) * folder.columnGapPx
@@ -59,6 +60,30 @@ describe('iconLayout', () => {
         + (folder.previewRows - 1) * folder.rowGapPx
         + folder.paddingYPx * 2,
     ).toBeCloseTo(folder.heightPx, 8);
+  });
+
+  it('1×2 与 2×1 使用基于短边的等半径圆角且受尺寸上下限保护', () => {
+    const normalGrid = getDesktopGridLayoutMetrics(360, 4, 46, 800, 8);
+    const normalIcon = getIconLayoutMetrics('normal', normalGrid.iconPx, 25);
+    const normalLarge = getLargeFolderLayoutMetrics(normalIcon, normalGrid);
+    const horizontal = getExpandedFolderLayoutMetrics('1x2', normalIcon, normalLarge);
+    const vertical = getExpandedFolderLayoutMetrics('2x1', normalIcon, normalLarge);
+    expect(horizontal.radius).toBe(vertical.radius);
+    expect(horizontal.radius).toBe('13.8px');
+
+    const tinyIcon = getIconLayoutMetrics('normal', 24, 25);
+    const tinyLarge = getLargeFolderLayoutMetrics(tinyIcon, {
+      columnWidthPx: 40,
+      columnGapPx: 12,
+    });
+    expect(getExpandedFolderLayoutMetrics('1x2', tinyIcon, tinyLarge).radius).toBe('10px');
+
+    const hugeIcon = getIconLayoutMetrics('normal', 96, 25);
+    const hugeLarge = getLargeFolderLayoutMetrics(hugeIcon, {
+      columnWidthPx: 120,
+      columnGapPx: 20,
+    });
+    expect(getExpandedFolderLayoutMetrics('2x1', hugeIcon, hugeLarge).radius).toBe('20px');
   });
 
   it('应用视图的图标大小、圆角和列数会联动文件夹尺寸', () => {

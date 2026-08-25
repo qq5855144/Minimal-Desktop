@@ -10,6 +10,9 @@ const ICON_LABEL_PADDING_X_PX = 8;
 const FOLDER_PREVIEW_SCALE = 0.78;
 const FOLDER_PREVIEW_GAP_PX = 3;
 const LARGE_FOLDER_RADIUS = '12%';
+const RECTANGULAR_FOLDER_RADIUS_RATIO = 0.3;
+const RECTANGULAR_FOLDER_RADIUS_MIN_PX = 10;
+const RECTANGULAR_FOLDER_RADIUS_MAX_PX = 20;
 const WIDE_GRID_VERTICAL_RESERVED_PX = 48;
 const WIDE_COLUMN_BREATHING_MIN_PX = 32;
 const WIDE_COLUMN_BREATHING_MAX_PX = 44;
@@ -314,11 +317,20 @@ export function getExpandedFolderLayoutMetrics(
   );
   const columnGapPx = (widthPx - previewCellPx * previewCols) / (previewCols + 1);
   const rowGapPx = (heightPx - previewCellPx * previewRows) / (previewRows + 1);
+  // 矩形使用百分比圆角时，横纵半径会分别按宽高计算并被拉伸。
+  // 改为由短边派生的等半径 px 值，让 1×2 与 2×1 旋转后保持同一曲率。
+  const radiusPx = Math.min(
+    RECTANGULAR_FOLDER_RADIUS_MAX_PX,
+    Math.max(
+      RECTANGULAR_FOLDER_RADIUS_MIN_PX,
+      shortSidePx * RECTANGULAR_FOLDER_RADIUS_RATIO,
+    ),
+  );
 
   return {
     widthPx,
     heightPx,
-    radius: largeMetrics.radius,
+    radius: `${Math.round(radiusPx * 100) / 100}px`,
     previewRows,
     previewCols,
     previewCellPx,
