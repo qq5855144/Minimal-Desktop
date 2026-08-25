@@ -105,10 +105,16 @@ function assertZip(zip) {
   }
 }
 
-function pack({ zipPath, keyPath, outputPath }) {
+function pack({ zipPath, keyPath, outputPath, passEnv, pass }) {
   const zip = readFileSync(zipPath);
   assertZip(zip);
-  const privateKey = createPrivateKey(readFileSync(keyPath));
+  const keyPem = readFileSync(keyPath);
+  // 支持加密格式私钥（PKCS#8 EncryptedPrivateKeyInfo）：
+  // passphrase 优先从环境变量读取（--pass-env），避免出现在命令行/日志。
+  const passphrase = passEnv ? process.env[passEnv] : pass;
+  const privateKey = passphrase
+    ? createPrivateKey({ key: keyPem, passphrase })
+    : createPrivateKey(keyPem);
   const publicKey = createPublicKey(privateKey);
   const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' });
   const crxId = createCrxId(publicKeyDer);
@@ -211,9 +217,15 @@ const options = parseOptions(args);
 let result;
 if (command === 'pack') {
   if (!options.zip || !options.key || !options.out) {
-    throw new Error('Usage: crx3.mjs pack --zip extension.zip --key extension.pem --out extension.crx');
+    throw new Error('Usage: crx3.mjs pack --zip extension.zip --key extension.pem --out extension.crx [--pass-env ENV_VAR | --pass PASSWORD]');
   }
-  result = pack({ zipPath: options.zip, keyPath: options.key, outputPath: options.out });
+  result = pack({
+    zipPath: options.zip,
+    keyPath: options.key,
+    outputPath: options.out,
+    passEnv: options['pass-env'],
+    pass: options.pass,
+  });
 } else if (command === 'verify') {
   if (!options.crx) {
     throw new Error('Usage: crx3.mjs verify --crx extension.crx [--manifest manifest.json]');

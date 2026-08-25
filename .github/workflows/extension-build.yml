@@ -22,7 +22,9 @@ concurrency:
 jobs:
   # ══════════════════════════════════════════════════════════════════════════
   # JOB 1: 构建 + 打包 + GitHub Release
-  # 可选 Secret：CRX_PRIVATE_KEY — 与 manifest.key 匹配的未加密 RSA PEM 私钥。
+  # 可选 Secret：
+  #   CRX_PRIVATE_KEY           — 与 manifest.key 匹配的 RSA PEM 私钥（支持加密格式）
+  #   CRX_PRIVATE_KEY_PASSWORD  — 私钥解密密码（私钥已加密时必填）
   # 私钥只写入 runner 临时文件，打包结束后立即清除，绝不能提交到仓库。
   # ══════════════════════════════════════════════════════════════════════════
   build:
@@ -64,8 +66,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # ── 2b. 解析正式发布目标 ────────────────────────────────────────────
-      # tag push：沿用 tag；workflow_dispatch：使用输入版本；main push：
-      # 当 package/manifest 当前版本尚无正式 tag 时自动发布一次。
+      # tag push：沿用 tag；workflow_dispatch：使用输入版本；
+      # main push：每次分支构建都发布正式版，tag 由版本号 + 构建序号组成
+      # （如 v1.2.2-r123），保证唯一且每次构建都有对应正式 Release。
       - name: Resolve formal release target
         id: release-meta
         shell: bash
@@ -86,10 +89,7 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_RELEASE" ]; then
             RELEASE_TAG="$DISPATCH_RELEASE"
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            CANDIDATE="v${PACKAGE_VERSION}"
-            if ! git ls-remote --exit-code --tags origin "refs/tags/${CANDIDATE}" >/dev/null 2>&1; then
-              RELEASE_TAG="$CANDIDATE"
-            fi
+            RELEASE_TAG="v${PACKAGE_VERSION}-r${GITHUB_RUN_NUMBER}"
           fi
 
           if [ -n "$RELEASE_TAG" ]; then
@@ -97,13 +97,16 @@ jobs:
               echo "❌ 正式发布版本格式无效：$RELEASE_TAG"
               exit 1
             fi
-            if [ "${RELEASE_TAG#v}" != "$PACKAGE_VERSION" ]; then
+            # 核心版本号（去掉 v 前缀与 -r<run> 构建后缀）必须与项目版本一致
+            CORE_VERSION="${RELEASE_TAG#v}"
+            CORE_VERSION="${CORE_VERSION%%-*}"
+            if [ "$CORE_VERSION" != "$PACKAGE_VERSION" ]; then
               echo "❌ 发布标签 $RELEASE_TAG 与项目版本 $PACKAGE_VERSION 不一致"
               exit 1
             fi
             echo "🚀 本次将发布正式版 $RELEASE_TAG"
           else
-            echo "ℹ️ 当前版本已有正式标签，本次仅更新 latest 构建"
+            echo "ℹ️ 本次无正式版发布"
           fi
 
           echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
@@ -159,6 +162,7 @@ jobs:
         id: pkg
         env:
           CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+          CRX_PRIVATE_KEY_PASSWORD: ${{ secrets.CRX_PRIVATE_KEY_PASSWORD }}
         run: |
           VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
           ZIPNAME="minimal-desktop-extension-v${VERSION}.zip"
@@ -177,7 +181,13 @@ jobs:
             printf '%s\n' "$CRX_PRIVATE_KEY" > "$KEY_PATH"
             chmod 600 "$KEY_PATH"
             trap 'shred -u "$KEY_PATH" 2>/dev/null || rm -f "$KEY_PATH"' EXIT
-            node scripts/crx3.mjs pack --zip "$ZIPNAME" --key "$KEY_PATH" --out "$CRXNAME"
+            # 私钥支持 PKCS#8 加密格式：密码经 --pass-env 从 Secret 环境变量读取，
+            # 不出现在命令行/日志中。私钥在 runner 上解密签名后立即清除。
+            node scripts/crx3.mjs pack \
+              --zip "$ZIPNAME" \
+              --key "$KEY_PATH" \
+              --out "$CRXNAME" \
+              --pass-env CRX_PRIVATE_KEY_PASSWORD
           elif [ -f "release-assets/${CRXNAME}" ]; then
             cp "release-assets/${CRXNAME}" "$CRXNAME"
             echo "ℹ️ 使用已审核的预签名 CRX3 发布资产"
@@ -263,7 +273,7 @@ jobs:
             ${{ steps.pkg.outputs.zip_name }}
             ${{ steps.pkg.outputs.crx_name }}
           draft: false
-          prerelease: ${{ contains(steps.release-meta.outputs.release_tag, '-') }}
+          prerelease: false
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
