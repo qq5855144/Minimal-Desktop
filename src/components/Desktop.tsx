@@ -6,6 +6,7 @@ import { AUTO_SYNC_DELAY_MS, AutoSyncScheduler } from '@/lib/autoSyncScheduler';
 import { isNoopGridDrop, resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
+  getExpandedFolderLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
 } from '@/lib/iconLayout';
@@ -724,14 +725,15 @@ const Desktop: React.FC = () => {
       const rawCol = isWidget ? 0 : Number(cell.dataset.col);
       let targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
-      const isLargeFolderDrop = g.item.type === 'folder' && g.item.folderLayout === '2x2';
+      const draggedGridSpan = getItemGridSpan(g.item, gc);
+      const isMultiCellFolderDrop = g.item.type === 'folder'
+        && (draggedGridSpan.rowSpan > 1 || draggedGridSpan.colSpan > 1);
 
-      if (isLargeFolderDrop) {
+      if (isMultiCellFolderDrop) {
         const targetGrid = containerRef.current?.querySelector<HTMLElement>(
           `[data-page-grid="${targetPage}"]`,
         );
         const targetGridRect = targetGrid?.getBoundingClientRect();
-        const { rowSpan, colSpan } = getItemGridSpan(g.item, gc);
         const centeredTarget = targetGridRect
           ? resolveCenteredGridDropPosition(
             e.clientX,
@@ -741,8 +743,8 @@ const Desktop: React.FC = () => {
             latestRef.current.gridRows,
             latestRef.current.gridColumnGapPx,
             latestRef.current.gridRowGapPx,
-            colSpan,
-            rowSpan,
+            draggedGridSpan.colSpan,
+            draggedGridSpan.rowSpan,
           )
           : null;
         if (!centeredTarget) return;
@@ -871,10 +873,10 @@ const Desktop: React.FC = () => {
           }
           const moved = moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
-        } else if (isLargeFolderDrop) {
-          // 2×2 文件夹以四格占位中心吸附；始终交给矩形布局引擎判断完整目标区域，
+        } else if (isMultiCellFolderDrop) {
+          // 多格文件夹以完整占位中心吸附；始终交给矩形布局引擎判断目标区域，
           // 不能再根据指针恰好命中的某一个子格直接交换，否则会产生一行/一列偏移。
-          // 命中自身四格或解析回原坐标属于有效取消，不应进入碰撞提示。
+          // 命中自身占位或解析回原坐标属于有效取消，不应进入碰撞提示。
           if (isNoopGridDrop(
             { ...src, id: g.source.itemId },
             targetPage,
@@ -884,7 +886,9 @@ const Desktop: React.FC = () => {
           )) return;
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
-          if (!moved) toast.error('目标四格区域不可用，请对准可放置区域');
+          if (!moved) {
+            toast.error(`目标 ${draggedGridSpan.rowSpan}×${draggedGridSpan.colSpan} 区域不可用，请对准可放置区域`);
+          }
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
@@ -1400,12 +1404,14 @@ const Desktop: React.FC = () => {
   const GhostWidgetComponent = ghost?.item.type === 'widget'
     ? getWidgetComponent(ghost.item.widgetType)
     : null;
-  const ghostLargeFolderWidthPx = ghost?.item.type === 'folder'
-    && ghost.item.folderLayout === '2x2'
-    ? largeFolderLayout.sidePx
-    : null;
-  const ghostLargeFolderHeightPx = ghostLargeFolderWidthPx !== null
-    ? largeFolderLayout.totalHeightPx
+  const ghostExpandedFolderLayout = ghost?.item.type === 'folder'
+    && ghost.item.folderLayout
+    && ghost.item.folderLayout !== '1x1'
+    ? getExpandedFolderLayoutMetrics(
+      ghost.item.folderLayout,
+      desktopIconMetrics,
+      largeFolderLayout,
+    )
     : null;
   const desktopShellStyle = {
     left: viewport.shell.left,
@@ -1737,6 +1743,10 @@ const Desktop: React.FC = () => {
             // 延迟触发重命名，等文件夹视图打开后激活输入框
             setTimeout(() => setFolderRenameId(id), 100);
           }}
+          onOpenFolder={(id) => {
+            setOpenFolderId(id);
+            setFolderRenameId(null);
+          }}
           onDissolveFolder={(id) => {
             dissolveFolder(id);
             toast.success('文件夹已解散');
@@ -1746,7 +1756,7 @@ const Desktop: React.FC = () => {
               toast.error('当前桌面空间不足，无法切换为该布局');
               return;
             }
-            toast.success(`文件夹已切换为 ${layout === '2x2' ? '2×2' : '1×1'} 布局`);
+            toast.success(`文件夹已切换为 ${layout.replace('x', '×')} 布局`);
           }}
           onClose={() => setContextMenu(null)}
         /></React.Suspense>
@@ -1784,8 +1794,8 @@ const Desktop: React.FC = () => {
             transform: 'translate3d(0, 0, 0) translate(-50%, -50%)',
             willChange: 'transform',
             contain: 'layout paint style',
-            width: ghostLargeFolderWidthPx ?? undefined,
-            height: ghostLargeFolderHeightPx ?? undefined,
+            width: ghostExpandedFolderLayout?.widthPx,
+            height: ghostExpandedFolderLayout?.totalHeightPx,
           }}
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点

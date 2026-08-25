@@ -122,12 +122,14 @@ function isIntegerInRange(value: number, min: number, maxExclusive: number): boo
 
 export function getItemRowSpan(item: DesktopItem): number {
   if (item.type === 'widget') return getWidgetConfig(item.widgetType).rowSpan;
-  return item.type === 'folder' && item.folderLayout === '2x2' ? 2 : 1;
+  if (item.type !== 'folder') return 1;
+  return item.folderLayout === '2x1' || item.folderLayout === '2x2' ? 2 : 1;
 }
 
 export function getItemColumnSpan(item: DesktopItem, cols: number): number {
   if (item.type === 'widget') return cols;
-  return item.type === 'folder' && item.folderLayout === '2x2' ? 2 : 1;
+  if (item.type !== 'folder') return 1;
+  return item.folderLayout === '1x2' || item.folderLayout === '2x2' ? 2 : 1;
 }
 
 export function getItemGridSpan(item: DesktopItem, cols: number): {

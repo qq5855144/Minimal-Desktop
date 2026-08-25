@@ -29,7 +29,7 @@ const iconColor = z.enum([
 
 const itemType = z.enum(['app', 'folder', 'system', 'widget']);
 const widgetType = z.enum(['clock', 'search', 'combined']);
-const folderLayout = z.enum(['1x1', '2x2']);
+const folderLayout = z.enum(['1x1', '1x2', '2x1', '2x2']);
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, '必须是有效 Base64');
 const wallpaperMarker = '__idb_wallpaper__';
 const videoMarker = '__idb__';

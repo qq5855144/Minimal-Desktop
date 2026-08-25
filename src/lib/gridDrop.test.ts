@@ -33,6 +33,31 @@ describe('gridDrop', () => {
     )).toEqual({ row: 2, col: 1 });
   });
 
+  it('按完整矩形中心解析 1×2 与 2×1 文件夹', () => {
+    expect(resolveCenteredGridDropPosition(
+      180,
+      294,
+      GRID,
+      4,
+      8,
+      12,
+      12,
+      2,
+      1,
+    )).toEqual({ row: 2, col: 1 });
+    expect(resolveCenteredGridDropPosition(
+      137.5,
+      334,
+      GRID,
+      4,
+      8,
+      12,
+      12,
+      1,
+      2,
+    )).toEqual({ row: 2, col: 1 });
+  });
+
   it('在网格边缘仍将完整 2×2 占位约束在可见行列内', () => {
     expect(resolveCenteredGridDropPosition(
       GRID.left,

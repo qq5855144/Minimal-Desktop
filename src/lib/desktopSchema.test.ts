@@ -50,6 +50,12 @@ describe('desktop backup schema', () => {
       }]],
     };
     expect(parseDesktopData(folderBackup).ok).toBe(true);
+    for (const folderLayout of ['1x1', '1x2', '2x1', '2x2']) {
+      expect(parseDesktopData({
+        ...folderBackup,
+        pages: [[{ ...folderBackup.pages[0][0], folderLayout }]],
+      }).ok).toBe(true);
+    }
     expect(parseDesktopData({
       ...folderBackup,
       pages: [[{ ...folderBackup.pages[0][0], folderLayout: '3x3' }]],

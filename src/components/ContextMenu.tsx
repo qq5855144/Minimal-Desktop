@@ -26,6 +26,7 @@ interface ContextMenuProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onRenameFolder?: (id: string) => void;
+  onOpenFolder?: (id: string) => void;
   onDissolveFolder?: (id: string) => void;
   onFolderLayoutChange?: (id: string, layout: FolderLayout) => void;
   onClose: () => void;
@@ -38,6 +39,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onEdit,
   onDelete,
   onRenameFolder,
+  onOpenFolder,
   onDissolveFolder,
   onFolderLayoutChange,
   onClose,
@@ -46,7 +48,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   const [showFolderLayouts, setShowFolderLayouts] = useState(false);
   const viewport = useViewportGeometry();
 
-  const menuH = pos.isFolder ? (showFolderLayouts ? 142 : 168) : 96;
+  const menuH = pos.isFolder ? (showFolderLayouts ? 224 : 214) : 96;
   const visibleLeft = viewport.visual.left - viewport.shell.left;
   const visibleTop = viewport.visual.top - viewport.shell.top;
   const left = clampFloatingPosition(
@@ -107,7 +109,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
                   布局
                 </button>
                 {divider}
-                {(['1x1', '2x2'] as const).map((layout) => (
+                {(['1x1', '1x2', '2x1', '2x2'] as const).map((layout) => (
                   <button
                     key={layout}
                     type="button"
@@ -120,9 +122,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
                     }}
                   >
                     <span className="w-4 text-center text-xs font-semibold text-primary">
-                      {layout === '2x2' ? '▦' : '□'}
+                      {layout === '2x2' ? '▦' : layout === '1x2' ? '▭' : layout === '2x1' ? '▯' : '□'}
                     </span>
-                    <span className="flex-1">{layout === '2x2' ? '2×2' : '1×1'}</span>
+                    <span className="flex-1">{layout.replace('x', '×')}</span>
                     {(pos.folderLayout ?? '1x1') === layout && (
                       <Check className="w-4 h-4 text-primary shrink-0" />
                     )}
@@ -132,8 +134,14 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             ) : (
               <>
                 <button type="button" className={btn}
-                  onClick={() => { onRenameFolder?.(pos.itemId); onClose(); }}>
+                  onClick={() => { onOpenFolder?.(pos.itemId); onClose(); }}>
                   <FolderOpen className="w-4 h-4 text-primary shrink-0" />
+                  打开
+                </button>
+                {divider}
+                <button type="button" className={btn}
+                  onClick={() => { onRenameFolder?.(pos.itemId); onClose(); }}>
+                  <Pencil className="w-4 h-4 text-primary shrink-0" />
                   重命名
                 </button>
                 {divider}
@@ -141,7 +149,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
                   <LayoutGrid className="w-4 h-4 text-primary shrink-0" />
                   <span className="flex-1">布局</span>
                   <span className="text-xs text-white/55">
-                    {(pos.folderLayout ?? '1x1') === '2x2' ? '2×2' : '1×1'}
+                    {(pos.folderLayout ?? '1x1').replace('x', '×')}
                   </span>
                   <ChevronRight className="w-3.5 h-3.5 text-white/45 shrink-0" />
                 </button>

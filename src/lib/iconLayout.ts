@@ -1,3 +1,5 @@
+import type { FolderLayout } from '@/types';
+
 export type IconSizeVariant = 'normal' | 'small';
 
 const SMALL_ICON_PX = 44;
@@ -68,6 +70,21 @@ export interface LargeFolderLayoutMetrics {
   /** 3×3 缩略图单格边长。 */
   previewCellPx: number;
   previewFontPx: number;
+  totalHeightPx: number;
+}
+
+export interface ExpandedFolderLayoutMetrics {
+  widthPx: number;
+  heightPx: number;
+  radius: string;
+  previewRows: number;
+  previewCols: number;
+  previewCellPx: number;
+  previewFontPx: number;
+  columnGapPx: number;
+  rowGapPx: number;
+  paddingXPx: number;
+  paddingYPx: number;
   totalHeightPx: number;
 }
 
@@ -257,5 +274,59 @@ export function getLargeFolderLayoutMetrics(
     previewCellPx,
     previewFontPx: previewCellPx * 0.35,
     totalHeightPx: sidePx + iconMetrics.labelGapPx + iconMetrics.labelHeightPx,
+  };
+}
+
+/** 由同一 2×2 几何锚点派生三种扩展文件夹外框，确保行列边缘一致。 */
+export function getExpandedFolderLayoutMetrics(
+  layout: Exclude<FolderLayout, '1x1'>,
+  iconMetrics: IconLayoutMetrics,
+  largeMetrics: LargeFolderLayoutMetrics,
+): ExpandedFolderLayoutMetrics {
+  if (layout === '2x2') {
+    return {
+      widthPx: largeMetrics.sidePx,
+      heightPx: largeMetrics.sidePx,
+      radius: largeMetrics.radius,
+      previewRows: 3,
+      previewCols: 3,
+      previewCellPx: largeMetrics.previewCellPx,
+      previewFontPx: largeMetrics.previewFontPx,
+      columnGapPx: largeMetrics.spacingPx,
+      rowGapPx: largeMetrics.spacingPx,
+      paddingXPx: largeMetrics.spacingPx,
+      paddingYPx: largeMetrics.spacingPx,
+      totalHeightPx: largeMetrics.totalHeightPx,
+    };
+  }
+
+  const horizontal = layout === '1x2';
+  const widthPx = horizontal ? largeMetrics.sidePx : iconMetrics.iconPx;
+  const heightPx = horizontal ? iconMetrics.iconPx : largeMetrics.sidePx;
+  const previewRows = horizontal ? 1 : 3;
+  const previewCols = horizontal ? 3 : 1;
+  const shortSidePx = Math.min(widthPx, heightPx);
+  const longSidePx = Math.max(widthPx, heightPx);
+  const minimumGapPx = Math.max(2, shortSidePx * 0.06);
+  const previewCellPx = Math.max(
+    1,
+    Math.min(shortSidePx * 0.72, (longSidePx - minimumGapPx * 4) / 3),
+  );
+  const columnGapPx = (widthPx - previewCellPx * previewCols) / (previewCols + 1);
+  const rowGapPx = (heightPx - previewCellPx * previewRows) / (previewRows + 1);
+
+  return {
+    widthPx,
+    heightPx,
+    radius: largeMetrics.radius,
+    previewRows,
+    previewCols,
+    previewCellPx,
+    previewFontPx: previewCellPx * 0.35,
+    columnGapPx,
+    rowGapPx,
+    paddingXPx: columnGapPx,
+    paddingYPx: rowGapPx,
+    totalHeightPx: heightPx + iconMetrics.labelGapPx + iconMetrics.labelHeightPx,
   };
 }

@@ -1,23 +1,26 @@
 import { Folder, Globe, Plus, RefreshCw, Settings, X } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { useLongPressIntent } from '@/hooks/use-long-press-intent';
 import { getColorStyle } from '@/lib/colors';
 import { getDirectFaviconUrl, normalizeUrl } from '@/lib/favicon';
 import { fetchAndCacheIcon, getIconCache } from '@/lib/iconCache';
 import {
+  canOpenFolderChildDirectly,
+  getFolderPreviewGrid,
   resolveFolderChildVisualKind,
   SYSTEM_GLYPH_SCALE,
   SYSTEM_GLYPH_STROKE_WIDTH,
 } from '@/lib/iconPresentation';
 import {
   DESKTOP_GRID_GAP_PX,
+  getExpandedFolderLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
   type LargeFolderLayoutMetrics,
 } from '@/lib/iconLayout';
 import { openExternalUrl } from '@/lib/openExternal';
-import type { DesktopItem } from '@/types';
+import type { DesktopItem, FolderLayout } from '@/types';
 
 interface AppIconProps {
   item: DesktopItem;
@@ -29,7 +32,7 @@ interface AppIconProps {
   ghost?: boolean;
   /** 覆盖图标尺寸（px），不传则使用 settings.iconSize */
   iconPx?: number;
-  /** 由桌面真实列宽计算的 2×2 文件夹几何尺寸。 */
+  /** 由桌面真实列宽计算的扩展文件夹几何锚点。 */
   largeFolderLayout?: LargeFolderLayoutMetrics;
 }
 
@@ -45,8 +48,9 @@ const FolderChildIcon: React.FC<{
   cellPx: number;
   iconFontPx: number;
   radius: string;
+  onActivate?: () => void;
 }> = ({
-  child, cellPx, iconFontPx, radius,
+  child, cellPx, iconFontPx, radius, onActivate,
 }) => {
   const src = getIconCache(child.iconUrl ?? '') ?? child.iconUrl;
   const crop = child.iconCrop;
@@ -68,17 +72,8 @@ const FolderChildIcon: React.FC<{
     zIndex: 1, display: 'block',
   };
 
-  return (
-    <div
-      className="overflow-hidden relative flex items-center justify-center"
-      style={{
-        width: cellPx,
-        height: cellPx,
-        borderRadius: radius,
-        flexShrink: 0,
-        background: visualKind === 'image' ? '#fff' : getColorStyle(child.color),
-      }}
-    >
+  const content = (
+    <>
       {visualKind === 'system' && SystemIcon ? (
         <SystemIcon
           className="text-white drop-shadow"
@@ -101,6 +96,43 @@ const FolderChildIcon: React.FC<{
           {child.name.slice(0, 1)}
         </span>
       )}
+    </>
+  );
+  const style: React.CSSProperties = {
+    width: cellPx,
+    height: cellPx,
+    borderRadius: radius,
+    flexShrink: 0,
+    background: visualKind === 'image' ? '#fff' : getColorStyle(child.color),
+  };
+
+  if (onActivate) {
+    return (
+      <button
+        type="button"
+        data-folder-child-id={child.id}
+        data-folder-child-link="true"
+        data-press-intent-surface="true"
+        aria-label={`打开 ${child.name}`}
+        className="overflow-hidden relative flex items-center justify-center border-0 p-0 cursor-pointer active:scale-95"
+        style={style}
+        onClick={(event) => {
+          event.stopPropagation();
+          onActivate();
+        }}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      data-folder-child-id={child.id}
+      className="overflow-hidden relative flex items-center justify-center"
+      style={style}
+    >
+      {content}
     </div>
   );
 };
@@ -111,6 +143,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 }) => {
   const { editMode, settings } = useDesktop();
   const [imgError, setImgError] = useState(false);
+  const pressedFolderChildIdRef = useRef<string | null>(null);
   // 优先使用本地缓存的 DataURL，无缓存时使用远程 URL
   const [iconSrc, setIconSrc] = useState<string | undefined>(() =>
     item.iconUrl ? (getIconCache(item.iconUrl) ?? item.iconUrl) : undefined
@@ -141,35 +174,59 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   const metrics = getIconLayoutMetrics(size, iconPx ?? settings.iconSize, settings.iconRadiusPct);
   const px = metrics.iconPx;
-  const isLargeFolder = item.type === 'folder' && item.folderLayout === '2x2';
-  const resolvedLargeFolderLayout = isLargeFolder
+  const folderLayout: FolderLayout = item.type === 'folder' ? (item.folderLayout ?? '1x1') : '1x1';
+  const isExpandedFolder = item.type === 'folder' && folderLayout !== '1x1';
+  const resolvedLargeFolderLayout = isExpandedFolder
     ? (largeFolderLayout ?? getLargeFolderLayoutMetrics(metrics, {
       columnWidthPx: metrics.iconPx,
       columnGapPx: DESKTOP_GRID_GAP_PX,
     }))
     : null;
+  const expandedFolderLayout = isExpandedFolder
+    ? getExpandedFolderLayoutMetrics(
+      folderLayout as Exclude<FolderLayout, '1x1'>,
+      metrics,
+      resolvedLargeFolderLayout!,
+    )
+    : null;
 
   // 新拟态风格阴影
   const isNeumorphism = settings.style === 'neumorphism';
 
-  const pressIntent = useLongPressIntent<HTMLButtonElement>({
+  const pressIntent = useLongPressIntent<HTMLElement>({
     onLongPress: (x, y) => onLongPress?.(item, x, y),
     onDragStart: (x, y, pointerId) => onDragBegin?.(item, x, y, pointerId),
   });
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const pressedFolderChildId = pressedFolderChildIdRef.current;
+    pressedFolderChildIdRef.current = null;
     if (pressIntent.consumeClick()) {
       e.preventDefault();
       return;
     }
     if (editMode && item.type !== 'system') return;
+    if (item.type === 'folder' && pressedFolderChildId) {
+      const child = item.children?.find((candidate) => candidate.id === pressedFolderChildId);
+      if (child && canOpenFolderChildDirectly(folderLayout, child) && child.url) {
+        openExternalUrl(child.url);
+        return;
+      }
+    }
     if (item.type === 'app' && item.url) {
       e.currentTarget.blur();
       openExternalUrl(item.url);
       return;
     }
     onClick?.(item);
-  }, [editMode, item, onClick, pressIntent]);
+  }, [editMode, folderLayout, item, onClick, pressIntent]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const target = event.target as Element;
+    pressedFolderChildIdRef.current = target.closest<HTMLElement>('[data-folder-child-id]')
+      ?.dataset.folderChildId ?? null;
+    pressIntent.onPointerDown(event);
+  }, [pressIntent]);
 
   const iconStyle: React.CSSProperties = {
     width: px, height: px,
@@ -192,37 +249,42 @@ const AppIcon: React.FC<AppIconProps> = ({
       );
     }
     if (item.type === 'folder') {
-      // 1×1 保持 2×2 缩略图；2×2 大文件夹展示完整 3×3（最多 9 项）。
-      const previewColumns = isLargeFolder ? 3 : 2;
-      const preview = (item.children || []).slice(0, previewColumns ** 2);
+      const previewGrid = getFolderPreviewGrid(folderLayout);
+      const preview = (item.children || []).slice(0, previewGrid.rows * previewGrid.cols);
       const isNeu = settings.style === 'neumorphism';
-      const cellPx = isLargeFolder
-        ? resolvedLargeFolderLayout!.previewCellPx
+      const cellPx = isExpandedFolder
+        ? expandedFolderLayout!.previewCellPx
         : metrics.folderPreviewCellPx;
-      const previewGapPx = isLargeFolder
-        ? resolvedLargeFolderLayout!.spacingPx
+      const previewColumnGapPx = isExpandedFolder
+        ? expandedFolderLayout!.columnGapPx
+        : metrics.folderPreviewGapPx;
+      const previewRowGapPx = isExpandedFolder
+        ? expandedFolderLayout!.rowGapPx
         : metrics.folderPreviewGapPx;
       return (
         <div
-          data-folder-surface={isLargeFolder ? '2x2' : '1x1'}
+          data-folder-surface={folderLayout}
           className={`ios-icon-shadow overflow-hidden ${
-            isLargeFolder && preview.length > 0 ? 'grid' : 'flex items-center justify-center'
+            isExpandedFolder && preview.length > 0 ? 'grid' : 'flex items-center justify-center'
           }`}
           style={{
             ...iconStyle,
-            ...(isLargeFolder ? {
-              width: resolvedLargeFolderLayout!.sidePx,
-              height: resolvedLargeFolderLayout!.sidePx,
-              borderRadius: resolvedLargeFolderLayout!.radius,
+            ...(isExpandedFolder ? {
+              width: expandedFolderLayout!.widthPx,
+              height: expandedFolderLayout!.heightPx,
+              borderRadius: expandedFolderLayout!.radius,
               boxSizing: 'border-box',
               flex: '0 0 auto',
-              padding: preview.length > 0 ? previewGapPx : 0,
-              gap: preview.length > 0 ? previewGapPx : 0,
+              padding: preview.length > 0
+                ? `${expandedFolderLayout!.paddingYPx}px ${expandedFolderLayout!.paddingXPx}px`
+                : 0,
+              columnGap: preview.length > 0 ? previewColumnGapPx : 0,
+              rowGap: preview.length > 0 ? previewRowGapPx : 0,
               gridTemplateColumns: preview.length > 0
-                ? `repeat(3, ${cellPx}px)`
+                ? `repeat(${previewGrid.cols}, ${cellPx}px)`
                 : undefined,
               gridTemplateRows: preview.length > 0
-                ? `repeat(3, ${cellPx}px)`
+                ? `repeat(${previewGrid.rows}, ${cellPx}px)`
                 : undefined,
             } : {}),
             background: isNeu ? '#e8edf5' : 'rgba(255,255,255,0.18)',
@@ -231,23 +293,31 @@ const AppIcon: React.FC<AppIconProps> = ({
           }}
         >
           {preview.length > 0 ? (
-            isLargeFolder ? (
+            isExpandedFolder ? (
               preview.map((child) => (
                 <FolderChildIcon
                   key={child.id}
                   child={child}
                   cellPx={cellPx}
-                  iconFontPx={resolvedLargeFolderLayout!.previewFontPx}
+                  iconFontPx={expandedFolderLayout!.previewFontPx}
                   radius={metrics.iconRadius}
+                  onActivate={canOpenFolderChildDirectly(folderLayout, child)
+                    ? () => {
+                      pressedFolderChildIdRef.current = null;
+                      if (pressIntent.consumeClick() || editMode || !child.url) return;
+                      openExternalUrl(child.url);
+                    }
+                    : undefined}
                 />
               ))
             ) : (
               <div
                 className="grid"
                 style={{
-                  gap: previewGapPx,
-                  gridTemplateColumns: `repeat(${previewColumns}, ${cellPx}px)`,
-                  gridTemplateRows: `repeat(${previewColumns}, ${cellPx}px)`,
+                  columnGap: previewColumnGapPx,
+                  rowGap: previewRowGapPx,
+                  gridTemplateColumns: `repeat(${previewGrid.cols}, ${cellPx}px)`,
+                  gridTemplateRows: `repeat(${previewGrid.rows}, ${cellPx}px)`,
                 }}
               >
                 {preview.map((child) => (
@@ -264,8 +334,8 @@ const AppIcon: React.FC<AppIconProps> = ({
           ) : (
             <Folder
               style={{
-                width: isLargeFolder ? cellPx * 1.4 : metrics.glyphPx,
-                height: isLargeFolder ? cellPx * 1.4 : metrics.glyphPx,
+                width: isExpandedFolder ? cellPx * 1.4 : metrics.glyphPx,
+                height: isExpandedFolder ? cellPx * 1.4 : metrics.glyphPx,
               }}
               className="text-white drop-shadow"
             />
@@ -336,35 +406,68 @@ const AppIcon: React.FC<AppIconProps> = ({
       ? ''
       : 'transition-transform active:scale-95';
 
+  const appIconContent = (
+    <>
+      {renderIconContent()}
+      <span
+        className={`app-icon-label ${metrics.textClass} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
+        style={{ maxWidth: isExpandedFolder ? expandedFolderLayout!.widthPx : metrics.labelMaxWidthPx }}
+      >
+        {item.name}
+      </span>
+    </>
+  );
+  const interactionClass = `app-icon-button flex flex-col items-center select-none touch-none ${
+    isExpandedFolder ? 'w-full' : ''
+  } ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`;
+
   return (
     <div
       className={`relative ${ghost ? 'opacity-40' : ''}`}
-      style={isLargeFolder ? {
-        width: resolvedLargeFolderLayout!.sidePx,
+      style={isExpandedFolder ? {
+        width: expandedFolderLayout!.widthPx,
         maxWidth: '100%',
         marginInline: 'auto',
       } : undefined}
     >
-      <button
-        type="button"
-        onClick={handleClick}
-        onPointerDown={pressIntent.onPointerDown}
-        onPointerMove={pressIntent.onPointerMove}
-        onPointerUp={pressIntent.onPointerUp}
-        onPointerCancel={pressIntent.onPointerCancel}
-        onDragStart={(e) => e.preventDefault()}
-        onContextMenu={(e) => e.preventDefault()}
-        className={`app-icon-button flex flex-col items-center select-none touch-none ${isLargeFolder ? 'w-full' : ''} ${editMode ? 'animate-wiggle' : ''} ${pressFeedbackClass}`}
-        style={{ gap: metrics.labelGapPx }}
-      >
-        {renderIconContent()}
-        <span
-          className={`app-icon-label ${metrics.textClass} font-medium truncate ${isNeumorphism ? 'text-slate-600' : 'text-white drop-shadow-md'}`}
-          style={{ maxWidth: isLargeFolder ? resolvedLargeFolderLayout!.sidePx : metrics.labelMaxWidthPx }}
+      {isExpandedFolder ? (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={`打开文件夹 ${item.name}`}
+          onClick={handleClick}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+            event.preventDefault();
+            if (!editMode) onClick?.(item);
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={pressIntent.onPointerMove}
+          onPointerUp={pressIntent.onPointerUp}
+          onPointerCancel={pressIntent.onPointerCancel}
+          onDragStart={(event) => event.preventDefault()}
+          onContextMenu={(event) => event.preventDefault()}
+          className={interactionClass}
+          style={{ gap: metrics.labelGapPx }}
         >
-          {item.name}
-        </span>
-      </button>
+          {appIconContent}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={handleClick}
+          onPointerDown={handlePointerDown}
+          onPointerMove={pressIntent.onPointerMove}
+          onPointerUp={pressIntent.onPointerUp}
+          onPointerCancel={pressIntent.onPointerCancel}
+          onDragStart={(event) => event.preventDefault()}
+          onContextMenu={(event) => event.preventDefault()}
+          className={interactionClass}
+          style={{ gap: metrics.labelGapPx }}
+        >
+          {appIconContent}
+        </button>
+      )}
       {editMode && item.type !== 'system' && onDeleteInEditMode && (
         <button
           type="button"

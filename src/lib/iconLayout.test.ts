@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DESKTOP_GRID_GAP_PX,
   getDesktopGridLayoutMetrics,
+  getExpandedFolderLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
 } from './iconLayout';
@@ -33,6 +34,31 @@ describe('iconLayout', () => {
       .toBeCloseTo(folder.sidePx, 8);
     expect(folder.previewCellPx).toBe(folder.spacingPx * 4);
     expect(folder.previewCellPx).toBeGreaterThan(icon.folderPreviewCellPx);
+  });
+
+  it.each([
+    ['1x2', 1, 3],
+    ['2x1', 3, 1],
+  ] as const)('%s 文件夹按指定方向排列三个缩略图', (layout, rows, cols) => {
+    const grid = getDesktopGridLayoutMetrics(360, 4, 46, 800, 8);
+    const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
+    const large = getLargeFolderLayoutMetrics(icon, grid);
+    const folder = getExpandedFolderLayoutMetrics(layout, icon, large);
+
+    expect(folder.previewRows).toBe(rows);
+    expect(folder.previewCols).toBe(cols);
+    expect(folder.widthPx).toBe(layout === '1x2' ? large.sidePx : icon.iconPx);
+    expect(folder.heightPx).toBe(layout === '2x1' ? large.sidePx : icon.iconPx);
+    expect(
+      folder.previewCols * folder.previewCellPx
+        + (folder.previewCols - 1) * folder.columnGapPx
+        + folder.paddingXPx * 2,
+    ).toBeCloseTo(folder.widthPx, 8);
+    expect(
+      folder.previewRows * folder.previewCellPx
+        + (folder.previewRows - 1) * folder.rowGapPx
+        + folder.paddingYPx * 2,
+    ).toBeCloseTo(folder.heightPx, 8);
   });
 
   it('应用视图的图标大小、圆角和列数会联动文件夹尺寸', () => {

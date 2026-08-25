@@ -14,7 +14,7 @@ export type IconColor =
 // 桌面项类型（widget = 全宽组件，占满一整行）
 export type ItemType = 'app' | 'folder' | 'system' | 'widget';
 export type WidgetType = 'clock' | 'search' | 'combined';
-export type FolderLayout = '1x1' | '2x2';
+export type FolderLayout = '1x1' | '1x2' | '2x1' | '2x2';
 
 /**
  * 图标裁剪参数（相对值，单位 %，范围 0~100）

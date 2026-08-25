@@ -143,6 +143,41 @@ describe('layoutEngine', () => {
     expect(canPlaceItem([], largeFolder, 0, 3, 4, 8)).toBe(false);
   });
 
+  it('1×2 与 2×1 文件夹按方向占用两个网格并受边界约束', () => {
+    const horizontal = folder('horizontal', 0, 0, 0, '1x2');
+    expect(canPlaceItem([horizontal], app('right', 0, 0, 1), 0, 1, 4, 8)).toBe(false);
+    expect(canPlaceItem([horizontal], app('below', 0, 1, 0), 1, 0, 4, 8)).toBe(true);
+    expect(canPlaceItem([], horizontal, 0, 3, 4, 8)).toBe(false);
+
+    const vertical = folder('vertical', 0, 0, 0, '2x1');
+    expect(canPlaceItem([vertical], app('below', 0, 1, 0), 1, 0, 4, 8)).toBe(false);
+    expect(canPlaceItem([vertical], app('right', 0, 0, 1), 0, 1, 4, 8)).toBe(true);
+    expect(canPlaceItem([], vertical, 7, 0, 4, 8)).toBe(false);
+  });
+
+  it.each(['1x2', '2x1'] as const)('普通与隐私文件夹均能切换为 %s', (layout) => {
+    const desktop = updateDesktopFolderLayout(
+      data([[folder('folder', 0, 0, 0)]]),
+      'folder',
+      layout,
+      4,
+      4,
+    );
+    expect(desktop.ok).toBe(true);
+    expect(desktop.data.pages[0][0]).toMatchObject({ folderLayout: layout, row: 0, col: 0 });
+    expect(validateDesktopLayout(desktop.data, { cols: 4, rows: 4 })).toEqual([]);
+
+    const privacy = updatePrivacyFolderLayout(
+      [folder('private-folder', -1, 0, 0)],
+      'private-folder',
+      layout,
+      4,
+      4,
+    );
+    expect(privacy.ok).toBe(true);
+    expect(privacy.privacyItems[0]).toMatchObject({ folderLayout: layout, page: -1, row: 0, col: 0 });
+  });
+
   it('文件夹放大时优先原地，否则只把文件夹迁移到可容纳的 2×2 空间', () => {
     const original = data([[
       folder('folder', 0, 0, 0),
