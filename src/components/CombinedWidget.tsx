@@ -104,7 +104,7 @@ const CombinedWidget: React.FC = () => {
         <form
           onSubmit={handleSubmit}
           className={isOutline
-            ? `flex h-[42px] items-center gap-2 rounded-full border-2 border-white/90 bg-transparent px-3 transition-all duration-200 ${focused ? 'shadow-[0_0_0_2px_rgba(255,255,255,0.22)]' : 'shadow-[0_4px_14px_rgba(0,0,0,0.10)]'}`
+            ? `flex h-[42px] items-center gap-2 rounded-[10px] border-2 border-white/90 bg-transparent px-3 transition-all duration-200 ${focused ? 'shadow-[0_0_0_2px_rgba(255,255,255,0.22)]' : 'shadow-[0_4px_14px_rgba(0,0,0,0.10)]'}`
             : `flex h-[42px] items-center gap-2 rounded-full px-3 transition-all duration-200 ${
               focused ? 'bg-white/25 ring-2 ring-white/40 shadow-lg' : 'bg-white/15 hover:bg-white/20'
             }`}

@@ -31,7 +31,7 @@ const SearchBar: React.FC = () => {
   }, []);
 
   const formCls = isOutline
-    ? `flex h-[42px] items-center gap-2 rounded-full border-2 bg-transparent px-3 transition-all duration-200 ${
+    ? `flex h-[42px] items-center gap-2 rounded-[10px] border-2 bg-transparent px-3 transition-all duration-200 ${
       isNeu
         ? 'border-slate-400/80 shadow-[0_4px_12px_rgba(148,163,184,0.18)]'
         : 'border-white/90 shadow-[0_4px_14px_rgba(0,0,0,0.10)]'
