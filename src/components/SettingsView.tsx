@@ -372,7 +372,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     if (setWidgetEnabled(def.widgetType, !exists)) {
       toast.success(exists ? '已移除组件' : '已添加组件');
     } else {
-      toast.error('当前网格没有足够空间放置组件');
+      toast.error('空间不足');
     }
   }, [data, setWidgetEnabled]);
 

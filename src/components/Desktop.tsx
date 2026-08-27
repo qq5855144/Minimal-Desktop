@@ -595,7 +595,7 @@ const Desktop: React.FC = () => {
             if (!target || (target.type !== 'app' && target.type !== 'system' && target.type !== 'folder')) return;
             // 检查目标文件夹容量
             if (target.type === 'folder' && (target.children?.length ?? 0) >= MAX_FOLDER_APPS) {
-              toast.error('文件夹已满，最多容纳 9 个图标');
+              toast.error('文件夹已满');
               return;
             }
             const merged = merge(
@@ -770,10 +770,10 @@ const Desktop: React.FC = () => {
         if (srcItem && !moved) {
           toast.error(
             g.item.type === 'folder' && folderContainsSystemItem(g.item)
-              ? '包含系统入口的文件夹不能移入隐私桌面'
+              ? '该文件夹不可移入隐私桌面'
               : g.item.type === 'app' || g.item.type === 'folder'
-                ? '隐私桌面目标位置已占用'
-                : '仅应用或文件夹可移入隐私桌面',
+                ? '空间不足'
+                : '仅支持应用和文件夹',
           );
         }
         return;
@@ -785,7 +785,7 @@ const Desktop: React.FC = () => {
         const moved = fromPrivacy(g.source.itemId, targetPage, targetRow, targetCol);
         if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
         if (!moved) {
-          toast.error('目标位置已占用，请选择空白位置');
+          toast.error('空间不足');
         }
         return;
       }
@@ -812,7 +812,7 @@ const Desktop: React.FC = () => {
           if (moved && targetPage === leadingPrivacyPageIndex) {
             committedToLeadingPrivacyPage = true;
           }
-          if (!moved) toast.error('目标位置不可用，请选择空白位置');
+          if (!moved) toast.error('空间不足');
         }
         return;
       }
@@ -851,7 +851,7 @@ const Desktop: React.FC = () => {
           const draggedSpan0 = getItemGridSpan(srcFull0, gc).rowSpan;
 
           if (widgetTargetRow < 0 || widgetTargetRow + draggedSpan0 > latestRef.current.gridRows) {
-            toast.error('组件超出桌面可用行数');
+            toast.error('空间不足');
             return;
           }
 
@@ -887,7 +887,7 @@ const Desktop: React.FC = () => {
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
           if (!moved) {
-            toast.error(`目标 ${draggedGridSpan.rowSpan}×${draggedGridSpan.colSpan} 区域不可用，请对准可放置区域`);
+            toast.error('空间不足');
           }
         } else if (!targetItemId || targetItemId === g.source.itemId) {
           // 普通图标落在空格或自身格 → 移动
@@ -1753,10 +1753,9 @@ const Desktop: React.FC = () => {
           }}
           onFolderLayoutChange={(id, layout) => {
             if (!setFolderLayout(id, layout)) {
-              toast.error('当前桌面空间不足，无法切换为该布局');
+              toast.error('空间不足');
               return;
             }
-            toast.success(`文件夹已切换为 ${layout.replace('x', '×')} 布局`);
           }}
           onClose={() => setContextMenu(null)}
         /></React.Suspense>
