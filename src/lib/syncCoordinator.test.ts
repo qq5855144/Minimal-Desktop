@@ -74,6 +74,7 @@ describe('sync upload coordinator', () => {
     expect(secondResult.config).toMatchObject({
       lastRemoteHead: 'own-head-2',
       lastBackupBlobSha: 'own-blob-2',
+      syncStatus: 'synced',
     });
     expect(loadSyncConfig()).toMatchObject({
       lastRemoteHead: 'own-head-2',
@@ -110,32 +111,40 @@ describe('sync upload coordinator', () => {
         lastBackupBlobSha: 'other-tab-blob',
       }),
       snapshot,
-      { force: undefined },
     );
   });
 
-  it('persists a conflict and suppresses repeated automatic uploads', async () => {
-    uploadMock.mockResolvedValueOnce({
-      ok: false,
-      conflict: true,
-      remoteHead: 'other-device-head',
-      message: '远端数据已更新',
+  it('marks a temporary automatic failure for retry without locking later uploads', async () => {
+    uploadMock
+      .mockResolvedValueOnce({ ok: false, message: '云端繁忙，将自动重试' })
+      .mockResolvedValueOnce({
+        ok: true,
+        message: '同步成功',
+        remoteHead: 'recovered-head',
+        backupBlobSha: 'recovered-blob',
+      });
+
+    const failed = await uploadSyncSnapshot(config, snapshot, { source: 'auto' });
+    const recovered = await uploadSyncSnapshot(config, snapshot, { source: 'auto' });
+
+    expect(failed.config).toMatchObject({
+      syncStatus: 'retrying',
+      lastSyncError: '云端繁忙，将自动重试',
     });
-
-    const conflict = await uploadSyncSnapshot(config, snapshot, { source: 'auto' });
-    const suppressed = await uploadSyncSnapshot(config, snapshot, { source: 'auto' });
-
-    expect(conflict.config.pendingConflictHead).toBe('other-device-head');
-    expect(suppressed).toMatchObject({ conflict: true, suppressed: true });
-    expect(uploadMock).toHaveBeenCalledTimes(1);
-    expect(loadSyncConfig()?.pendingConflictHead).toBe('other-device-head');
+    expect(recovered.config).toMatchObject({
+      syncStatus: 'synced',
+      lastRemoteHead: 'recovered-head',
+      lastBackupBlobSha: 'recovered-blob',
+    });
+    expect(recovered.config.lastSyncError).toBeUndefined();
+    expect(uploadMock).toHaveBeenCalledTimes(2);
   });
 
-  it('clears the paused conflict after an explicit one-time overwrite succeeds', async () => {
+  it('clears an earlier retry error after a manual sync succeeds', async () => {
     saveSyncConfig({
       ...config,
-      pendingConflictHead: 'other-device-head',
-      pendingConflictAt: '2026-08-24T00:00:00.000Z',
+      syncStatus: 'retrying',
+      lastSyncError: 'temporary failure',
     });
     uploadMock.mockResolvedValueOnce({
       ok: true,
@@ -146,19 +155,18 @@ describe('sync upload coordinator', () => {
 
     const result = await uploadSyncSnapshot(config, snapshot, {
       source: 'manual',
-      force: true,
     });
 
     expect(uploadMock).toHaveBeenCalledWith(
-      expect.objectContaining({ pendingConflictHead: 'other-device-head' }),
+      expect.objectContaining({ syncStatus: 'syncing' }),
       snapshot,
-      { force: true },
     );
-    expect(result.config.pendingConflictHead).toBeUndefined();
+    expect(result.config.syncStatus).toBe('synced');
+    expect(result.config.lastSyncError).toBeUndefined();
     expect(loadSyncConfig()).toMatchObject({
       lastRemoteHead: 'overwritten-head',
       lastBackupBlobSha: 'overwritten-blob',
+      syncStatus: 'synced',
     });
-    expect(loadSyncConfig()?.pendingConflictHead).toBeUndefined();
   });
 });

@@ -19,7 +19,7 @@ export function isSameSyncTarget(left: SyncConfig, right: SyncConfig): boolean {
 }
 
 /**
- * 会话 Token 失效后重新连接同一仓库时，保留自动同步偏好与并发基线。
+ * 会话 Token 失效后重新连接同一仓库时，保留自动同步偏好与最近同步状态。
  * 切换账号、仓库、分支或文件路径时不会继承，避免信任另一个远端目标。
  */
 export function preserveSyncStateForReconnect(
@@ -36,7 +36,7 @@ export function preserveSyncStateForReconnect(
     lastBackupBlobSha: previous.lastBackupBlobSha,
     lastBackgroundSha256: previous.lastBackgroundSha256,
     lastBackgroundBlobSha: previous.lastBackgroundBlobSha,
-    pendingConflictHead: previous.pendingConflictHead,
-    pendingConflictAt: previous.pendingConflictAt,
+    syncStatus: previous.syncStatus,
+    lastSyncError: previous.lastSyncError,
   };
 }

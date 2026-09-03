@@ -1,18 +1,16 @@
-import { uploadToGithub, type UploadOptions, type UploadResult } from '@/lib/github';
+import { uploadToGithub, type UploadResult } from '@/lib/github';
 import { loadSyncConfig, saveSyncConfig } from '@/lib/storage';
 import { isSameSyncTarget, syncTargetKey } from '@/lib/syncTarget';
 import type { SyncConfig, SyncSnapshot } from '@/types';
 
 export type SyncUploadSource = 'auto' | 'manual';
 
-export interface CoordinatedUploadOptions extends UploadOptions {
+export interface CoordinatedUploadOptions {
   source?: SyncUploadSource;
 }
 
 export interface CoordinatedUploadResult extends UploadResult {
   config: SyncConfig;
-  /** 冲突已处于待处理状态，自动同步无需重复请求或提示。 */
-  suppressed?: boolean;
 }
 
 let uploadQueue: Promise<void> = Promise.resolve();
@@ -33,8 +31,8 @@ export function mergeLatestSyncRuntime(
     lastBackupBlobSha: latest.lastBackupBlobSha,
     lastBackgroundSha256: latest.lastBackgroundSha256,
     lastBackgroundBlobSha: latest.lastBackgroundBlobSha,
-    pendingConflictHead: latest.pendingConflictHead,
-    pendingConflictAt: latest.pendingConflictAt,
+    syncStatus: latest.syncStatus,
+    lastSyncError: latest.lastSyncError,
   };
 }
 
@@ -59,40 +57,29 @@ async function performCoordinatedUpload(
   options: CoordinatedUploadOptions,
 ): Promise<CoordinatedUploadResult> {
   const current = mergeLatestSyncRuntime(config, loadSyncConfig());
-  if (options.source === 'auto' && current.pendingConflictHead && !options.force) {
-    return {
-      ok: false,
-      conflict: true,
-      suppressed: true,
-      remoteHead: current.pendingConflictHead,
-      message: '自动同步已暂停，等待处理云端版本冲突',
-      config: current,
-    };
-  }
-
-  const result = await uploadToGithub(current, snapshot, { force: options.force });
+  const active = persistRuntimePatch(current, {
+    syncStatus: 'syncing',
+    lastSyncError: undefined,
+  });
+  const result = await uploadToGithub(active, snapshot);
   if (result.ok) {
-    const next = persistRuntimePatch(current, {
+    const next = persistRuntimePatch(active, {
       lastSyncAt: new Date().toISOString(),
-      lastRemoteHead: result.remoteHead ?? current.lastRemoteHead,
+      lastRemoteHead: result.remoteHead ?? active.lastRemoteHead,
       lastBackupBlobSha: result.backupBlobSha,
       lastBackgroundSha256: result.backgroundSha256,
       lastBackgroundBlobSha: result.backgroundBlobSha,
-      pendingConflictHead: undefined,
-      pendingConflictAt: undefined,
+      syncStatus: 'synced',
+      lastSyncError: undefined,
     });
     return { ...result, config: next };
   }
 
-  if (result.conflict) {
-    const next = persistRuntimePatch(current, {
-      pendingConflictHead: result.remoteHead ?? current.pendingConflictHead,
-      pendingConflictAt: new Date().toISOString(),
-    });
-    return { ...result, config: next };
-  }
-
-  return { ...result, config: current };
+  const next = persistRuntimePatch(active, {
+    syncStatus: options.source === 'auto' ? 'retrying' : 'error',
+    lastSyncError: result.message,
+  });
+  return { ...result, config: next };
 }
 
 /** Web Locks 将不同标签页/扩展页面对同一备份文件的上传也串行化。 */
@@ -106,7 +93,7 @@ async function withCrossContextLock<T>(
 
 /**
  * 手动和自动上传共享同一串行队列。后发任务会在前一任务持久化新基线后再读取配置，
- * 因此连续拖拽、隐私 vault 落盘和手动上传不会互相制造伪冲突。
+ * 因此连续拖拽、隐私 vault 落盘和手动上传会继承上一任务的新远端状态。
  */
 export function uploadSyncSnapshot(
   config: SyncConfig,

@@ -78,6 +78,27 @@ describe('sync credential storage', () => {
     expect(localStorage.getItem('ios_sync_config')).not.toContain('autoSyncDelaySeconds');
   });
 
+  it('removes a legacy conflict lock and resumes automatic sync', () => {
+    localStorage.setItem('ios_sync_config', JSON.stringify({
+      ...config,
+      pendingConflictHead: 'stale-head',
+      pendingConflictAt: '2026-09-01T00:00:00.000Z',
+    }));
+
+    expect(loadSyncConfig()).toMatchObject({ syncStatus: 'pending', autoSync: true });
+    expect(localStorage.getItem('ios_sync_config')).not.toContain('pendingConflict');
+  });
+
+  it('recovers an upload interrupted by a page reload', () => {
+    localStorage.setItem('ios_sync_config', JSON.stringify({
+      ...config,
+      syncStatus: 'syncing',
+    }));
+
+    expect(loadSyncConfig()?.syncStatus).toBe('pending');
+    expect(localStorage.getItem('ios_sync_config')).toContain('"syncStatus":"pending"');
+  });
+
   it('migrates the legacy built-in wallpaper to the current local WebP asset', () => {
     localStorage.setItem('ios_desktop_settings', JSON.stringify({
       style: 'glassmorphism',

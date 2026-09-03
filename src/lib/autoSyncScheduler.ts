@@ -1,7 +1,10 @@
-/** GitHub 端存在约一分钟的缓存窗口，自动同步统一等待 60 秒。 */
-export const AUTO_SYNC_DELAY_MS = 60_000;
+/** 停止编辑后快速合并一批本地改动，避免每次拖拽都创建一个提交。 */
+export const AUTO_SYNC_DELAY_MS = 5_000;
+/** 网络或远端写入繁忙时后台重试，不打断用户操作。 */
+export const AUTO_SYNC_RETRY_MS = 30_000;
+export const AUTO_SYNC_REQUEST_EVENT = 'minimal-desktop:auto-sync-request';
 
-export type AutoSyncRunOutcome = 'complete' | 'paused';
+export type AutoSyncRunOutcome = 'complete' | 'paused' | 'retry';
 
 export interface AutoSyncTaskContext {
   /** 生成快照期间若又有本地改动，应丢弃旧快照并等待最新任务。 */
@@ -10,6 +13,7 @@ export interface AutoSyncTaskContext {
 
 interface AutoSyncSchedulerOptions {
   getDelayMs: () => number;
+  getRetryDelayMs?: () => number;
   run: (context: AutoSyncTaskContext) => Promise<AutoSyncRunOutcome>;
   onError?: (error: unknown) => void;
 }
@@ -20,7 +24,7 @@ interface AutoSyncSchedulerOptions {
  * - 连续改动只保留静默期结束后的最新快照；
  * - 任意时刻最多执行一个任务；
  * - 上传期间出现的新改动会在当前任务结束后重新等待并合并；
- * - 冲突或配置不可用时暂停，不做无限重试。
+ * - 临时失败自动重试；只有自动同步被关闭或配置不可用时才暂停。
  */
 export class AutoSyncScheduler {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -57,9 +61,9 @@ export class AutoSyncScheduler {
     this.timer = null;
   }
 
-  private schedule(): void {
+  private schedule(delayOverride?: number): void {
     this.clearTimer();
-    const configuredDelay = this.options.getDelayMs();
+    const configuredDelay = delayOverride ?? this.options.getDelayMs();
     const delay = Number.isFinite(configuredDelay) ? Math.max(0, configuredDelay) : 0;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -87,6 +91,12 @@ export class AutoSyncScheduler {
       if (outcome === 'paused') {
         this.dirty = false;
         this.clearTimer();
+        return;
+      }
+      if (outcome === 'retry') {
+        this.dirty = true;
+        const retryDelay = this.options.getRetryDelayMs?.() ?? AUTO_SYNC_RETRY_MS;
+        this.schedule(retryDelay);
         return;
       }
       if (this.dirty) this.schedule();

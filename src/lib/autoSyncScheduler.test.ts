@@ -17,8 +17,8 @@ describe('automatic sync scheduler', () => {
     vi.useRealTimers();
   });
 
-  it('uses the fixed 60 second quiet interval', () => {
-    expect(AUTO_SYNC_DELAY_MS).toBe(60_000);
+  it('uses a short five second quiet interval', () => {
+    expect(AUTO_SYNC_DELAY_MS).toBe(5_000);
   });
 
   it('coalesces a burst of changes into one trailing-edge upload', async () => {
@@ -67,7 +67,7 @@ describe('automatic sync scheduler', () => {
     scheduler.dispose();
   });
 
-  it('drops queued changes when the active run reports a conflict pause', async () => {
+  it('drops queued changes when automatic sync is explicitly paused', async () => {
     vi.useFakeTimers();
     const first = deferred<AutoSyncRunOutcome>();
     const run = vi.fn(() => first.promise);
@@ -80,6 +80,27 @@ describe('automatic sync scheduler', () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(run).toHaveBeenCalledOnce();
+    scheduler.dispose();
+  });
+
+  it('keeps the latest change dirty and retries after a temporary failure', async () => {
+    vi.useFakeTimers();
+    const run = vi.fn()
+      .mockResolvedValueOnce('retry')
+      .mockResolvedValueOnce('complete');
+    const scheduler = new AutoSyncScheduler({
+      getDelayMs: () => 100,
+      getRetryDelayMs: () => 300,
+      run,
+    });
+
+    scheduler.request();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(run).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(299);
+    expect(run).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(run).toHaveBeenCalledTimes(2);
     scheduler.dispose();
   });
 });

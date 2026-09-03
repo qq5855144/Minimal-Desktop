@@ -28,83 +28,34 @@ async function expectedGitBlobSha(content: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function successfulUploadResponses(fetchMock: ReturnType<typeof vi.fn>): void {
+function successfulUploadResponses(
+  fetchMock: ReturnType<typeof vi.fn>,
+  currentTree: { path: string; type: string; sha: string }[] = [],
+): void {
   fetchMock
     .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'base-tree' } }))
+    .mockResolvedValueOnce(jsonResponse({ tree: currentTree }))
     .mockResolvedValueOnce(jsonResponse({ sha: 'backup-blob' }))
     .mockResolvedValueOnce(jsonResponse({ sha: 'new-tree' }))
     .mockResolvedValueOnce(jsonResponse({ sha: 'new-commit' }))
     .mockResolvedValueOnce(jsonResponse({}));
 }
 
-describe('GitHub sync concurrency protection', () => {
+describe('GitHub automatic sync', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('stops before writing when the remote branch changed', async () => {
+  it('saves local changes on top of the latest remote version without a conflict prompt', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'new-backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'old-backup-blob' }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub(config, snapshot);
-
-    expect(result.ok).toBe(false);
-    expect(result.conflict).toBe(true);
-    expect(result.remoteHead).toBe('new-head');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  it('requires a download before overwriting an existing backup without a local baseline', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'remote-backup-blob' }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub({ ...config, lastRemoteHead: undefined }, snapshot);
-
-    expect(result).toMatchObject({ ok: false, conflict: true, remoteHead: 'remote-head' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('recreates a backup deleted remotely instead of reporting a conflict', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Not Found' }, 404));
-    successfulUploadResponses(fetchMock);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub(config, snapshot);
-
-    expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
-    expect(fetchMock).toHaveBeenCalledTimes(7);
-  });
-
-  it('allows unrelated remote commits when the backup blob is unchanged', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'same-backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'same-backup-blob' }));
-    successfulUploadResponses(fetchMock);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub(config, snapshot);
-
-    expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(8);
-  });
-
-  it('uses the backup blob baseline to avoid a false conflict from a stale branch HEAD', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'known-backup-blob' }));
-    successfulUploadResponses(fetchMock);
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }));
+    successfulUploadResponses(fetchMock, [{
+      path: config.path, type: 'blob', sha: 'other-device-blob',
+    }]);
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await uploadToGithub({
       ...config,
       lastRemoteHead: 'stale-head',
-      lastBackupBlobSha: 'known-backup-blob',
+      lastBackupBlobSha: 'stale-blob',
     }, snapshot);
 
     expect(result).toMatchObject({
@@ -112,126 +63,105 @@ describe('GitHub sync concurrency protection', () => {
       remoteHead: 'new-commit',
       backupBlobSha: 'backup-blob',
     });
-    // 不再读取旧 HEAD 下的文件元数据；当前 blob 基线已经足够判断。
+    expect(result).not.toHaveProperty('conflict');
+    const commitRequest = JSON.parse(fetchMock.mock.calls[5][1]?.body as string);
+    expect(commitRequest.parents).toEqual(['new-head']);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/contents/'))).toBe(false);
+  });
+
+  it('creates or replaces the cloud snapshot even when this installation has no baseline yet', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }));
+    successfulUploadResponses(fetchMock, [{
+      path: config.path, type: 'blob', sha: 'existing-backup',
+    }]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub({
+      ...config,
+      lastRemoteHead: undefined,
+      lastBackupBlobSha: undefined,
+    }, snapshot);
+
+    expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
-  it('supports an explicit one-time overwrite while retaining fast-forward updates', async () => {
+  it('adopts an identical remote snapshot despite a stale local baseline', async () => {
+    const parsed = parseDesktopBackup(snapshot.data);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const backupBlobSha = await expectedGitBlobSha(JSON.stringify(parsed.data, null, 2));
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }));
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: [{
+        path: config.path, type: 'blob', sha: backupBlobSha,
+      }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await uploadToGithub({
+      ...config,
+      lastRemoteHead: 'stale-head',
+      lastBackupBlobSha: 'stale-blob',
+    }, snapshot);
+
+    expect(result).toMatchObject({
+      ok: true,
+      unchanged: true,
+      remoteHead: 'new-head',
+      backupBlobSha,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('recreates a remotely deleted backup automatically', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }));
     successfulUploadResponses(fetchMock);
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await uploadToGithub(
-      { ...config, lastRemoteHead: undefined, lastBackupBlobSha: undefined },
-      snapshot,
-      { force: true },
-    );
+    const result = await uploadToGithub(config, snapshot);
 
     expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
-    const commitRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
-    expect(commitRequest.parents).toEqual(['remote-head']);
-    const updateRequest = JSON.parse(fetchMock.mock.calls[5][1]?.body as string);
-    expect(updateRequest).toEqual({ sha: 'new-commit', force: false });
   });
 
-  it('safely retries a normal upload when only the branch ref advanced', async () => {
+  it('rebases and retries automatically when the branch advances during upload', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'old-head' } }))
       .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'old-base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: [] }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'first-backup-blob' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'first-tree' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'first-commit' }))
       .mockResolvedValueOnce(jsonResponse({ message: 'Update is not a fast forward' }, 422))
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      // 重试时先确认最新 HEAD 中的备份仍等于本地已知基线。
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'baseline-blob' }))
       .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'latest-base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: [{
+        path: config.path, type: 'blob', sha: 'other-device-blob',
+      }] }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-backup-blob' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-tree' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-commit' }))
       .mockResolvedValueOnce(jsonResponse({}));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await uploadToGithub({
-      ...config,
-      lastRemoteHead: 'old-head',
-      lastBackupBlobSha: 'baseline-blob',
-    }, snapshot);
+    const result = await uploadToGithub(config, snapshot);
 
     expect(result).toMatchObject({ ok: true, remoteHead: 'second-commit' });
-    expect(fetchMock.mock.calls[8][0]).toContain('/contents/desktop_backup.json?ref=latest-head');
-    const secondCommitRequest = JSON.parse(fetchMock.mock.calls[12][1]?.body as string);
+    const secondCommitRequest = JSON.parse(fetchMock.mock.calls[13][1]?.body as string);
     expect(secondCommitRequest.parents).toEqual(['latest-head']);
     expect(fetchMock.mock.calls.filter(([, request]) => request?.method === 'PATCH')).toHaveLength(2);
   });
 
-  it('does not retry over a backup that really changed during a ref race', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'old-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'old-base-tree' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-tree' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-commit' }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Update is not a fast forward' }, 422))
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'other-device-blob' }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub({
-      ...config,
-      lastRemoteHead: 'old-head',
-      lastBackupBlobSha: 'baseline-blob',
-    }, snapshot);
-
-    expect(result).toMatchObject({ ok: false, conflict: true, remoteHead: 'latest-head' });
-    expect(result.message).toContain('其他设备更新');
-    expect(fetchMock.mock.calls.filter(([, request]) => request?.method === 'PATCH')).toHaveLength(1);
-  });
-
-  it('rebuilds an explicit overwrite on the latest HEAD after a fast-forward race', async () => {
-    const fetchMock = vi.fn()
-      // 第一次尝试以旧 HEAD 创建提交，但更新引用前远端又产生了新提交。
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'old-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'old-base-tree' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-tree' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'first-commit' }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Update is not a fast forward' }, 422))
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      // 第二次尝试必须重新读取 HEAD 并基于它创建新的 fast-forward commit。
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'latest-base-tree' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'second-backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'second-tree' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'second-commit' }))
-      .mockResolvedValueOnce(jsonResponse({}));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub(config, snapshot, { force: true });
-
-    expect(result).toMatchObject({ ok: true, remoteHead: 'second-commit' });
-    const firstCommitRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
-    expect(firstCommitRequest.parents).toEqual(['old-head']);
-    const secondCommitRequest = JSON.parse(fetchMock.mock.calls[11][1]?.body as string);
-    expect(secondCommitRequest.parents).toEqual(['latest-head']);
-    const updateRequests = fetchMock.mock.calls
-      .filter(([, request]) => request?.method === 'PATCH')
-      .map(([, request]) => JSON.parse(request?.body as string));
-    expect(updateRequests).toEqual([
-      { sha: 'first-commit', force: false },
-      { sha: 'second-commit', force: false },
-    ]);
-  });
-
-  it('shows an actionable message when all overwrite retries encounter remote updates', async () => {
+  it('returns a retry message instead of a conflict lock after repeated ref races', async () => {
     const fetchMock = vi.fn();
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ object: { sha: `head-${attempt}` } }))
         .mockResolvedValueOnce(jsonResponse({ tree: { sha: `base-tree-${attempt}` } }))
+        .mockResolvedValueOnce(jsonResponse({ tree: [] }))
         .mockResolvedValueOnce(jsonResponse({ sha: `backup-blob-${attempt}` }))
         .mockResolvedValueOnce(jsonResponse({ sha: `tree-${attempt}` }))
         .mockResolvedValueOnce(jsonResponse({ sha: `commit-${attempt}` }))
@@ -240,41 +170,18 @@ describe('GitHub sync concurrency protection', () => {
     }
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await uploadToGithub(config, snapshot, { force: true });
+    const result = await uploadToGithub(config, snapshot);
 
     expect(result).toMatchObject({
       ok: false,
-      conflict: true,
       remoteHead: 'advanced-head-3',
-      message: '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。',
+      message: '云端正在频繁更新，已保留本地更改，将自动重试。',
     });
+    expect(result).not.toHaveProperty('conflict');
     expect(fetchMock.mock.calls.filter(([, request]) => request?.method === 'PATCH')).toHaveLength(3);
   });
 
-  it('skips an empty commit when the generated tree is unchanged', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'current-head' } }))
-      .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'base-tree' } }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'backup-blob' }))
-      .mockResolvedValueOnce(jsonResponse({ sha: 'base-tree' }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await uploadToGithub({
-      ...config,
-      lastRemoteHead: 'current-head',
-      lastBackupBlobSha: 'backup-blob',
-    }, snapshot);
-
-    expect(result).toMatchObject({
-      ok: true,
-      unchanged: true,
-      remoteHead: 'current-head',
-      backupBlobSha: 'backup-blob',
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
-
-  it('uses the saved file fingerprint to skip every write request for identical data', async () => {
+  it('uses the saved fingerprint to skip every write request for identical data', async () => {
     const parsed = parseDesktopBackup(snapshot.data);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -318,10 +225,10 @@ describe('GitHub sync concurrency protection', () => {
       },
       backgroundFile: wallpaper,
     };
-    const currentConfig = { ...config, lastRemoteHead: 'current-head' };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'current-head' } }))
       .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'base-tree' } }))
+      .mockResolvedValueOnce(jsonResponse({ tree: [] }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'media-blob' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'backup-blob' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'new-tree' }))
@@ -329,16 +236,16 @@ describe('GitHub sync concurrency protection', () => {
       .mockResolvedValueOnce(jsonResponse({}));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await uploadToGithub(currentConfig, mediaSnapshot);
+    const result = await uploadToGithub(config, mediaSnapshot);
 
     expect(result).toMatchObject({
       ok: true,
       backgroundBlobSha: 'media-blob',
       backgroundSha256: mediaSnapshot.data.background?.sha256,
     });
-    const mediaRequest = JSON.parse(fetchMock.mock.calls[2][1]?.body as string);
+    const mediaRequest = JSON.parse(fetchMock.mock.calls[3][1]?.body as string);
     expect(mediaRequest).toEqual({ content: 'AQIDBA==', encoding: 'base64' });
-    const treeRequest = JSON.parse(fetchMock.mock.calls[4][1]?.body as string);
+    const treeRequest = JSON.parse(fetchMock.mock.calls[5][1]?.body as string);
     expect(treeRequest.tree).toContainEqual(expect.objectContaining({
       path: getBackgroundBackupPath(config.path),
       sha: 'media-blob',

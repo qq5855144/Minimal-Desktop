@@ -176,17 +176,30 @@ export function loadSyncConfig(): SyncConfig | null {
   try {
     const raw = localStorage.getItem(SYNC_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as SyncConfig & { autoSyncDelaySeconds?: unknown };
+      const parsed = JSON.parse(raw) as SyncConfig & {
+        autoSyncDelaySeconds?: unknown;
+        pendingConflictHead?: unknown;
+        pendingConflictAt?: unknown;
+      };
       // 迁移旧字段
       if (!parsed.fileName) parsed.fileName = 'desktop_backup.json';
       if (!parsed.syncInterval) parsed.syncInterval = 'manual';
       if (parsed.autoSync === undefined) parsed.autoSync = false;
-      // 短暂版本曾提供可选间隔；现统一固定为 60 秒，不再持久化该字段。
+      // 短暂版本曾提供可选间隔；当前由统一调度器管理，不再持久化该字段。
       const hadObsoleteAutoSyncDelay = Object.prototype.hasOwnProperty.call(
         parsed,
         'autoSyncDelaySeconds',
       );
+      const hadLegacyConflict = Object.prototype.hasOwnProperty.call(parsed, 'pendingConflictHead')
+        || Object.prototype.hasOwnProperty.call(parsed, 'pendingConflictAt');
+      const hadInterruptedSync = parsed.syncStatus === 'syncing';
       delete parsed.autoSyncDelaySeconds;
+      delete parsed.pendingConflictHead;
+      delete parsed.pendingConflictAt;
+      // 旧版冲突锁会让自动同步永久停住。升级后将任务恢复为待同步，并由新队列自动重试。
+      if (hadLegacyConflict && parsed.autoSync) parsed.syncStatus = 'pending';
+      else if (parsed.syncStatus === 'syncing') parsed.syncStatus = parsed.autoSync ? 'pending' : 'idle';
+      else if (!parsed.syncStatus) parsed.syncStatus = parsed.lastSyncAt ? 'synced' : 'idle';
       if (parsed.rememberToken === undefined) parsed.rememberToken = false;
       // 旧版本曾把 PAT 明文写入 localStorage。迁移时立即移除，仅保留本会话副本。
       const legacyToken = parsed.token;
@@ -194,7 +207,7 @@ export function loadSyncConfig(): SyncConfig | null {
         try { sessionStorage.setItem(SYNC_TOKEN_SESSION_KEY, legacyToken); } catch { /* ignore */ }
         parsed.token = '';
         try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
-      } else if (hadObsoleteAutoSyncDelay) {
+      } else if (hadObsoleteAutoSyncDelay || hadLegacyConflict || hadInterruptedSync) {
         try { localStorage.setItem(SYNC_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
       }
       // 恢复 Token：勾选"保持登录"时持久化于 localStorage，否则仅当前会话副本。

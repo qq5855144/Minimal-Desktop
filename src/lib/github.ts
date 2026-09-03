@@ -7,7 +7,6 @@ export interface UploadResult {
   ok: boolean;
   message: string;
   remoteHead?: string;
-  conflict?: boolean;
   unchanged?: boolean;
   backupBlobSha?: string;
   backgroundSha256?: string;
@@ -24,13 +23,8 @@ export interface DownloadResult {
   backgroundBlobSha?: string;
 }
 
-export interface UploadOptions {
-  /** 用户明确选择“本次覆盖”后跳过备份基线检查；分支更新仍保持 fast-forward。 */
-  force?: boolean;
-}
-
 interface UploadAttemptResult extends UploadResult {
-  /** 更新引用前 HEAD 被推进；下一轮必须重新校验备份 blob 后再构建提交。 */
+  /** 更新引用前 HEAD 被推进；下一轮基于最新 HEAD 重新构建提交。 */
   retryableRefRace?: boolean;
 }
 
@@ -167,7 +161,7 @@ export async function listRepos(token: string): Promise<{ name: string; full_nam
   }));
 }
 
-/** 获取分支当前 HEAD；连接同步时记录它，后续上传据此做乐观并发检查。 */
+/** 获取分支当前 HEAD；连接、上传与下载都以明确的 commit 快照工作。 */
 export async function getBranchHead(
   token: string,
   owner: string,
@@ -178,30 +172,6 @@ export async function getBranchHead(
   if (!res.ok) return null;
   const data = await res.json() as { object?: { sha?: string } };
   return data.object?.sha ?? null;
-}
-
-type RemoteFileMetadata =
-  | { state: 'found'; sha: string }
-  | { state: 'missing' }
-  | { state: 'error'; message: string };
-
-async function getRemoteFileMetadata(
-  token: string,
-  owner: string,
-  repo: string,
-  filePath: string,
-  ref: string,
-): Promise<RemoteFileMetadata> {
-  const res = await ghFetch(
-    token,
-    `/repos/${owner}/${repo}/contents/${encodedRepoPath(filePath)}?ref=${encodeURIComponent(ref)}`,
-  );
-  if (res.status === 404) return { state: 'missing' };
-  if (!res.ok) return { state: 'error', message: await errorMessage(res, '读取远端文件状态失败') };
-  const file = await res.json() as { sha?: string };
-  return file.sha
-    ? { state: 'found', sha: file.sha }
-    : { state: 'error', message: '远端备份文件状态无效' };
 }
 
 interface RepoFileResult {
@@ -257,15 +227,14 @@ async function readRepoFileAtRef(
 export async function uploadToGithub(
   config: SyncConfig,
   snapshot: SyncSnapshot,
-  options: UploadOptions = {},
 ): Promise<UploadResult> {
   // 引用竞态后放弃未挂到分支上的 commit，并以最新 HEAD 为父提交重新构建。
-  // 普通同步会重新检查备份 blob；只有它仍等于本地基线时才继续，因此不会
-  // 借重试覆盖真正的其他设备更新。“本次覆盖”则只跳过 blob 基线检查。
+  // 本地修改始终保存为一个新的 fast-forward 版本；GitHub 历史完整保留，因此
+  // 远端先行更新不再把自动同步锁死，也不需要用户反复确认“本次覆盖”。
   let lastResult: UploadAttemptResult | undefined;
 
   for (let attempt = 0; attempt < MAX_UPLOAD_ATTEMPTS; attempt += 1) {
-    const result = await doUploadViaGitApi(config, snapshot, options);
+    const result = await doUploadViaGitApi(config, snapshot);
     if (result.ok || !result.retryableRefRace) {
       const { retryableRefRace: _retryable, ...uploadResult } = result;
       return uploadResult;
@@ -277,17 +246,13 @@ export async function uploadToGithub(
   return {
     ...uploadResult,
     ok: false,
-    conflict: options.force ? true : undefined,
-    message: options.force
-      ? '覆盖期间远端仍在持续更新，请稍后再次点击“本次覆盖”。'
-      : '云端正在持续更新，本次同步未完成，请稍后重试。',
+    message: '云端正在频繁更新，已保留本地更改，将自动重试。',
   };
 }
 
 async function doUploadViaGitApi(
   config: SyncConfig,
   snapshot: SyncSnapshot,
-  options: UploadOptions,
 ): Promise<UploadAttemptResult> {
   const { token, owner, repo, branch = 'main' } = config;
   const filePath = config.path || 'desktop_backup.json';
@@ -311,8 +276,7 @@ async function doUploadViaGitApi(
     && Boolean(config.lastBackgroundBlobSha)
   );
   if (
-    !options.force
-    && config.lastRemoteHead === latestCommitSha
+    config.lastRemoteHead === latestCommitSha
     && config.lastBackupBlobSha === expectedBackupBlobSha
     && backgroundAlreadySynced
   ) {
@@ -327,68 +291,44 @@ async function doUploadViaGitApi(
     };
   }
 
-  const needsRemoteFileCheck = !options.force && (
-    (!config.lastRemoteHead && !config.lastBackupBlobSha)
-    || config.lastRemoteHead !== latestCommitSha
-  );
-  const latestFile = needsRemoteFileCheck
-    ? await getRemoteFileMetadata(token, owner, repo, filePath, latestCommitSha)
-    : null;
-  if (latestFile?.state === 'error') return { ok: false, message: latestFile.message };
-
-  if (!options.force && !config.lastRemoteHead && !config.lastBackupBlobSha) {
-    if (latestFile?.state === 'found') {
-      return {
-        ok: false,
-        conflict: true,
-        remoteHead: latestCommitSha,
-        message: '远端已有备份。请先下载云端数据，确认后再上传。',
-      };
-    }
-  } else if (
-    !options.force
-    && latestFile?.state === 'found'
-    && config.lastBackupBlobSha
-    && config.lastBackupBlobSha !== latestFile.sha
-  ) {
-    return {
-      ok: false,
-      conflict: true,
-      remoteHead: latestCommitSha,
-      message: '远端数据已被其他设备更新。请先下载确认，或选择“本次覆盖”。',
-    };
-  } else if (
-    !options.force
-    && !config.lastBackupBlobSha
-    && config.lastRemoteHead
-    && config.lastRemoteHead !== latestCommitSha
-  ) {
-    // 分支 HEAD 可能只是 README 等无关文件变化。只在备份文件本身被修改时阻止覆盖；
-    // 若目标备份已被删除，则允许本次上传重新创建。
-    if (latestFile?.state === 'found') {
-      const previousFile = await getRemoteFileMetadata(
-        token,
-        owner,
-        repo,
-        filePath,
-        config.lastRemoteHead,
-      );
-      if (previousFile.state === 'error') return { ok: false, message: previousFile.message };
-      if (previousFile.state !== 'found' || previousFile.sha !== latestFile.sha) {
-        return {
-          ok: false,
-          conflict: true,
-          remoteHead: latestCommitSha,
-          message: '远端数据已被其他设备更新。请先下载确认，或选择“本次覆盖”。',
-        };
-      }
-    }
-  }
-
   const commitRes = await ghFetch(token, `/repos/${owner}/${repo}/git/commits/${latestCommitSha}`);
   if (!commitRes.ok) return { ok: false, message: await errorMessage(commitRes, '获取 commit 信息失败') };
   const commitData = await commitRes.json() as { tree: { sha: string } };
   const baseTreeSha = commitData.tree.sha;
+
+  // Git Data API 按不可变 tree SHA 读取实际文件状态，不依赖 Contents API 缓存。
+  // 即使另一个窗口刚完成相同快照，也能直接吸收新基线而不是误报冲突。
+  const currentTreeRes = await ghFetch(
+    token,
+    `/repos/${owner}/${repo}/git/trees/${baseTreeSha}?recursive=1`,
+  );
+  if (!currentTreeRes.ok) {
+    return { ok: false, message: await errorMessage(currentTreeRes, '读取远端文件树失败') };
+  }
+  const currentTree = await currentTreeRes.json() as {
+    tree?: { path?: string; type?: string; sha?: string }[];
+  };
+  const currentBackup = currentTree.tree?.find((entry) => (
+    entry.path === filePath && entry.type === 'blob'
+  ));
+  const currentBackground = currentTree.tree?.find((entry) => (
+    entry.path === backgroundPath && entry.type === 'blob'
+  ));
+  if (
+    expectedBackupBlobSha
+    && currentBackup?.sha === expectedBackupBlobSha
+    && (!background || currentBackground?.sha)
+  ) {
+    return {
+      ok: true,
+      unchanged: true,
+      message: '云端已是最新数据',
+      remoteHead: latestCommitSha,
+      backupBlobSha: expectedBackupBlobSha,
+      backgroundSha256: background?.sha256,
+      backgroundBlobSha: background ? currentBackground?.sha : undefined,
+    };
+  }
 
   // 步骤 2a：背景媒体单独作为 blob；相同媒体沿用当前 tree 中的 blob，避免重复上传。
   let backgroundBlobSha: string | undefined;
@@ -396,20 +336,9 @@ async function doUploadViaGitApi(
     background
     && config.lastBackgroundSha256 === background.sha256
     && config.lastBackgroundBlobSha
+    && currentBackground?.sha === config.lastBackgroundBlobSha
   ) {
-    const currentTreeRes = await ghFetch(
-      token,
-      `/repos/${owner}/${repo}/git/trees/${baseTreeSha}?recursive=1`,
-    );
-    if (currentTreeRes.ok) {
-      const currentTree = await currentTreeRes.json() as {
-        tree?: { path?: string; type?: string; sha?: string }[];
-      };
-      const existing = currentTree.tree?.find((entry) => (
-        entry.path === backgroundPath && entry.type === 'blob'
-      ));
-      if (existing?.sha === config.lastBackgroundBlobSha) backgroundBlobSha = existing.sha;
-    }
+    backgroundBlobSha = currentBackground.sha;
   }
 
   if (background && !backgroundBlobSha) {
@@ -501,7 +430,6 @@ async function doUploadViaGitApi(
     );
     return {
       ok: false,
-      conflict: retryableRefRace,
       retryableRefRace,
       remoteHead: currentRemoteHead,
       message,

@@ -79,17 +79,18 @@ export interface SyncConfig {
   syncInterval: 'manual' | '1d' | '7d' | '30d';
   autoSync: boolean;   // 数据变更时自动上传
   lastSyncAt?: string; // ISO string
-  /** 上一次确认过的远端分支 HEAD；用于阻止多设备静默覆盖 */
+  /** 上一次成功同步的远端分支 HEAD；用于省略重复请求，不再作为冲突锁。 */
   lastRemoteHead?: string;
-  /** 上一次确认过的备份文件 blob；分支有无关提交时不应误报冲突。 */
+  /** 上一次成功同步的备份文件 blob；用于识别相同快照。 */
   lastBackupBlobSha?: string;
   /** 最近一次成功上传/下载的背景媒体摘要，用于避免重复上传大文件。 */
   lastBackgroundSha256?: string;
   /** 最近一次成功上传/下载的 GitHub 背景媒体 blob SHA。 */
   lastBackgroundBlobSha?: string;
-  /** 检测到远端备份变化后暂停自动同步，等待用户下载或明确覆盖。 */
-  pendingConflictHead?: string;
-  pendingConflictAt?: string;
+  /** 自动同步的可见运行状态；网络失败会进入 retrying，而不会锁死队列。 */
+  syncStatus?: 'idle' | 'pending' | 'syncing' | 'synced' | 'retrying' | 'error';
+  /** 最近一次同步失败原因；成功或出现新的本地修改后清除。 */
+  lastSyncError?: string;
   /** 勾选后 Token 持久化到 localStorage；默认仅保留在当前会话 */
   rememberToken?: boolean;
 }

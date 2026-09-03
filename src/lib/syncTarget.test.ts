@@ -16,8 +16,8 @@ const previous: SyncConfig = {
   lastBackupBlobSha: 'known-blob',
   lastBackgroundSha256: 'known-background-digest',
   lastBackgroundBlobSha: 'known-background-blob',
-  pendingConflictHead: 'pending-head',
-  pendingConflictAt: '2026-08-24T00:01:00.000Z',
+  syncStatus: 'retrying',
+  lastSyncError: 'temporary network error',
 };
 
 function reconnected(overrides: Partial<SyncConfig> = {}): SyncConfig {
@@ -47,7 +47,8 @@ describe('sync target reconnect state', () => {
       lastBackupBlobSha: 'known-blob',
       lastBackgroundSha256: 'known-background-digest',
       lastBackgroundBlobSha: 'known-background-blob',
-      pendingConflictHead: 'pending-head',
+      syncStatus: 'retrying',
+      lastSyncError: 'temporary network error',
     });
   });
 
@@ -57,6 +58,6 @@ describe('sync target reconnect state', () => {
     expect(next).toMatchObject({ autoSync: false, syncInterval: 'manual' });
     expect(next.lastRemoteHead).toBeUndefined();
     expect(next.lastBackupBlobSha).toBeUndefined();
-    expect(next.pendingConflictHead).toBeUndefined();
+    expect(next.syncStatus).toBeUndefined();
   });
 });

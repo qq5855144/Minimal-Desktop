@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
-import { AUTO_SYNC_DELAY_MS, AutoSyncScheduler } from '@/lib/autoSyncScheduler';
+import {
+  AUTO_SYNC_DELAY_MS,
+  AUTO_SYNC_REQUEST_EVENT,
+  AutoSyncScheduler,
+} from '@/lib/autoSyncScheduler';
 import { isNoopGridDrop, resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
@@ -26,7 +30,7 @@ import {
   type SwipeAxis,
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
-import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
+import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT, updateSyncConfig } from '@/lib/storage';
 import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
@@ -261,8 +265,8 @@ const Desktop: React.FC = () => {
     });
   }, [addItem]);
 
-  // 自动同步：静默期防抖 + 单任务在途。快照生成期间若又发生拖拽，旧快照会被丢弃；
-  // 上传期间的后续改动则合并为下一次任务，避免旧快照晚到和同设备自相冲突。
+  // 自动同步：5 秒静默期合并编辑，远端抢先更新时由 GitHub 层自动基于最新 HEAD 重试。
+  // 临时失败保留 dirty 状态后台重试，不再用“冲突锁”永久暂停队列。
   const autoSyncLatestRef = useRef({ data, settings });
   autoSyncLatestRef.current = { data, settings };
   const autoSyncSchedulerRef = useRef<AutoSyncScheduler | null>(null);
@@ -278,7 +282,6 @@ const Desktop: React.FC = () => {
           || !initialConfig.token
           || !initialConfig.owner
           || !initialConfig.repo
-          || initialConfig.pendingConflictHead
         ) {
           return 'paused';
         }
@@ -295,7 +298,6 @@ const Desktop: React.FC = () => {
             || !currentConfig.token
             || !currentConfig.owner
             || !currentConfig.repo
-            || currentConfig.pendingConflictHead
           ) {
             return 'paused';
           }
@@ -305,39 +307,54 @@ const Desktop: React.FC = () => {
             snapshot,
             { source: 'auto' },
           );
-          if (result.conflict && !result.suppressed) {
-            toast.error('检测到云端新版本，自动同步已暂停', {
-              description: '请在云同步中下载确认，或选择“本次覆盖”。',
-              action: { label: '立即处理', onClick: () => setOpenSync(true) },
-            });
-          }
-          return result.conflict ? 'paused' : 'complete';
-        } catch {
-          // 网络错误保持静默；下一次本地变更仍可重新触发。
-          return 'complete';
+          return result.ok ? 'complete' : 'retry';
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '网络连接异常';
+          updateSyncConfig({
+            syncStatus: 'retrying',
+            lastSyncError: `${message}，将自动重试`,
+          });
+          return 'retry';
         }
       },
     });
     autoSyncSchedulerRef.current = scheduler;
     const handleConfigChange = () => scheduler.reschedule();
+    const handleSyncRequest = () => scheduler.request();
     window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
     window.addEventListener('storage', handleConfigChange);
+    window.addEventListener(AUTO_SYNC_REQUEST_EVENT, handleSyncRequest);
+    const initialConfig = loadSyncConfig();
+    if (
+      initialConfig?.autoSync
+      && ['pending', 'retrying', 'syncing'].includes(initialConfig.syncStatus ?? '')
+    ) {
+      scheduler.request();
+    }
     return () => {
       window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, handleConfigChange);
       window.removeEventListener('storage', handleConfigChange);
+      window.removeEventListener(AUTO_SYNC_REQUEST_EVENT, handleSyncRequest);
       scheduler.dispose();
       if (autoSyncSchedulerRef.current === scheduler) autoSyncSchedulerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    // 即使首次挂载不上传，也立即触发旧版 PAT → sessionStorage 的安全迁移。
-    loadSyncConfig();
+    // 即使首次挂载不上传，也立即触发旧版配置迁移。
+    const syncConfig = loadSyncConfig();
     // 跳过首次挂载（避免页面刚加载就触发上传）
     if (isFirstAutoSyncRenderRef.current) {
       isFirstAutoSyncRenderRef.current = false;
       return;
     }
+    if (
+      !syncConfig?.autoSync
+      || !syncConfig.token
+      || !syncConfig.owner
+      || !syncConfig.repo
+    ) return;
+    updateSyncConfig({ syncStatus: 'pending', lastSyncError: undefined });
     autoSyncSchedulerRef.current?.request();
   }, [data, privacyRevision, settings]);
 
