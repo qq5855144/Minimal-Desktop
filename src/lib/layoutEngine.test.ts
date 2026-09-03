@@ -11,6 +11,7 @@ import {
   movePrivacyItem,
   normalizeDesktopColumnCount,
   normalizeResponsiveColumnCount,
+  resolveResponsiveColumnState,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren,
@@ -63,6 +64,39 @@ describe('layoutEngine', () => {
     expect(normalizeResponsiveColumnCount(8, true)).toBe(8);
     expect(normalizeResponsiveColumnCount(4, false)).toBe(4);
     expect(normalizeResponsiveColumnCount(5, false)).toBe(5);
+  });
+
+  it('横屏自动扩为 6 列后，返回竖屏会恢复用户的 4 列设置', () => {
+    const landscape = resolveResponsiveColumnState(4, undefined, true);
+    expect(landscape).toEqual({
+      gridCols: 6,
+      patch: { cols: 6, portraitCols: 4 },
+    });
+
+    const portrait = resolveResponsiveColumnState(
+      landscape.patch?.cols,
+      landscape.patch?.portraitCols,
+      false,
+    );
+    expect(portrait).toEqual({
+      gridCols: 4,
+      patch: { cols: 4 },
+    });
+  });
+
+  it('切换方向时保留 5 列竖屏偏好与用户选择的横屏列数', () => {
+    expect(resolveResponsiveColumnState(5, 5, true)).toEqual({
+      gridCols: 6,
+      patch: { cols: 6 },
+    });
+    expect(resolveResponsiveColumnState(8, 5, true)).toEqual({
+      gridCols: 8,
+      patch: null,
+    });
+    expect(resolveResponsiveColumnState(8, 5, false)).toEqual({
+      gridCols: 5,
+      patch: { cols: 5 },
+    });
   });
 
   it('10 列布局可完整放置一整行应用及位于末两列的 2×2 文件夹', () => {

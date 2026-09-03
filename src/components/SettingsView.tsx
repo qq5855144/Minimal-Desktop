@@ -672,7 +672,9 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
               <button
                 key={c}
                 type="button"
-                onClick={() => updateSettings({ cols: c })}
+                onClick={() => updateSettings(viewport.isWide
+                  ? { cols: c }
+                  : { cols: c, portraitCols: c })}
                 className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                   settings.cols === c
                     ? 'bg-primary/20 border-primary text-primary'

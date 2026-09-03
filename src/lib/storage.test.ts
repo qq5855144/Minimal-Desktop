@@ -96,6 +96,14 @@ describe('sync credential storage', () => {
     expect(loadSettings().searchBarStyle).toBe('soft');
   });
 
+  it('loads and normalizes the remembered portrait column count', () => {
+    localStorage.setItem('ios_desktop_settings', JSON.stringify({
+      style: 'glassmorphism', iconSize: 46, iconRadiusPct: 25,
+      cols: 6, portraitCols: 3, rows: 8,
+    }));
+    expect(loadSettings()).toMatchObject({ cols: 6, portraitCols: 4 });
+  });
+
   it('recognizes system entries inside a folder instead of recreating duplicates', () => {
     localStorage.setItem('ios_desktop_data', JSON.stringify({
       version: CURRENT_DESKTOP_VERSION,

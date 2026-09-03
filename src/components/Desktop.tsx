@@ -16,7 +16,7 @@ import {
   getItemGridSpan,
   getPrivacyPageNumbers,
   LAYOUT_LIMITS,
-  normalizeResponsiveColumnCount,
+  resolveResponsiveColumnState,
 } from '@/lib/layoutEngine';
 import {
   getPageTrackIndex,
@@ -186,7 +186,12 @@ const Desktop: React.FC = () => {
   }), [viewport.shell.left, viewport.shell.top]);
 
   // 窄屏允许 4/5 列；有效宽度达到电脑端断点后至少使用 6 列。
-  const gridCols = normalizeResponsiveColumnCount(settings.cols, viewport.isWide);
+  const responsiveColumns = resolveResponsiveColumnState(
+    settings.cols,
+    settings.portraitCols,
+    viewport.isWide,
+  );
+  const gridCols = responsiveColumns.gridCols;
   const gridRows = settings.rows ?? 8;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
     viewport.shell.width,
@@ -213,10 +218,10 @@ const Desktop: React.FC = () => {
     paddingBottom: 8,
   };
 
-  // 已有用户若仍保存 4/5 列，首次进入电脑端时原子重排并持久化为 6 列。
+  // 按当前方向原子重排，但横屏自动扩列不能覆盖用户的竖屏列数。
   useEffect(() => {
-    if (settings.cols !== gridCols) updateSettings({ cols: gridCols });
-  }, [gridCols, settings.cols, updateSettings]);
+    if (responsiveColumns.patch) updateSettings(responsiveColumns.patch);
+  }, [responsiveColumns.patch, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），

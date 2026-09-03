@@ -116,6 +116,8 @@ export interface DesktopSettings {
   iconSize: number;        // 默认 46
   iconRadiusPct: number;   // 图标圆角百分比，默认 25，范围 0-50
   cols: DesktopColumnCount;
+  /** 竖屏/窄屏偏好的列数；横屏自动扩列时保留，避免覆盖用户设置。 */
+  portraitCols?: DesktopColumnCount;
   rows: number;            // 每页总视觉行数（含 widget 行），默认 8，范围 1-16
   bgOverlayEnabled?: boolean;
   bgOverlayScheme?: BgOverlayScheme;

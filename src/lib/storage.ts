@@ -285,6 +285,9 @@ export function loadSettings(): import('@/types').DesktopSettings {
       delete parsed.pixabayKey; // 已移除共享/客户端壁纸 API Key 方案
       const settings = { ...DEFAULT_SETTINGS, ...parsed } as import('@/types').DesktopSettings;
       settings.cols = normalizeDesktopColumnCount(Number(parsed.cols ?? DEFAULT_SETTINGS.cols));
+      settings.portraitCols = parsed.portraitCols === undefined
+        ? undefined
+        : normalizeDesktopColumnCount(Number(parsed.portraitCols));
       if (isBuiltInDefaultWallpaper(settings.bgImage)) settings.bgImage = DEFAULT_BG_IMAGE;
       return settings;
     }

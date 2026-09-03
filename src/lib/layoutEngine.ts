@@ -45,6 +45,48 @@ export function normalizeResponsiveColumnCount(
     : normalized;
 }
 
+export interface ResponsiveColumnState {
+  gridCols: DesktopColumnCount;
+  patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>> | null;
+}
+
+/**
+ * 横屏可以临时把 4/5 列扩为 6 列，但不能覆盖用户的竖屏列数。
+ * 返回值中的 patch 只负责让数据层按当前实际列数重排，并持久化竖屏偏好。
+ */
+export function resolveResponsiveColumnState(
+  currentCols: number | undefined,
+  portraitCols: number | undefined,
+  isWide: boolean,
+): ResponsiveColumnState {
+  const current = normalizeDesktopColumnCount(currentCols);
+
+  if (isWide) {
+    const gridCols = normalizeResponsiveColumnCount(current, true);
+    const rememberedPortrait = portraitCols === undefined
+      ? (current < WIDE_VIEWPORT_MIN_COLS ? current : undefined)
+      : normalizeDesktopColumnCount(portraitCols);
+    const patch: ResponsiveColumnState['patch'] = {};
+    if (current !== gridCols) patch.cols = gridCols;
+    if (rememberedPortrait !== undefined && rememberedPortrait !== portraitCols) {
+      patch.portraitCols = rememberedPortrait;
+    }
+    return {
+      gridCols,
+      patch: Object.keys(patch).length > 0 ? patch : null,
+    };
+  }
+
+  const gridCols = normalizeDesktopColumnCount(portraitCols ?? current);
+  const patch: ResponsiveColumnState['patch'] = {};
+  if (current !== gridCols) patch.cols = gridCols;
+  if (portraitCols !== gridCols) patch.portraitCols = gridCols;
+  return {
+    gridCols,
+    patch: Object.keys(patch).length > 0 ? patch : null,
+  };
+}
+
 export type LayoutFailure =
   | 'invalid-page'
   | 'invalid-position'
