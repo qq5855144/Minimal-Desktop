@@ -480,13 +480,6 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 </div>
               </div>
 
-              <div className={`rounded-2xl px-4 py-3 ${isNeu ? 'bg-emerald-50/80 border border-emerald-100' : 'bg-emerald-500/8 border border-emerald-500/15'}`}>
-                <p className={`text-xs font-medium ${t.textPrimary}`}>无需再手动处理版本冲突</p>
-                <p className={`mt-1 text-xs leading-relaxed ${t.textDim}`}>
-                  本机修改会保存为新的云端历史版本；远端同时变化时自动基于最新版本重试。
-                </p>
-              </div>
-
               {config.lastSyncError && (config.syncStatus === 'retrying' || config.syncStatus === 'error') && (
                 <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 p-3 text-sm text-amber-600">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
