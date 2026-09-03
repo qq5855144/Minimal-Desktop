@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Minimal Desktop",
   "short_name": "Minimal Desktop",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4u6qdgBxGFu/fakP86Mpa1H3wOkbUyGoXnB6Z6BtG02ej38XqIs0fla6umoMk6YZ0dvvCwFAOXjFHo7c7tupdweSSW+9UB4dhbH8FYeGmPghnMD0m8xcnBFVJ9KuFrsqentnbNHnOUrrts/ekvn4tvRfWjhn7yOnPZ65wXBjb531HGadwfiGckuWURScffMdszfGF3OyIK2wOC/SIX1HA9bdHH7nrpZy/63WvOisZafzqrdrCkMBYKlPe9+eV7pTDUlDg+UqZ3uXQwEQ6ZXZszDklphrBJvtyTHQy6VVcGPZYptogQVyBCc6tLl3eft8ALy3A7ghOxRPEsBT1UotjQIDAQAB",
   "description": "An iOS-style new tab desktop with widgets, wallpapers, search, and folders.",
   "icons": {
