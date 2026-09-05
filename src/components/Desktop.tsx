@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
+import { useDragMotion } from '@/hooks/use-drag-motion';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import {
   AUTO_SYNC_DELAY_MS,
@@ -152,6 +153,7 @@ const Desktop: React.FC = () => {
   const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const ghostLayerRef = useRef<HTMLDivElement>(null);
+  const { captureDrop, cancelMotion } = useDragMotion(containerRef);
 
   const [ghost, setGhost] = useState<GhostState | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
@@ -619,12 +621,17 @@ const Desktop: React.FC = () => {
               toast.error('文件夹已满');
               return;
             }
+            const ghostRect = ghostLayerRef.current?.getBoundingClientRect();
+            if (ghostRect) captureDrop(cur.source.itemId, {
+              x: ghostRect.left + ghostRect.width / 2,
+              y: ghostRect.top + ghostRect.height / 2,
+            });
             const merged = merge(
               cur.source.itemId,
               hoverIdNonNull,
               cur.source.type === 'folder' ? cur.source.folderId : undefined,
             );
-            if (!merged) return;
+            if (!merged) { cancelMotion(); return; }
             // 合并成功后若来源是文件夹，需立即关闭文件夹：
             // onUp 会因 ghostRef 已被清空而提前 return，跳过关闭逻辑，
             // 导致 openFolderId 残留、文件夹遮罩（已被 DOM display:none 隐藏）无法再次打开
@@ -676,6 +683,7 @@ const Desktop: React.FC = () => {
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g || g.pointerId !== e.pointerId) return;
+      captureDrop(g.source.itemId, { x: e.clientX, y: e.clientY });
       const hadTrailingDropPage = trailingDropPageRef.current;
       const trailingPageIndex = latestRef.current.data.pages.length;
       const hadLeadingPrivacyDropPage = leadingPrivacyDropPageRef.current;
@@ -969,7 +977,7 @@ const Desktop: React.FC = () => {
       document.removeEventListener('pointercancel', onCancel);
       if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     };
-  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint]);
+  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint, captureDrop, cancelMotion]);
 
   const handleDragBegin = useCallback((
     item: DesktopItem,
@@ -979,6 +987,7 @@ const Desktop: React.FC = () => {
     pointerId: number,
   ) => {
     if (ghostRef.current) return;
+    cancelMotion();
     setContextMenu(null);
     let source: DragSource;
     if (srcType === 'privacy') {
@@ -991,7 +1000,7 @@ const Desktop: React.FC = () => {
     ghostRef.current = g;
     setGhost(g);
     setIsDragging(true);
-  }, [toShellPoint]);
+  }, [toShellPoint, cancelMotion]);
 
   const handleDesktopDragBegin = useCallback((
     item: DesktopItem,
@@ -1016,6 +1025,7 @@ const Desktop: React.FC = () => {
     pointerId: number,
   ) => {
     if (ghostRef.current) return;
+    cancelMotion();
     setContextMenu(null);
     const source: DragSource = {
       type: 'folder',
@@ -1028,7 +1038,7 @@ const Desktop: React.FC = () => {
     ghostRef.current = g;
     setGhost(g);
     setIsDragging(true);
-  }, [toShellPoint]);
+  }, [toShellPoint, cancelMotion]);
 
   const handleLongPress = useCallback((item: DesktopItem, x: number, y: number) => {
     // widget / system 仅进入拖拽待命，不显示编辑菜单。
@@ -1298,7 +1308,7 @@ const Desktop: React.FC = () => {
                   gridRow: `${r + 1} / span ${rowSpan}`,
                   justifySelf: 'stretch',
                 }}
-                className={`w-full transition-all duration-150 ${dragOverItem === item.id ? 'scale-[1.01] brightness-110' : ''}`}
+                className={`w-full drag-grid-item ${dragOverItem === item.id ? 'brightness-105' : ''}`}
               >
                 <WidgetGridCell
                   item={item}
@@ -1335,7 +1345,7 @@ const Desktop: React.FC = () => {
                 alignItems: spansMultipleCells ? 'flex-end' : undefined,
                 justifyContent: spansMultipleCells ? 'center' : undefined,
               }}
-              className={`relative min-w-0 transition-all duration-150 ${dragOverItem === item.id ? 'brightness-110 z-10' : ''}`}
+              className={`relative min-w-0 drag-grid-item ${dragOverItem === item.id ? 'brightness-105 z-10' : ''}`}
             >
               <AppIcon
                 item={item}
@@ -1802,28 +1812,30 @@ const Desktop: React.FC = () => {
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
-          {ghost.item.type === 'widget' ? (
-            <div
-              className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"
-              style={{
-                width: ghostWidgetLayout?.ghostWidthPx,
-                minHeight: ghostWidgetLayout?.cellMinHeightPx,
-                borderRadius: ghostWidgetLayout?.ghostRadiusPx,
-              }}
-            >
-              {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
-              <div className="w-full">
-                {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
+          <div className="drag-lift">
+            {ghost.item.type === 'widget' ? (
+              <div
+                className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"
+                style={{
+                  width: ghostWidgetLayout?.ghostWidthPx,
+                  minHeight: ghostWidgetLayout?.cellMinHeightPx,
+                  borderRadius: ghostWidgetLayout?.ghostRadiusPx,
+                }}
+              >
+                {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
+                <div className="w-full">
+                  {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
+                </div>
               </div>
-            </div>
-          ) : (
-            <AppIcon
-              item={ghost.item}
-              size="normal"
-              iconPx={desktopIconMetrics.iconPx}
-              largeFolderLayout={largeFolderLayout}
-            />
-          )}
+            ) : (
+              <AppIcon
+                item={ghost.item}
+                size="normal"
+                iconPx={desktopIconMetrics.iconPx}
+                largeFolderLayout={largeFolderLayout}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
