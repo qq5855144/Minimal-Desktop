@@ -8,6 +8,7 @@ import {
   AUTO_SYNC_REQUEST_EVENT,
   AutoSyncScheduler,
 } from '@/lib/autoSyncScheduler';
+import { HoverMergeIntent } from '@/lib/hoverMergeIntent';
 import { isNoopGridDrop, resolveCenteredGridDropPosition } from '@/lib/gridDrop';
 import {
   getDesktopGridLayoutMetrics,
@@ -150,14 +151,14 @@ const Desktop: React.FC = () => {
 
   const edgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const edgeTargetPageRef = useRef<number | null>(null);
-  const mergeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mergeReadyItem, setMergeReadyItem] = useState<string | null>(null);
+  const [mergeIntent] = useState(() => new HoverMergeIntent(MERGE_DELAY, setMergeReadyItem));
   const containerRef = useRef<HTMLDivElement>(null);
   const ghostLayerRef = useRef<HTMLDivElement>(null);
   const { captureDrop, cancelMotion } = useDragMotion(containerRef);
 
   const [ghost, setGhost] = useState<GhostState | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
-  const mergeHoverIdRef = useRef<string | null>(null);
   // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
   const dragOverItemRef = useRef<string | null>(null);
   // 拖到最后一页右边缘时只渲染临时落点页；成功放置才由数据层原子创建。
@@ -436,10 +437,7 @@ const Desktop: React.FC = () => {
     if (edgeTimerRef.current) { clearTimeout(edgeTimerRef.current); edgeTimerRef.current = null; }
     edgeTargetPageRef.current = null;
   }, []);
-  const clearMergeTimer = useCallback(() => {
-    if (mergeTimerRef.current) { clearTimeout(mergeTimerRef.current); mergeTimerRef.current = null; }
-    mergeHoverIdRef.current = null;
-  }, []);
+  const clearMergeTimer = useCallback(() => mergeIntent.cancel(), [mergeIntent]);
 
   useEffect(() => {
     latestRef.current.clearEdgeFn = clearEdgeTimer;
@@ -547,7 +545,14 @@ const Desktop: React.FC = () => {
       // ghost 已禁用 pointer-events，常规命中可直接走浏览器命中树，避免每帧遍历全部页面
       // 并读取大量 getBoundingClientRect（后者会强制同步布局）。
       const hitElement = document.elementFromPoint(e.clientX, e.clientY);
-      const hoverCell = hitElement?.closest<HTMLElement>('[data-cell]') ?? null;
+      let hoverCell = hitElement?.closest<HTMLElement>('[data-cell]') ?? null;
+      // 放大的内容不扩展合并命中区域；移出原格子立即取消预备状态。
+      if (hoverCell) {
+        const rect = hoverCell.getBoundingClientRect();
+        if (!containerRef.current?.contains(hoverCell)
+          || e.clientX < rect.left || e.clientX > rect.right
+          || e.clientY < rect.top || e.clientY > rect.bottom) hoverCell = null;
+      }
       const hoverId = hoverCell?.dataset.itemid ?? null;
 
       // 提前查询悬停目标项类型：用于判断是否可合并、是否高亮
@@ -587,81 +592,11 @@ const Desktop: React.FC = () => {
         sourceIsPrivacy === hoverIsPrivacy &&
         hoverItem !== null &&
         sourceCanMerge &&
-        targetCanMerge;
+        targetCanMerge &&
+        hoverId !== g.source.folderId &&
+        (hoverItem.type !== 'folder' || (hoverItem.children?.length ?? 0) < MAX_FOLDER_APPS);
 
-      if (isValidMergeTarget) {
-        if (hoverId !== mergeHoverIdRef.current) {
-          // 悬停目标变化 → 重置计时器，对新目标重新计时
-          clearMergeTimer();
-          // hoverId 此处已由 isValidMergeTarget 确保非 null
-          const hoverIdNonNull = hoverId!;
-          mergeHoverIdRef.current = hoverIdNonNull;
-          mergeTimerRef.current = setTimeout(() => {
-            const cur = ghostRef.current;
-            if (!cur) return;
-            const {
-              data: d,
-              privacyPageItems: privateItems,
-              mergeToFolder: merge,
-            } = latestRef.current;
-            const dragItem = cur.source.type === 'folder'
-              ? (
-                d.pages.flat().find((item) => item.id === cur.source.folderId)
-                ?? privateItems.find((item) => item.id === cur.source.folderId)
-              )?.children?.find((child) => child.id === cur.source.itemId)
-              : d.pages.flat().find((item) => item.id === cur.source.itemId)
-                ?? privateItems.find((item) => item.id === cur.source.itemId);
-            const target = d.pages.flat().find((item) => item.id === hoverIdNonNull)
-              ?? privateItems.find((item) => item.id === hoverIdNonNull);
-            // 兜底：计时期间数据可能变化；只允许 app/system 成为子项。
-            if (!dragItem || (dragItem.type !== 'app' && dragItem.type !== 'system')) return;
-            if (!target || (target.type !== 'app' && target.type !== 'system' && target.type !== 'folder')) return;
-            // 检查目标文件夹容量
-            if (target.type === 'folder' && (target.children?.length ?? 0) >= MAX_FOLDER_APPS) {
-              toast.error('文件夹已满');
-              return;
-            }
-            const ghostRect = ghostLayerRef.current?.getBoundingClientRect();
-            if (ghostRect) captureDrop(cur.source.itemId, {
-              x: ghostRect.left + ghostRect.width / 2,
-              y: ghostRect.top + ghostRect.height / 2,
-            });
-            const merged = merge(
-              cur.source.itemId,
-              hoverIdNonNull,
-              cur.source.type === 'folder' ? cur.source.folderId : undefined,
-            );
-            if (!merged) { cancelMotion(); return; }
-            // 合并成功后若来源是文件夹，需立即关闭文件夹：
-            // onUp 会因 ghostRef 已被清空而提前 return，跳过关闭逻辑，
-            // 导致 openFolderId 残留、文件夹遮罩（已被 DOM display:none 隐藏）无法再次打开
-            const wasFromFolder = cur.source.type === 'folder';
-            ghostRef.current = null;
-            setGhost(null);
-            setIsDragging(false);
-            setDragOverItem(null);
-            dragOverItemRef.current = null;
-            mergeHoverIdRef.current = null;
-            mergeTimerRef.current = null;
-            if (trailingDropPageRef.current) {
-              trailingDropPageRef.current = false;
-              setTrailingDropPage(false);
-            }
-            if (leadingPrivacyDropPageRef.current) {
-              leadingPrivacyDropPageRef.current = false;
-              setLeadingPrivacyDropPage(false);
-            }
-            if (wasFromFolder) {
-              setOpenFolderId(null);
-              setFolderRenameId(null);
-            }
-          }, MERGE_DELAY);
-        }
-        // hoverId 未变化 → 继续等待计时器，无需任何操作
-      } else {
-        // 离开有效合并目标（空白、自身、组件或不允许的隐私系统项）→ 清除计时器
-        clearMergeTimer();
-      }
+      mergeIntent.hover(isValidMergeTarget ? hoverId : null);
     };
 
     // 指针事件可能远高于屏幕刷新率；DOM 几何扫描最多每帧执行一次。
@@ -683,6 +618,14 @@ const Desktop: React.FC = () => {
     const onUp = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g || g.pointerId !== e.pointerId) return;
+      // 松手按最终指针位置复核，避免尚未执行的 RAF 或移出后松手误合并。
+      if (moveFrame !== null) cancelAnimationFrame(moveFrame);
+      moveFrame = null;
+      latestMoveEvent = null;
+      processMove(e);
+      const releaseCell = document.elementFromPoint(e.clientX, e.clientY)
+        ?.closest<HTMLElement>('[data-cell]');
+      const readyMergeTarget = mergeIntent.release(releaseCell?.dataset.itemid ?? null);
       captureDrop(g.source.itemId, { x: e.clientX, y: e.clientY });
       const hadTrailingDropPage = trailingDropPageRef.current;
       const trailingPageIndex = latestRef.current.data.pages.length;
@@ -697,12 +640,21 @@ const Desktop: React.FC = () => {
       setIsDragging(false);
       setDragOverItem(null);
       clearEdgeTimer();
-      clearMergeTimer(); // 若 800ms 计时器还未触发，取消它（快速松手走交换分支）
+      clearMergeTimer(); // 未进入预备状态时仍按普通落位/交换处理
 
       // 文件夹拖出：无论是否命中有效格子都关闭文件夹
       if (g.source.type === 'folder') {
         setOpenFolderId(null);
         setFolderRenameId(null);
+      }
+
+      if (readyMergeTarget) {
+        const merged = latestRef.current.mergeToFolder(
+          g.source.itemId, readyMergeTarget,
+          g.source.type === 'folder' ? g.source.folderId : undefined,
+        );
+        if (!merged) toast.error('无法合并');
+        return;
       }
 
       const { data: d, currentPage: cp,
@@ -977,7 +929,7 @@ const Desktop: React.FC = () => {
       document.removeEventListener('pointercancel', onCancel);
       if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     };
-  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint, captureDrop, cancelMotion]);
+  }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint, captureDrop, mergeIntent]);
 
   const handleDragBegin = useCallback((
     item: DesktopItem,
@@ -1348,16 +1300,22 @@ const Desktop: React.FC = () => {
               }}
               className={`relative min-w-0 drag-grid-item ${dragOverItem === item.id && item.type !== 'folder' ? 'brightness-105 z-10' : ''}`}
             >
-              <AppIcon
-                item={item}
-                ghost={ghost?.source.itemId === item.id}
-                iconPx={desktopIconMetrics.iconPx}
-                largeFolderLayout={largeFolderLayout}
-                onClick={handleItemClick}
-                onLongPress={handleLongPress}
-                onDragBegin={dragBegin}
-                onDeleteInEditMode={handleDeleteApp}
-              />
+              <div
+                className="merge-target-preview"
+                data-merge-ready={mergeReadyItem === item.id ? 'true' : undefined}
+                style={{ width: spansMultipleCells ? '100%' : undefined }}
+              >
+                <AppIcon
+                  item={item}
+                  ghost={ghost?.source.itemId === item.id}
+                  iconPx={desktopIconMetrics.iconPx}
+                  largeFolderLayout={largeFolderLayout}
+                  onClick={handleItemClick}
+                  onLongPress={handleLongPress}
+                  onDragBegin={dragBegin}
+                  onDeleteInEditMode={handleDeleteApp}
+                />
+              </div>
             </div>,
           );
         // 空格只在当前页拖拽期间临时挂载：保留精确命中与骨架反馈，

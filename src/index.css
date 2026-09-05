@@ -388,3 +388,18 @@ input, textarea, [contenteditable="true"] {
   .drag-lift { animation: none; }
   .drag-grid-item { transition: none; }
 }
+
+/* 合并预备只轻微放大内容，保持外层网格命中范围和背景透明度。 */
+.merge-target-preview {
+  transform: scale(1);
+  transition: transform 160ms ease-out;
+  transform-origin: center;
+}
+
+.merge-target-preview[data-merge-ready="true"] {
+  transform: scale(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .merge-target-preview { transition: none; }
+}
