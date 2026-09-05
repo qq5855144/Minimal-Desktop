@@ -1346,7 +1346,7 @@ const Desktop: React.FC = () => {
                 alignItems: spansMultipleCells ? 'flex-end' : undefined,
                 justifyContent: spansMultipleCells ? 'center' : undefined,
               }}
-              className={`relative min-w-0 drag-grid-item ${dragOverItem === item.id ? 'brightness-105 z-10' : ''}`}
+              className={`relative min-w-0 drag-grid-item ${dragOverItem === item.id && item.type !== 'folder' ? 'brightness-105 z-10' : ''}`}
             >
               <AppIcon
                 item={item}
