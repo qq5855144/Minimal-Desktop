@@ -83,6 +83,18 @@ describe('gridDrop', () => {
     )).toEqual({ row: 6, col: 2 });
   });
 
+  it('普通图标落在大文件夹的不同子格时保留实际落点', () => {
+    for (const row of [2, 3]) {
+      for (const col of [1, 2]) {
+        expect(resolveCenteredGridDropPosition(
+          GRID.left + col * 85 + 36.5,
+          GRID.top + row * 80 + 34,
+          GRID, 4, 8, 12, 12, 1, 1,
+        )).toEqual({ row, col });
+      }
+    }
+  });
+
   it('拒绝无法组成完整占位区域的无效网格几何', () => {
     expect(resolveCenteredGridDropPosition(
       100,
