@@ -1331,6 +1331,7 @@ const Desktop: React.FC = () => {
               data-col={c}
               data-page={pageIndex}
               data-itemid={item.id}
+              data-item-type={item.type}
               data-row-span={rowSpan}
               data-col-span={colSpan}
               style={{
@@ -1799,7 +1800,7 @@ const Desktop: React.FC = () => {
         <div
           ref={ghostLayerRef}
           data-drag-ghost="true"
-          className="fixed pointer-events-none z-[300] opacity-80 transition-none"
+          className={`fixed pointer-events-none z-[300] transition-none ${ghost.item.type === 'folder' ? '' : 'opacity-80'}`}
           style={{
             left: 0,
             top: 0,
@@ -1812,7 +1813,7 @@ const Desktop: React.FC = () => {
           // 位置完全由 useEffect（初始）和 onMove（实时）通过直接 DOM 操作维护，
           // 不放在 React style prop 中，防止 re-render 时坐标被重置到拖拽起点
         >
-          <div className="drag-lift">
+          <div className="drag-lift" data-drag-type={ghost.item.type}>
             {ghost.item.type === 'widget' ? (
               <div
                 className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"

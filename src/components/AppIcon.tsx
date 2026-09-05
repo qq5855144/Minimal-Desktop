@@ -431,7 +431,7 @@ const AppIcon: React.FC<AppIconProps> = ({
 
   return (
     <div
-      className={`relative ${ghost ? 'opacity-40' : ''}`}
+      className={`relative ${ghost && item.type !== 'folder' ? 'opacity-40' : ''}`}
       style={isExpandedFolder ? {
         width: expandedFolderLayout!.widthPx,
         maxWidth: '100%',

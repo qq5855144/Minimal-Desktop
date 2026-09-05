@@ -73,9 +73,10 @@ export function useDragMotion(container: RefObject<HTMLElement>) {
     }
     // 先批量读几何，再启动动画，避免交替读写触发重复布局。
     for (const { cell, dx, dy } of moves) {
+      const preserveOpacity = cell.dataset.itemType === 'folder';
       const animation = cell.animate([
-        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.88, zIndex: 20 },
-        { transform: 'translate(0, 0)', opacity: 1, zIndex: 20 },
+        { transform: `translate(${dx}px, ${dy}px)`, ...(preserveOpacity ? {} : { opacity: 0.88 }), zIndex: 20 },
+        { transform: 'translate(0, 0)', ...(preserveOpacity ? {} : { opacity: 1 }), zIndex: 20 },
       ], { duration: 200, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' });
       animations.current.add(animation);
       const forget = () => animations.current.delete(animation);
