@@ -43,7 +43,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   if (ghost) {
     return (
       <div
-        className="mx-0 rounded-2xl bg-white/10 animate-pulse"
+        className="mx-0 rounded-2xl bg-white/10"
         style={{ height: resolvedCellHeightPx, minHeight: resolvedCellHeightPx }}
       />
     );
