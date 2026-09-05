@@ -1,6 +1,6 @@
 {
   "name": "minimal-desktop",
-  "version": "1.2.19",
+  "version": "1.2.20",
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "type": "module",
