@@ -96,7 +96,6 @@ const Desktop: React.FC = () => {
     updateItem,
     removeItem,
     moveItemTo,
-    swapDesktopItems,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -409,7 +408,7 @@ const Desktop: React.FC = () => {
   }, [setCurrentPage]);
 
   const latestRef = useRef({
-    data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
+    data, currentPage, gridCols, moveItemTo, mergeToFolder,
     moveFromFolderToDesktop, gridRows,
     gridRowHeightPx: desktopGridMetrics.rowHeightPx,
     gridColumnGapPx,
@@ -420,7 +419,7 @@ const Desktop: React.FC = () => {
   });
   React.useLayoutEffect(() => {
     latestRef.current = {
-      data, currentPage, gridCols, moveItemTo, swapDesktopItems, mergeToFolder,
+      data, currentPage, gridCols, moveItemTo, mergeToFolder,
       moveFromFolderToDesktop, gridRows,
       gridRowHeightPx: desktopGridMetrics.rowHeightPx,
       gridColumnGapPx,
@@ -700,7 +699,6 @@ const Desktop: React.FC = () => {
 
       const { data: d, currentPage: cp,
               moveItemTo: moveTo,
-              swapDesktopItems: swap,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
       const isWidget = g.item.type === 'widget';
@@ -748,10 +746,8 @@ const Desktop: React.FC = () => {
       let targetCol = isNaN(rawCol) ? 0 : Math.min(rawCol, gc - 1);
       const targetItemId = cell.dataset.itemid ?? null;
       const draggedGridSpan = getItemGridSpan(g.item, gc);
-      const isMultiCellFolderDrop = g.item.type === 'folder'
-        && (draggedGridSpan.rowSpan > 1 || draggedGridSpan.colSpan > 1);
-
-      if (isMultiCellFolderDrop) {
+      // Resolve every icon from grid geometry, including individual cells inside a large folder.
+      if (!isWidget) {
         const targetGrid = containerRef.current?.querySelector<HTMLElement>(
           `[data-page-grid="${targetPage}"]`,
         );
@@ -773,6 +769,10 @@ const Desktop: React.FC = () => {
         targetRow = centeredTarget.row;
         targetCol = centeredTarget.col;
       }
+
+      if (!isWidget && g.source.type !== 'folder' && isNoopGridDrop(
+        g.item, targetPage, targetRow, targetCol, targetItemId,
+      )) return;
 
       // ── 普通桌面顶层项目拖入任意隐私负页 ──
       if (targetPage < 0 && g.source.type === 'desktop') {
@@ -819,6 +819,7 @@ const Desktop: React.FC = () => {
         if (moved && targetPage === leadingPrivacyPageIndex) {
           committedToLeadingPrivacyPage = true;
         }
+        if (!moved) toast.error('空间不足');
         return;
       }
 
@@ -895,34 +896,14 @@ const Desktop: React.FC = () => {
           }
           const moved = moveTo(g.source.itemId, src.page, targetPage, widgetTargetRow, 0);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
-        } else if (isMultiCellFolderDrop) {
-          // 多格文件夹以完整占位中心吸附；始终交给矩形布局引擎判断目标区域，
-          // 不能再根据指针恰好命中的某一个子格直接交换，否则会产生一行/一列偏移。
-          // 命中自身占位或解析回原坐标属于有效取消，不应进入碰撞提示。
+        } else {
           if (isNoopGridDrop(
             { ...src, id: g.source.itemId },
-            targetPage,
-            targetRow,
-            targetCol,
-            targetItemId,
+            targetPage, targetRow, targetCol, targetItemId,
           )) return;
           const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
           if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
-          if (!moved) {
-            toast.error('空间不足');
-          }
-        } else if (!targetItemId || targetItemId === g.source.itemId) {
-          // 普通图标落在空格或自身格 → 移动
-          const moved = moveTo(g.source.itemId, src.page, targetPage, targetRow, targetCol);
-          if (moved && targetPage === trailingPageIndex) committedToTrailingPage = true;
-        } else {
-          // 落在其他图标上（快速松手，未满 800ms）→ 交换位置
-          const tgt = d.pages[targetPage]?.find(it => it.id === targetItemId);
-          if (!tgt || tgt.type === 'widget') return;
-          swap(
-            g.source.itemId, src.page, src.row, String(src.col),
-            tgt.id, tgt.page, tgt.row, String(tgt.col),
-          );
+          if (!moved) toast.error('空间不足');
         }
       }
       } finally {

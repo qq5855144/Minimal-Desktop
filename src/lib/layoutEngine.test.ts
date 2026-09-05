@@ -251,16 +251,19 @@ describe('layoutEngine', () => {
     expect(result.reason).toBe('protected-item');
   });
 
-  it('2×2 文件夹移动时不会覆盖多个目标项目', () => {
+  it('2×2 文件夹部分重叠移动时将多个图标交换到腾出的格子', () => {
     const original = data([[
       folder('large', 0, 0, 0, '2x2'),
       app('a', 0, 2, 0),
       app('b', 0, 2, 1),
     ]]);
+    const snapshot = JSON.stringify(original);
     const result = moveDesktopItem(original, 'large', 0, 0, 1, 0, 4, 8);
-    expect(result.ok).toBe(false);
-    expect(result.data).toBe(original);
-    expect(validateDesktopLayout(original, { cols: 4, rows: 8 })).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.data.pages[0].find((item) => item.id === 'a')).toMatchObject({ row: 0, col: 0 });
+    expect(result.data.pages[0].find((item) => item.id === 'b')).toMatchObject({ row: 0, col: 1 });
+    expect(validateDesktopLayout(result.data, { cols: 4, rows: 8 })).toEqual([]);
+    expect(JSON.stringify(original)).toBe(snapshot);
   });
 
   it('普通桌面项目命中普通项目时原子交换', () => {
@@ -483,5 +486,104 @@ describe('layoutEngine', () => {
       ['moved'],
     ]);
     expect(resolvePageAfterCompaction(2, compacted.pageMap, 2)).toBe(1);
+  });
+});
+
+describe('position-based folder exchanges', () => {
+  const layouts = ['1x1', '1x2', '2x1', '2x2'] as const;
+  const fill = (items: DesktopItem[], cols: number, rows: number, page = 0) => {
+    const result = [...items];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const candidate = app(`app-${page}-${row}-${col}`, page, row, col);
+        if (canPlaceItem(result, candidate, row, col, cols, rows)) result.push(candidate);
+      }
+    }
+    return result;
+  };
+  const verify = (before: DesktopData, after: DesktopData, cols: number, rows: number) => {
+    expect(validateDesktopLayout(after, { cols, rows })).toEqual([]);
+    const content = (value: DesktopData) => value.pages.flat()
+      .map(({ page: _page, row: _row, col: _col, children, ...item }) => ({
+        ...item,
+        children: children?.map(({ page: _p, row: _r, col: _c, ...child }) => child),
+      })).sort((a, b) => a.id.localeCompare(b.id));
+    expect(content(after)).toEqual(content(before));
+    for (const item of after.pages.flat()) {
+      for (const child of item.children ?? []) {
+        expect(child).toMatchObject({ page: item.page, row: item.row, col: item.col });
+      }
+    }
+  };
+
+  for (let cols = 4; cols <= 10; cols++) {
+    for (const layout of layouts) {
+      it(`${cols} columns: ${layout} swaps with apps on a full grid in both directions`, () => {
+        const original = data([fill([folder('f', 0, 0, 0, layout)], cols, 4)]);
+        const row = layout.startsWith('2') ? 2 : 3;
+        const col = layout.endsWith('2') ? cols - 2 : cols - 1;
+        const snapshot = JSON.stringify(original);
+        const forward = moveDesktopItem(original, 'f', 0, 0, row, col, cols, 4);
+        expect(forward.ok).toBe(true);
+        expect(forward.data.pages[0].find((item) => item.id === 'f')).toMatchObject({ row, col, folderLayout: layout });
+        verify(original, forward.data, cols, 4);
+        // Every occupied subcell must be a valid, distinct app drop target.
+        for (let r = 0; r <= (layout.startsWith('2') ? 1 : 0); r++) {
+          for (let c = 0; c <= (layout.endsWith('2') ? 1 : 0); c++) {
+            const id = `app-0-3-${cols - 1}`;
+            const reverse = moveDesktopItem(original, id, 0, 0, r, c, cols, 4);
+            expect(reverse.ok).toBe(true);
+            expect(reverse.data.pages[0].find((item) => item.id === id)).toMatchObject({ row: r, col: c });
+            verify(original, reverse.data, cols, 4);
+          }
+        }
+        expect(JSON.stringify(original)).toBe(snapshot);
+      });
+    }
+  }
+
+  it('exchanges a large folder across full pages and preserves child coordinates', () => {
+    const original = data([
+      fill([folder('f', 0, 0, 0, '2x2')], 4, 4), fill([], 4, 4, 1),
+    ]);
+    const result = moveDesktopItem(original, 'f', 0, 1, 2, 2, 4, 4);
+    expect(result.ok).toBe(true);
+    verify(original, result.data, 4, 4);
+    expect(result.data.pages[1].find((item) => item.id === 'f')).toMatchObject({ row: 2, col: 2 });
+  });
+
+  for (const from of layouts) {
+    for (const to of layouts) {
+      it(`exchanges ${from} and ${to} folders on a full grid`, () => {
+        const original = data([fill([
+          folder('a', 0, 0, 0, from), folder('b', 0, 2, 2, to),
+        ], 4, 4)]);
+        const result = moveDesktopItem(original, 'a', 0, 0, 2, 2, 4, 4);
+        expect(result.ok).toBe(true);
+        verify(original, result.data, 4, 4);
+      });
+    }
+  }
+
+  it('uses the same exchange rules across privacy pages', () => {
+    const items = [folder('f', -1, 0, 0, '2x2'), ...fill([], 4, 4, -2)];
+    const snapshot = JSON.stringify(items);
+    const result = movePrivacyItem(items, 'f', -2, 2, 2, 4, 4);
+    expect(result.ok).toBe(true);
+    expect(result.privacyItems.find((item) => item.id === 'f')).toMatchObject({ page: -2, row: 2, col: 2 });
+    expect(result.privacyItems.filter((item) => item.page === -1)).toHaveLength(4);
+    expect(JSON.stringify(items)).toBe(snapshot);
+  });
+
+  it('rejects a blocked return footprint atomically without moving widgets', () => {
+    const original = data([[clock(), app('a', 0, 2, 0), folder('f', 0, 4, 0, '2x2')]]);
+    // Dropping onto the bottom cell would return the folder into the clock.
+    const result = moveDesktopItem(original, 'a', 0, 0, 5, 0, 4, 6);
+    expect(result.ok).toBe(false);
+    expect(result.data).toBe(original);
+    const blocked = moveDesktopItem(original, 'f', 0, 0, 0, 0, 4, 6);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.reason).toBe('widget-overlap');
+    expect(blocked.data).toBe(original);
   });
 });

@@ -520,6 +520,125 @@ export function findFirstAvailablePrivacySlot(
   return slot ? { page, ...slot } : null;
 }
 
+/**
+ * Plan a local, atomic exchange. Targets return towards the source using the
+ * actual drop offset. Larger targets can exchange their surrounding apps too;
+ * only the vacated footprints and return footprints participate in packing.
+ * No unrelated page-wide reflow, resizing, or item removal is permitted.
+ */
+function planGridExchange(
+  items: DesktopItem[],
+  source: DesktopItem,
+  toPage: number,
+  row: number,
+  col: number,
+  cols: number,
+  rows: number,
+  protectSystem = false,
+): { moves: DesktopItem[]; reason?: LayoutFailure } {
+  const movedSource = moveToPosition(source, toPage, row, col);
+  const targets = items.filter((item) => item.id !== source.id
+    && item.page === toPage
+    && itemsOverlapAt(source, row, col, item, item.row, item.col, cols));
+  if (!targets.length) return { moves: [movedSource] };
+  if (source.type === 'widget' || targets.some((item) => item.type === 'widget')) {
+    return { moves: [], reason: 'widget-overlap' };
+  }
+  if (protectSystem && targets.some((item) => item.type === 'system')) {
+    return { moves: [], reason: 'protected-item' };
+  }
+
+  const preferred = new Map<string, DesktopItem>();
+  const pool = new Map(targets.map((item) => [item.id, item]));
+  const area = new Set<string>();
+  const key = (page: number, r: number, c: number) => `${page}:${r}:${c}`;
+  const cells = (item: DesktopItem) => {
+    const span = getItemGridSpan(item, cols);
+    const result: string[] = [];
+    for (let r = item.row; r < item.row + span.rowSpan; r++) {
+      for (let c = item.col; c < item.col + span.colSpan; c++) {
+        result.push(key(item.page, r, c));
+      }
+    }
+    return result;
+  };
+  const include = (item: DesktopItem) => cells(item).forEach((cell) => area.add(cell));
+  include(source);
+  for (const target of targets) {
+    include(target);
+    const span = getItemGridSpan(target, cols);
+    const returning = moveToPosition(
+      target, source.page,
+      Math.max(0, Math.min(rows - span.rowSpan, source.row + target.row - row)),
+      Math.max(0, Math.min(cols - span.colSpan, source.col + target.col - col)),
+    );
+    preferred.set(target.id, returning);
+    include(returning);
+    for (const neighbor of items) {
+      if (neighbor.id === source.id || pool.has(neighbor.id)
+        || neighbor.page !== source.page
+        || !itemsOverlapAt(returning, returning.row, returning.col,
+          neighbor, neighbor.row, neighbor.col, cols)) continue;
+      // Widgets and protected entries remain stationary obstacles.
+      if (neighbor.type === 'widget' || (protectSystem && neighbor.type === 'system')) continue;
+      pool.set(neighbor.id, neighbor);
+      include(neighbor);
+      preferred.set(neighbor.id, moveToPosition(
+        neighbor, toPage, row + neighbor.row - source.row, col + neighbor.col - source.col,
+      ));
+    }
+  }
+  const occupied = new Set(items
+    .filter((item) => item.id !== source.id && !pool.has(item.id))
+    .flatMap(cells));
+  cells(movedSource).forEach((cell) => occupied.add(cell));
+  const areaSize = (item: DesktopItem) => {
+    const span = getItemGridSpan(item, cols);
+    return span.rowSpan * span.colSpan;
+  };
+  const pending = [...pool.values()].sort((a, b) => areaSize(b) - areaSize(a)
+    || a.page - b.page || a.row - b.row || a.col - b.col || a.id.localeCompare(b.id));
+  const candidates = pending.map((item) => {
+    const ideal = preferred.get(item.id)!;
+    const slots: DesktopItem[] = [];
+    for (const page of new Set([source.page, toPage])) {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (!isItemWithinBounds(item, r, c, cols, rows)) continue;
+          const placed = moveToPosition(item, page, r, c);
+          if (cells(placed).every((cell) => area.has(cell) && !occupied.has(cell))) {
+            slots.push(placed);
+          }
+        }
+      }
+    }
+    const distance = (item: DesktopItem) => (item.page === ideal.page ? 0 : rows + cols)
+      + Math.abs(item.row - ideal.row) + Math.abs(item.col - ideal.col);
+    return slots.sort((a, b) => distance(a) - distance(b)
+      || a.row - b.row || a.col - b.col);
+  });
+  const placed: DesktopItem[] = [];
+  // Bounded search prevents pathological imported layouts blocking pointerup.
+  let budget = 10000;
+  const pack = (index: number): boolean => {
+    if (index === pending.length) return true;
+    for (const candidate of candidates[index]) {
+      if (--budget < 0) return false;
+      const footprint = cells(candidate);
+      if (footprint.some((cell) => occupied.has(cell))) continue;
+      footprint.forEach((cell) => occupied.add(cell));
+      placed.push(candidate);
+      if (pack(index + 1)) return true;
+      placed.pop();
+      footprint.forEach((cell) => occupied.delete(cell));
+    }
+    return false;
+  };
+  return pack(0)
+    ? { moves: [movedSource, ...placed] }
+    : { moves: [], reason: 'occupied' };
+}
+
 /** 隐私桌面内跨负页移动；命中项目时原子交换，并自动清理来源空页。 */
 export function movePrivacyItem(
   privacyItems: DesktopItem[],
@@ -551,48 +670,10 @@ export function movePrivacyItem(
     return { ok: true, privacyItems };
   }
 
-  const destinationItems = privacyItems.filter((item) => item.page === toPage);
-  const overlappingTargets = destinationItems.filter((candidate) => (
-    candidate.id !== source.id
-    && itemsOverlapAt(source, row, col, candidate, candidate.row, candidate.col, cols)
-  ));
-  if (overlappingTargets.length > 1) {
-    return { ok: false, privacyItems, reason: 'occupied' };
-  }
-  const target = overlappingTargets[0];
-  if (!canPlaceItem(destinationItems, source, row, col, cols, rows, [source.id, target?.id ?? ''])) {
-    return { ok: false, privacyItems, reason: 'occupied' };
-  }
-  if (target) {
-    const sourcePageItems = privacyItems.filter((item) => item.page === source.page);
-    if (
-      target.type === 'widget'
-      || target.type === 'system'
-      || !canPlaceItem(
-        sourcePageItems,
-        target,
-        source.row,
-        source.col,
-        cols,
-        rows,
-        [source.id, target.id],
-      )
-      || (
-        source.page === toPage
-        && itemsOverlapAt(source, row, col, target, source.row, source.col, cols)
-      )
-    ) {
-      return { ok: false, privacyItems, reason: 'occupied' };
-    }
-  }
-
-  const next = deepClone(privacyItems);
-  const sourceIndex = next.findIndex((item) => item.id === itemId);
-  if (target) {
-    const targetIndex = next.findIndex((item) => item.id === target.id);
-    next[targetIndex] = moveToPosition(target, source.page, source.row, source.col);
-  }
-  next[sourceIndex] = moveToPosition(source, toPage, row, col);
+  const plan = planGridExchange(privacyItems, source, toPage, row, col, cols, rows, true);
+  if (plan.reason) return { ok: false, privacyItems, reason: plan.reason };
+  const moves = new Map(plan.moves.map((item) => [item.id, item]));
+  const next = privacyItems.map((item) => moves.get(item.id) ?? item);
   const compacted = compactPrivacyPages(next);
   return {
     ok: true,
@@ -643,69 +724,18 @@ export function moveDesktopItem(
     return { ok: true, data };
   }
 
-  const destination = data.pages[toPage];
-  const overlappingTargets = destination.filter((candidate) => (
-    candidate.id !== source.id
-    && itemsOverlapAt(source, row, targetCol, candidate, candidate.row, candidate.col, cols)
-  ));
-  if (overlappingTargets.length > 1) {
-    return { ok: false, data, reason: 'occupied' };
-  }
-  const target = overlappingTargets[0];
-  if (!canPlaceItem(
-    destination,
-    source,
-    row,
-    targetCol,
-    cols,
-    rows,
-    [source.id, target?.id ?? ''],
-  )) {
-    return {
-      ok: false,
-      data,
-      reason: source.type === 'widget' || target?.type === 'widget' ? 'widget-overlap' : 'occupied',
-    };
-  }
-  if (target) {
-    if (source.type === 'widget' || target.type === 'widget') {
-      return { ok: false, data, reason: 'widget-overlap' };
-    }
-    const sourcePageItems = data.pages[fromPage];
-    if (
-      !canPlaceItem(
-        sourcePageItems,
-        target,
-        source.row,
-        source.col,
-        cols,
-        rows,
-        [source.id, target.id],
-      )
-      || (
-        fromPage === toPage
-        && itemsOverlapAt(source, row, targetCol, target, source.row, source.col, cols)
-      )
-    ) {
-      return { ok: false, data, reason: 'occupied' };
-    }
-  }
-
+  const plan = planGridExchange(
+    data.pages[fromPage].concat(fromPage === toPage ? [] : data.pages[toPage]),
+    source, toPage, row, targetCol, cols, rows,
+  );
+  if (plan.reason) return { ok: false, data, reason: plan.reason };
   const next = deepClone(data);
-  if (fromPage === toPage) {
-    next.pages[fromPage] = next.pages[fromPage].filter((item) => (
-      item.id !== source.id && item.id !== target?.id
-    ));
-  } else {
-    next.pages[fromPage] = next.pages[fromPage].filter((item) => item.id !== source.id);
-    if (target) {
-      next.pages[toPage] = next.pages[toPage].filter((item) => item.id !== target.id);
-    }
+  const movedIds = new Set(plan.moves.map((item) => item.id));
+  for (const page of new Set([fromPage, toPage])) {
+    next.pages[page] = next.pages[page].filter((item) => !movedIds.has(item.id));
   }
-  if (target) {
-    next.pages[fromPage].push(moveToPosition(target, fromPage, source.row, source.col));
-  }
-  next.pages[toPage].push(moveToPosition(source, toPage, row, targetCol));
+  for (const item of plan.moves) next.pages[item.page].push(item);
+
   return { ok: true, data: next };
 }
 
