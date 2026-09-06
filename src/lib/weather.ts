@@ -6,6 +6,7 @@ export const weatherCitySchema = z.object({
   name: z.string().min(1).max(160),
   latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180),
   region: z.string().optional(),
+  source: z.enum(['device', 'manual']).optional(),
 });
 export type WeatherCity = z.infer<typeof weatherCitySchema>;
 export interface WeatherHour { time: number; temp: number | null; code: number | null; rain: number | null; day: boolean }
@@ -41,10 +42,15 @@ export function weatherLabel(code: number | null): string {
   return '暂无天气';
 }
 export function weatherTone(code: number | null, day = true): string {
-  if (!day) return 'night';
-  if (code !== null && code >= 51) return 'rain';
-  if (code !== null && code >= 3) return 'cloud';
-  return 'sunny';
+  let tone = 'unknown';
+  if (code === 0 || code === 1) tone = 'sunny';
+  else if (code === 2) tone = 'partly-cloudy';
+  else if (code === 3) tone = 'cloud';
+  else if (code === 45 || code === 48) tone = 'fog';
+  else if ([71, 73, 75, 77, 85, 86].includes(code ?? -1)) tone = 'snow';
+  else if ([95, 96, 99].includes(code ?? -1)) tone = 'storm';
+  else if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code ?? -1)) tone = 'rain';
+  return day ? tone : `${tone} weather-night`;
 }
 export function weatherDate(time: number, timezone: string, options: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat('zh-CN', { ...options, timeZone: timezone }).format(time * 1000);
