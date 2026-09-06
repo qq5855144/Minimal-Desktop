@@ -69,7 +69,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     >
       <div
         className="w-full"
-        style={weatherSurface ? { position: 'absolute', left: '50%', top: weatherSurface.top, width: weatherSurface.width, height: weatherSurface.height, transform: 'translateX(-50%)', '--weather-radius': `${weatherSurface.radius}px` } as React.CSSProperties : { height: item.widgetType === 'weather' ? '100%' : undefined, transform: `translateY(${-resolvedBottomClearancePx}px)` }}
+        style={weatherSurface ? { position: 'absolute', left: '50%', top: weatherSurface.top, width: weatherSurface.width, height: weatherSurface.height, transform: 'translateX(-50%)', '--weather-radius': `${weatherSurface.radius}px`, '--weather-unit': `${weatherSurface.height / 100}px` } as React.CSSProperties : { height: item.widgetType === 'weather' ? '100%' : undefined, transform: `translateY(${-resolvedBottomClearancePx}px)` }}
       >
         {ghost ? <div className="h-full w-full bg-white/10" style={{ borderRadius: weatherSurface?.radius }} /> : <WidgetComponent item={item} />}
       </div>
