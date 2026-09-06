@@ -1,5 +1,6 @@
 import React from 'react';
 import { useLongPressIntent } from '@/hooks/use-long-press-intent';
+import { getIconLayoutMetrics } from '@/lib/iconLayout';
 import { getWidgetLayoutMetrics } from '@/lib/widgetLayout';
 import type { DesktopItem } from '@/types';
 import { getWidgetComponent } from './widgetRenderer';
@@ -27,6 +28,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   onDragBegin,
   onLongPress,
 }) => {
+  const iconMetrics = getIconLayoutMetrics('normal', iconPx);
   const layout = getWidgetLayoutMetrics(item.widgetType, iconPx);
   const resolvedCellHeightPx = Number.isFinite(cellHeightPx)
     ? Math.max(1, cellHeightPx ?? layout.cellMinHeightPx)
@@ -71,6 +73,10 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
       >
         {ghost ? <div className="h-full w-full bg-white/10" style={{ borderRadius: weatherSurface?.radius }} /> : <WidgetComponent item={item} />}
       </div>
+      {weatherSurface && !ghost && <span
+        className={`app-icon-label ${iconMetrics.textClass} font-medium truncate text-white drop-shadow-md pointer-events-none absolute text-center`}
+        style={{ left: '50%', top: weatherSurface.top + weatherSurface.height + iconMetrics.labelGapPx, width: weatherSurface.width, height: iconMetrics.labelHeightPx, transform: 'translateX(-50%)' }}
+      >天气</span>}
     </div>
   );
 };

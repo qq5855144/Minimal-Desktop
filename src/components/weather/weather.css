@@ -111,3 +111,6 @@
 .weather-size-options button[aria-pressed="true"] { background:#ffffff30; }
 .weather-detail-loading { position:fixed; inset:0; z-index:400; background:#4c5999; display:grid; place-items:center; color:white; }
 @media(min-width:700px) { .weather-hero { padding:30px 0; }.weather-header { padding-left:max(24px,calc((100vw - 800px) / 2));padding-right:max(24px,calc((100vw - 800px) / 2)); }.weather-panel { padding:24px; } }
+
+/* The dialog receives programmatic focus for Escape/Tab handling, not a page-sized focus ring. */
+.weather-details:focus,.weather-details:focus-visible { outline:none; }
