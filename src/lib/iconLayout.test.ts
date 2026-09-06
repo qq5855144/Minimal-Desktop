@@ -5,6 +5,7 @@ import {
   getExpandedFolderLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
+  getWeatherSurfaceMetrics,
 } from './iconLayout';
 
 describe('iconLayout', () => {
@@ -170,5 +171,22 @@ describe('iconLayout', () => {
     expect(tenRows.iconPx).toBe(46);
     expect(tenRows.columnGapPx).toBe(14);
     expect(tenRows.rowHeightPx).toBeLessThan(eightRows.rowHeightPx);
+  });
+});
+
+describe('weather folder-aligned bounds', () => {
+  it.each([[360, 4, 46], [412, 4, 60], [900, 6, 64], [1440, 10, 80]])('matches folder surfaces at width %s', (width, cols, size) => {
+    const grid = getDesktopGridLayoutMetrics(width, cols, size, 900, 8);
+    const icon = getIconLayoutMetrics('normal', grid.iconPx, 25);
+    const folder = getLargeFolderLayoutMetrics(icon, grid);
+    const small = getWeatherSurfaceMetrics(false, icon, grid);
+    const large = getWeatherSurfaceMetrics(true, icon, grid);
+    expect(small.width).toBe(folder.sidePx);
+    expect(small.height).toBe(folder.sidePx);
+    expect(small.top + small.height + icon.labelGapPx + icon.labelHeightPx).toBeCloseTo(2 * grid.rowHeightPx + grid.rowGapPx);
+    expect(large.height).toBe(small.height);
+    expect(large.top).toBe(small.top);
+    expect(large.width).toBeCloseTo(3 * (grid.columnWidthPx + grid.columnGapPx) + icon.iconPx);
+    expect(large.radius).toBe(small.radius);
   });
 });
