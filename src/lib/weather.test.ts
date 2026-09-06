@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { dayKey, forecastURL, normalizeWeather, weatherLabel, weatherCitySchema, searchWeatherCities, loadWeather, readWeatherCache } from './weather';
+import { weatherTone, dayKey, forecastURL, normalizeWeather, weatherLabel, weatherCitySchema, searchWeatherCities, loadWeather, readWeatherCache } from './weather';
 const city = { name: '厦门', latitude: 24.48, longitude: 118.09 };
 const now = Date.parse('2026-09-06T03:30:00Z');
 const hour = Math.floor(now / 3600000) * 3600;
@@ -60,5 +60,12 @@ describe('Open-Meteo weather', () => {
     vi.stubGlobal('fetch', fetcher);
     await expect(searchWeatherCities('厦门', controller.signal)).rejects.toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('weather backgrounds', () => {
+  it.each([[0, 'sunny'], [2, 'partly-cloudy'], [3, 'cloud'], [45, 'fog'], [65, 'rain'], [85, 'snow'], [95, 'storm'], [null, 'unknown'], [123, 'unknown']] as const)('maps current WMO code %s and preserves weather at night', (code, tone) => {
+    expect(weatherTone(code, true)).toBe(tone);
+    expect(weatherTone(code, false)).toBe(`${tone} weather-night`);
   });
 });

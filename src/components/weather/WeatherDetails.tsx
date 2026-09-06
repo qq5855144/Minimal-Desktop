@@ -5,6 +5,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import type { useWeather } from '@/hooks/use-weather';
 import { dayKey, POPULAR_WEATHER_CITIES, saveWeatherCity, searchWeatherCities, weatherDate, weatherLabel, weatherTone, WEATHER_TTL, type WeatherCity, type WeatherDay } from '@/lib/weather';
 import WeatherGlyph from './WeatherGlyph';
+import { locateWeather } from '@/lib/weatherLocation';
 import { degrees } from './WeatherWidget';
 
 function CityPicker({ onDone }: { onDone: () => void }) {
@@ -17,17 +18,14 @@ function CityPicker({ onDone }: { onDone: () => void }) {
   const generation = useRef(0);
   useEffect(() => { active.current = true; return () => { active.current = false; ++generation.current; search.current?.abort(); }; }, []);
   const choose = (city: WeatherCity) => {
-    try { saveWeatherCity(city); onDone(); } catch { setError('无法保存城市，请检查浏览器存储权限'); }
+    try { saveWeatherCity({ ...city, source: 'manual' }); onDone(); } catch { setError('无法保存城市，请检查浏览器存储权限'); }
   };
-  const locate = () => {
-    if (!navigator.geolocation) { setError('当前浏览器不支持定位，请搜索城市'); return; }
+  const locate = async () => {
     search.current?.abort(); const request = ++generation.current;
     setBusy(true); setError('');
-    navigator.geolocation.getCurrentPosition((position) => {
-      if (!active.current || request !== generation.current) return;
-      setBusy(false);
-      choose({ name: '当前位置', latitude: Math.round(position.coords.latitude * 100) / 100, longitude: Math.round(position.coords.longitude * 100) / 100 });
-    }, () => { if (active.current && request === generation.current) { setBusy(false); setError('定位不可用，请手动选择城市'); } }, { timeout: 10_000, maximumAge: 600_000, enableHighAccuracy: false });
+    try { await locateWeather(true); if (active.current && request === generation.current) onDone(); }
+    catch (error) { if (active.current && request === generation.current) setError(error instanceof Error ? error.message : '定位失败，请重试'); }
+    finally { if (active.current && request === generation.current) setBusy(false); }
   };
   return <section className="weather-panel weather-city-picker">
     <div className="weather-panel-heading"><h2>选择城市</h2><button type="button" aria-label="关闭城市选择" onClick={onDone}><X size={20} /></button></div>
@@ -51,10 +49,10 @@ function CityPicker({ onDone }: { onDone: () => void }) {
 }
 
 export default function WeatherDetails({ itemId, weather, onClose }: { itemId?: string; weather: ReturnType<typeof useWeather>; onClose: () => void }) {
-  const { data, city, loading, error, refresh } = weather;
+  const { data, city, loading, error, refresh, locating, locationError, locate } = weather;
   const { data: desktop, setWeatherSize } = useDesktop();
   const item = desktop.pages.flat().find((candidate) => candidate.id === itemId);
-  const [picker, setPicker] = useState(!city);
+  const [picker, setPicker] = useState(false);
   const [options, setOptions] = useState(false);
   const [mode, setMode] = useState<'chart' | 'list'>('chart');
   const [selected, setSelected] = useState<number | null>(null);
@@ -98,8 +96,9 @@ export default function WeatherDetails({ itemId, weather, onClose }: { itemId?: 
     <main className="weather-detail-body">
       {picker && <CityPicker onDone={() => setPicker(false)} />}
       {options && <section className="weather-panel"><div className="weather-panel-heading"><h2>组件尺寸</h2><button type="button" onClick={() => setPicker(true)}>更换城市</button></div><div className="weather-size-options">{(['small', 'large'] as const).map((size) => <button type="button" key={size} aria-pressed={(item?.weatherSize ?? 'small') === size} disabled={!item} onClick={() => { if (itemId && !setWeatherSize(itemId, size)) toast.error('空间不足'); }}>{size === 'small' ? '小 · 2行×2列' : '大 · 2行×4列'}</button>)}</div></section>}
+      {locationError && <div className="weather-notice" role="status">{locationError}<button type="button" disabled={locating} onClick={() => void locate()}>允许定位 / 重试</button></div>}
       {error && <div className="weather-notice" role="status">{error}{data ? '，当前显示上次数据。' : ''}<button type="button" disabled={loading} onClick={() => void refresh(true)}>重试</button></div>}
-      {!data && <section className="weather-empty"><WeatherGlyph code={null} /><h2>{loading ? '正在获取天气' : city ? '暂时没有天气数据' : '把城市的天气带到桌面'}</h2><p>{city ? '网络恢复后可刷新重试' : '免 Key，选择城市即可开始'}</p>{!city && !picker && <button type="button" onClick={() => setPicker(true)}>选择城市</button>}</section>}
+      {!data && <section className="weather-empty"><WeatherGlyph code={null} /><h2>{locating ? '正在定位' : loading ? '正在获取天气' : city ? '暂时没有天气数据' : '当地天气'}</h2><p>{city ? '网络恢复后可刷新重试' : '允许定位后自动获取当地天气'}</p>{!city && <button type="button" disabled={locating} onClick={() => void locate()}>允许定位</button>}{!city && !picker && <button type="button" onClick={() => setPicker(true)}>选择城市</button>}</section>}
       {data && <>
         <section className="weather-hero"><WeatherGlyph code={data.code} day={data.day} /><strong>{degrees(data.temp)}</strong><h1>{weatherLabel(data.code)}</h1><p>最低 {degrees(today?.low)} · 最高 {degrees(today?.high)}</p><small>{Date.now() - data.updated >= WEATHER_TTL ? '缓存 · ' : ''}{weatherDate(data.observed, timezone, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })} 更新</small></section>
         <section className="weather-panel"><div className="weather-panel-heading"><h2>逐小时预报</h2><small>未来 24 小时</small></div><div className="weather-hours">{hours.map((hour) => <div key={hour.time}><span>{weatherDate(hour.time, timezone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</span><WeatherGlyph code={hour.code} day={hour.day} /><small>{hour.rain == null ? '—' : `${Math.round(hour.rain)}%`}</small><strong>{degrees(hour.temp)}</strong></div>)}</div></section>

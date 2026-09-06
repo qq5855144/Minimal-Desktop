@@ -54,5 +54,8 @@
         "<all_urls>"
       ]
     }
+  ],
+  "optional_permissions": [
+    "geolocation"
   ]
 }
