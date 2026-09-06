@@ -397,7 +397,7 @@ input, textarea, [contenteditable="true"] {
 }
 
 .merge-target-preview[data-merge-ready="true"] {
-  transform: scale(1.06);
+  transform: scale(1.09);
 }
 
 @media (prefers-reduced-motion: reduce) {
