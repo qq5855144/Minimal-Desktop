@@ -1,3 +1,4 @@
+import manifest from '../../public/manifest.json';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 async function setup() {
@@ -44,17 +45,15 @@ describe('automatic weather location', () => {
     await request;
     expect(service.readWeatherCity()?.name).toBe('上海');
   });
-  it('requests optional extension permission only from an explicit gesture', async () => {
+  it('uses browser geolocation in extensions without requesting an unsupported optional permission', async () => {
     const service = await setup();
-    const request = vi.fn().mockResolvedValue(true);
-    vi.stubGlobal('chrome', { runtime: { id: 'test' }, permissions: { contains: vi.fn().mockResolvedValue(false), request } });
-    await expect(service.locateWeather()).rejects.toThrow('点击允许定位');
+    const request = vi.fn().mockRejectedValue(new Error('not optional'));
+    const contains = vi.fn().mockResolvedValue(false);
+    vi.stubGlobal('chrome', { runtime: { id: 'test' }, permissions: { contains, request } });
+    service.getCurrentPosition.mockImplementation((success) => success({ coords: { latitude: 24.48, longitude: 118.09 } }));
+    await service.locateWeather(true);
     expect(request).not.toHaveBeenCalled();
-    const located = service.locateWeather(true);
-    expect(request).toHaveBeenCalledWith({ permissions: ['geolocation'] });
-    await Promise.resolve();
-    service.getCurrentPosition.mock.calls[0][0]({ coords: { latitude: 24.48, longitude: 118.09 } });
-    await located;
+    expect(contains).not.toHaveBeenCalled();
     expect(service.readWeatherCity()?.source).toBe('device');
   });
 });
@@ -91,4 +90,9 @@ it('rejects invalid network coordinates instead of loading weather for a false l
   vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ city: 'Invalid', latitude: 999, longitude: 118 }) } as Response);
   await expect(service.resolveWeatherLocality()).rejects.toThrow();
   expect(service.readWeatherCity()).toBeNull();
+});
+
+it('declares geolocation as required in the extension manifest', () => {
+  expect(manifest.permissions).toContain('geolocation');
+  expect((manifest as { optional_permissions?: string[] }).optional_permissions ?? []).not.toContain('geolocation');
 });

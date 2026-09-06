@@ -31,7 +31,8 @@
   "permissions": [
     "storage",
     "activeTab",
-    "tabs"
+    "tabs",
+    "geolocation"
   ],
   "host_permissions": [
     "https://suggestion.baidu.com/*",
@@ -55,8 +56,5 @@
         "<all_urls>"
       ]
     }
-  ],
-  "optional_permissions": [
-    "geolocation"
   ]
 }

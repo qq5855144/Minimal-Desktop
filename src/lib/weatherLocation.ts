@@ -67,7 +67,7 @@ async function currentCity(): Promise<WeatherCity> {
   }
 }
 
-// Only explicit user actions request optional extension permissions.
+// Geolocation is a required manifest permission in Chromium; the browser manages consent.
 export function locateWeather(userGesture = false): Promise<void> {
   if (pending) return pending;
   if (!userGesture && lastError && !(lastError instanceof LocationError && lastError.code !== 1)) return Promise.reject(lastError);
@@ -75,13 +75,7 @@ export function locateWeather(userGesture = false): Promise<void> {
   lastError = null;
   attemptedAt = Date.now();
   const initialCity = JSON.stringify(readWeatherCity());
-  const permissions = typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.permissions : undefined;
-  // Call request synchronously while the click's user activation is still present.
-  const permission = permissions
-    ? userGesture ? permissions.request({ permissions: ['geolocation'] }) : permissions.contains({ permissions: ['geolocation'] })
-    : Promise.resolve(true);
   pending = (async () => {
-    if (!await permission) throw new Error('点击允许定位，自动获取当地天气');
     const city = await currentCity();
     // A city selected while permission/location was pending takes precedence.
     if (JSON.stringify(readWeatherCity()) === initialCity) saveWeatherCity(city);
