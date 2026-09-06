@@ -11,9 +11,9 @@ export type IconColor =
   | 'indigo'
   | 'gray';
 
-// 桌面项类型（widget = 全宽组件，占满一整行）
+// 桌面项类型（widget = 桌面组件，天气支持固定列宽）
 export type ItemType = 'app' | 'folder' | 'system' | 'widget';
-export type WidgetType = 'clock' | 'search' | 'combined';
+export type WidgetType = 'clock' | 'search' | 'combined' | 'weather';
 export type FolderLayout = '1x1' | '1x2' | '2x1' | '2x2';
 
 /**
@@ -43,7 +43,7 @@ export interface DesktopItem {
   color: IconColor;
   // 所在页面索引（普通桌面从 0 起；隐私桌面从 -1 向左递减）
   page: number;
-  // 网格位置（行, 列）—— widget 始终 col=0，视觉占满整行
+  // 网格位置（行, 列）—— 全宽组件 col=0；天气按固定矩形占位
   row: number;
   col: number;
   // 文件夹内应用列表
@@ -52,6 +52,7 @@ export interface DesktopItem {
   folderLayout?: FolderLayout;
   // 组件类型（仅 type='widget' 时有效）
   widgetType?: WidgetType;
+  weatherSize?: 'small' | 'large';
 }
 
 import type { PrivacyVault } from '@/lib/privacyCrypto';

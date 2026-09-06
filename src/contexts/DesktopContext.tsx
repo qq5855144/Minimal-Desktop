@@ -17,6 +17,7 @@ import {
   LAYOUT_LIMITS,
   minimumRowsForEnabledWidgets,
   moveDesktopItem,
+  resizeWeatherWidget,
   movePrivacyItem,
   normalizeDesktopColumnCount,
   reflowDesktopData,
@@ -70,6 +71,7 @@ interface DesktopContextType {
   // 添加应用（preferPage：优先放置到指定页面）
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
   setWidgetEnabled: (widgetType: WidgetType, enabled: boolean) => boolean;
+  setWeatherSize: (id: string, size: 'small' | 'large') => boolean;
   updateItem: (id: string, patch: Partial<DesktopItem>) => void;
   removeItem: (id: string) => void;
   // 拖拽：交换桌面位置
@@ -458,6 +460,16 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
     if (enabled && result.widgetPage !== undefined) setCurrentPage(result.widgetPage);
+    return true;
+  }, [commitDesktopData]);
+
+  const setWeatherSize = useCallback((id: string, size: 'small' | 'large') => {
+    const result = resizeWeatherWidget(dataRef.current, id, size,
+      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8);
+    if (!result.ok) return false;
+    if (result.data !== dataRef.current && !commitDesktopData(result.data)) return false;
+    const page = result.data.pages.findIndex((items) => items.some((item) => item.id === id));
+    if (page >= 0) setCurrentPage(page);
     return true;
   }, [commitDesktopData]);
 
@@ -1154,6 +1166,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateSettings,
         addItem,
         setWidgetEnabled,
+        setWeatherSize,
         updateItem,
         removeItem,
         swapDesktopItems,

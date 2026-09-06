@@ -18,6 +18,8 @@ export interface ContextMenuPosition {
   y: number;
   itemId: string;
   isFolder?: boolean;
+  isWeather?: boolean;
+  weatherSize?: 'small' | 'large';
   folderLayout?: FolderLayout;
 }
 
@@ -29,6 +31,7 @@ interface ContextMenuProps {
   onOpenFolder?: (id: string) => void;
   onDissolveFolder?: (id: string) => void;
   onFolderLayoutChange?: (id: string, layout: FolderLayout) => void;
+  onWeatherSizeChange?: (id: string, size: 'small' | 'large') => void;
   onClose: () => void;
 }
 
@@ -42,13 +45,14 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onOpenFolder,
   onDissolveFolder,
   onFolderLayoutChange,
+  onWeatherSizeChange,
   onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [showFolderLayouts, setShowFolderLayouts] = useState(false);
   const viewport = useViewportGeometry();
 
-  const menuH = pos.isFolder ? (showFolderLayouts ? 224 : 214) : 96;
+  const menuH = pos.isWeather ? 144 : pos.isFolder ? (showFolderLayouts ? 224 : 214) : 96;
   const visibleLeft = viewport.visual.left - viewport.shell.left;
   const visibleTop = viewport.visual.top - viewport.shell.top;
   const left = clampFloatingPosition(
@@ -101,7 +105,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         }}
       >
         <div className="p-1.5 flex flex-col gap-0.5">
-          {pos.isFolder ? (
+          {pos.isWeather ? (
+            <>
+              {(['small', 'large'] as const).map((size) => <button type="button" role="menuitemradio"
+                aria-checked={(pos.weatherSize ?? 'small') === size} className={btn} key={size}
+                onClick={() => { onWeatherSizeChange?.(pos.itemId, size); onClose(); }}>
+                <LayoutGrid className="w-4 h-4" /><span className="flex-1">{size === 'small' ? '小 · 2×2' : '大 · 2×4'}</span>
+                {(pos.weatherSize ?? 'small') === size && <Check className="w-4 h-4" />}
+              </button>)}
+              {divider}
+              <button type="button" className={btn} onClick={() => { onDelete(pos.itemId); onClose(); }}><Trash2 className="w-4 h-4" />移除组件</button>
+            </>
+          ) : pos.isFolder ? (
             showFolderLayouts ? (
               <>
                 <button type="button" className={btn} onClick={() => setShowFolderLayouts(false)}>

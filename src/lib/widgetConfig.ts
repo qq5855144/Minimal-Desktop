@@ -18,6 +18,7 @@ interface WidgetConfig {
 }
 
 export const WIDGET_CONFIG: Record<WidgetType, WidgetConfig> = {
+  weather: { type: 'weather', rowSpan: 2, defaultId: 'widget-weather', defaultName: '天气', defaultColor: 'blue' },
   clock: {
     type: 'clock',
     rowSpan: 2,
@@ -119,4 +120,9 @@ export function getWidgetGhostWidthPx(wide = false): number {
 
 export function getWidgetGridRowGapPx(): number {
   return DESKTOP_GRID_GAP_PX;
+}
+
+/** 天气是固定矩形组件，其余既有组件仍占满整行。 */
+export function isFullWidthWidget(item: DesktopItem): boolean {
+  return item.type === 'widget' && item.widgetType !== 'weather';
 }

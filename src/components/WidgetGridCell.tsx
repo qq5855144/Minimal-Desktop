@@ -29,7 +29,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   const resolvedCellHeightPx = Number.isFinite(cellHeightPx)
     ? Math.max(1, cellHeightPx ?? layout.cellMinHeightPx)
     : layout.cellMinHeightPx;
-  const resolvedBottomClearancePx = Number.isFinite(bottomClearancePx)
+  const resolvedBottomClearancePx = item.widgetType !== 'weather' && Number.isFinite(bottomClearancePx)
     ? Math.max(0, bottomClearancePx)
     : 0;
   const WidgetComponent = getWidgetComponent(item.widgetType);
@@ -65,9 +65,9 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     >
       <div
         className="w-full"
-        style={{ transform: `translateY(${-resolvedBottomClearancePx}px)` }}
+        style={{ height: item.widgetType === 'weather' ? '100%' : undefined, transform: `translateY(${-resolvedBottomClearancePx}px)` }}
       >
-        <WidgetComponent />
+        <WidgetComponent item={item} />
       </div>
     </div>
   );
