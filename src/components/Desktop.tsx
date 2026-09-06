@@ -223,7 +223,7 @@ const Desktop: React.FC = () => {
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
   const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
   const pageVerticalPaddingStyle: React.CSSProperties = {
-    paddingTop: 8 + gridRowGapPx,
+    paddingTop: 8 + 2 * gridRowGapPx,
     paddingBottom: 8,
   };
 
