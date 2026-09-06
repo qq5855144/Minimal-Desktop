@@ -25,7 +25,7 @@ export default function WeatherWidget({ item, preview = false }: { item?: Deskto
         <div className="weather-city"><MapPin size={14} /><span>{city?.name ?? (locating ? '正在定位' : '当地天气')}</span></div>
         <div className="weather-card-reading"><strong>{degrees(data?.temp)}</strong><WeatherGlyph code={data?.code ?? null} day={data?.day} /></div>
         <div className="weather-card-range">{data ? weatherLabel(data.code) : loading ? '正在更新' : '天气'}<span>{degrees(today?.low)} / {degrees(today?.high)}</span></div>
-        <div className="weather-card-hint"><Umbrella size={14} /><span>{locating ? '正在获取位置…' : locationError ? '点击查看定位设置' : error ? '更新失败 · 查看详情' : !city ? '点击允许定位' : !data ? '点击查看天气' : today?.rain == null ? '查看天气趋势' : `今日降水概率 ${Math.round(today.rain)}%`}</span></div>
+        <div className="weather-card-hint"><Umbrella size={14} /><span>{locating ? '正在获取位置…' : locationError ? '点击查看定位设置' : error ? '更新失败 · 查看详情' : !city ? '点击允许定位' : !data ? '点击查看天气' : today?.rain == null ? '查看天气趋势' : `降水概率 ${Math.round(today.rain)}%`}</span></div>
       </div>
       {wide && <div className="weather-card-extra">
         {hours.length ? hours.map((hour) => <div key={hour.time}><span>{new Intl.DateTimeFormat('zh-CN', { timeZone: data!.timezone, hour: '2-digit', hourCycle: 'h23' }).formatToParts(hour.time * 1000).find((part) => part.type === 'hour')?.value}时</span><WeatherGlyph code={hour.code} day={hour.day} /><b>{degrees(hour.temp)}</b></div>) : <CloudSun size={48} />}

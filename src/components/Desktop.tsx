@@ -1792,7 +1792,7 @@ const Desktop: React.FC = () => {
                 }}
               >
                 {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
-                <div className="w-full h-full" style={{ '--weather-radius': `${largeFolderLayout.sidePx * 0.12}px` } as React.CSSProperties}>
+                <div className="w-full h-full" style={{ '--weather-radius': `${largeFolderLayout.sidePx * 0.12}px`, '--weather-unit': `${largeFolderLayout.sidePx / 100}px` } as React.CSSProperties}>
                   {GhostWidgetComponent ? <GhostWidgetComponent item={ghost.item} preview /> : null}
                 </div>
               </div>
