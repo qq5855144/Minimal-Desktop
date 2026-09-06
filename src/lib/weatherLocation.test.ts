@@ -4,6 +4,7 @@ async function setup() {
   vi.resetModules();
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ city: '厦门市', latitude: 24.48, longitude: 118.09 }) }));
   vi.stubGlobal('window', { dispatchEvent: vi.fn() });
   const getCurrentPosition = vi.fn();
   vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
@@ -21,7 +22,7 @@ describe('automatic weather location', () => {
     expect(service.getCurrentPosition).toHaveBeenCalledTimes(1);
     service.getCurrentPosition.mock.calls[0][0]({ coords: { latitude: 24.47981, longitude: 118.08941 } });
     await Promise.all([first, second]);
-    expect(service.readWeatherCity()).toEqual({ name: '当前位置', source: 'device', latitude: 24.48, longitude: 118.09 });
+    expect(service.readWeatherCity()).toEqual({ name: '厦门市', source: 'device', latitude: 24.48, longitude: 118.09 });
     await service.locateWeather();
     expect(service.getCurrentPosition).toHaveBeenCalledTimes(1);
   });
@@ -56,4 +57,38 @@ describe('automatic weather location', () => {
     await located;
     expect(service.readWeatherCity()?.source).toBe('device');
   });
+});
+
+it('retries a failed provider with high accuracy before using network locality', async () => {
+  const service = await setup();
+  service.getCurrentPosition.mockImplementation((_success, failure) => failure({ code: 2 }));
+  await service.locateWeather();
+  expect(service.getCurrentPosition).toHaveBeenCalledTimes(2);
+  expect(service.getCurrentPosition.mock.calls[1][2]).toMatchObject({ enableHighAccuracy: true, maximumAge: 0 });
+  expect(service.readWeatherCity()?.name).toBe('厦门市（大致）');
+  const url = vi.mocked(fetch).mock.calls[0][0] as URL;
+  expect(url.searchParams.has('latitude')).toBe(false);
+});
+it('never sends a locality lookup when location permission is denied', async () => {
+  const service = await setup();
+  service.getCurrentPosition.mockImplementation((_success, failure) => failure({ code: 1 }));
+  await expect(service.locateWeather()).rejects.toThrow('允许定位');
+  expect(fetch).not.toHaveBeenCalled();
+  service.resetWeatherLocationRetry();
+  service.getCurrentPosition.mockImplementation((success) => success({ coords: { latitude: 24.48, longitude: 118.09 } }));
+  await service.locateWeather();
+  expect(service.readWeatherCity()?.name).toBe('厦门市');
+});
+it('keeps valid coordinates when name resolution fails', async () => {
+  const service = await setup();
+  vi.mocked(fetch).mockRejectedValue(new TypeError('offline'));
+  service.getCurrentPosition.mockImplementation((success) => success({ coords: { latitude: 24.48, longitude: 118.09 } }));
+  await service.locateWeather();
+  expect(service.readWeatherCity()).toMatchObject({ name: '附近天气', latitude: 24.48, longitude: 118.09 });
+});
+it('rejects invalid network coordinates instead of loading weather for a false location', async () => {
+  const service = await setup();
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ city: 'Invalid', latitude: 999, longitude: 118 }) } as Response);
+  await expect(service.resolveWeatherLocality()).rejects.toThrow();
+  expect(service.readWeatherCity()).toBeNull();
 });

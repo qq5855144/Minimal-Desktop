@@ -37,7 +37,8 @@
     "https://suggestion.baidu.com/*",
     "https://api.open-meteo.com/*",
     "https://geocoding-api.open-meteo.com/*",
-    "https://air-quality-api.open-meteo.com/*"
+    "https://air-quality-api.open-meteo.com/*",
+    "https://api.bigdatacloud.net/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

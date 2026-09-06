@@ -118,7 +118,7 @@ export default function WeatherDetails({ itemId, weather, onClose }: { itemId?: 
         <section className="weather-panel weather-air"><div className="weather-panel-heading"><h2>空气质量</h2><small>美标 AQI · 模型预报</small></div><strong>{aqiText} {aqi == null ? '' : Math.round(aqi)}</strong><p>PM₂.₅ {data.pm25 == null ? '暂无数据' : `${data.pm25.toFixed(1)} μg/m³`}</p>{aqi != null && <div className="weather-aqi-bar"><i style={{ left: `${Math.min(100, Math.max(0, aqi / 500 * 100))}%` }} /></div>}</section>
         <section className="weather-facts"><div><small>体感温度</small><b>{degrees(data.feels)}</b></div><div><small>相对湿度</small><b>{data.humidity == null ? '—' : `${Math.round(data.humidity)}%`}</b></div><div><small>风速</small><b>{data.wind == null ? '—' : `${Math.round(data.wind)} km/h`}</b></div></section>
       </>}
-      <footer className="weather-attribution">天气数据：<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · 空气质量：CAMS<br />城市数据：GeoNames · 非商业免费 API<br /><span>网络异常时保留最近缓存，预报可能与实况存在差异</span></footer>
+      <footer className="weather-attribution">天气数据：<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · 空气质量：CAMS<br />城市数据：GeoNames · <a href="https://www.bigdatacloud.com/free-api/free-reverse-geocode-to-city-api" target="_blank" rel="noreferrer">BigDataCloud</a> · 非商业免费 API<br /><span>网络异常时保留最近缓存，预报可能与实况存在差异</span></footer>
     </main>
   </div>;
 }
