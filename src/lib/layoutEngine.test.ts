@@ -587,3 +587,44 @@ describe('position-based folder exchanges', () => {
     expect(blocked.data).toBe(original);
   });
 });
+
+describe('weather widget rectangles', () => {
+  const weather = (size: 'small' | 'large' = 'small', col = 0): DesktopItem => ({
+    id: 'widget-weather', type: 'widget', widgetType: 'weather', weatherSize: size,
+    name: '天气', color: 'blue', page: 0, row: 0, col,
+  });
+  it('small weather occupies only 2 columns and 2 rows', () => {
+    const original = data([[weather('small', 1), app('adjacent', 0, 0, 3)]]);
+    expect(validateDesktopLayout(original, { cols: 4, rows: 4 })).toEqual([]);
+    expect(canPlaceItem(original.pages[0], app('new', 0, 0, 0), 0, 0, 4, 4)).toBe(true);
+    expect(canPlaceItem(original.pages[0], app('new', 0, 1, 2), 1, 2, 4, 4)).toBe(false);
+  });
+  it('allows weather in nonzero columns while preserving widget collision protection', () => {
+    const original = data([[weather(), app('blocked', 0, 2, 0)]]);
+    const moved = moveDesktopItem(original, 'widget-weather', 0, 0, 2, 2, 4, 4);
+    expect(moved.ok).toBe(true);
+    expect(moved.data.pages[0].find((item) => item.id === 'widget-weather')).toMatchObject({ row: 2, col: 2 });
+    expect(moveDesktopItem(original, 'widget-weather', 0, 0, 2, 0, 4, 4).ok).toBe(false);
+  });
+  it('expands atomically, uses another page if necessary and remains valid after reflow', async () => {
+    const { resizeWeatherWidget } = await import('./layoutEngine');
+    const original = data([[weather(), app('neighbor', 0, 0, 2)]]);
+    const expanded = resizeWeatherWidget(original, 'widget-weather', 'large', 4, 2);
+    expect(expanded.ok).toBe(true);
+    expect(expanded.data.pages).toHaveLength(2);
+    expect(expanded.data.pages[1][0]).toMatchObject({ weatherSize: 'large', col: 0 });
+    expect(original.pages[0][0].weatherSize).toBe('small');
+    expect(validateDesktopLayout(reflowDesktopData(expanded.data, 6, 4), { cols: 6, rows: 4 })).toEqual([]);
+    const shrunk = resizeWeatherWidget(expanded.data, 'widget-weather', 'small', 4, 2);
+    expect(shrunk.ok).toBe(true);
+    expect(validateDesktopLayout(shrunk.data, { cols: 4, rows: 2 })).toEqual([]);
+  });
+  it('retains the original layout when no expansion fits', async () => {
+    const { resizeWeatherWidget } = await import('./layoutEngine');
+    const original = data(Array.from({ length: 20 }, (_, page) => page === 0
+      ? [weather(), app('neighbor', 0, 0, 2)]
+      : [folder(`full-${page}`, page, 0, 0, '2x2'), folder(`other-${page}`, page, 0, 2, '2x2')]));
+    const result = resizeWeatherWidget(original, 'widget-weather', 'large', 4, 2);
+    expect(result.ok).toBe(false); expect(result.data).toBe(original);
+  });
+});

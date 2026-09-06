@@ -1,5 +1,5 @@
 import { deepClone } from '@/lib/utils/deepClone';
-import { createWidgetItem, getWidgetConfig } from '@/lib/widgetConfig';
+import { createWidgetItem, getWidgetConfig, isFullWidthWidget } from '@/lib/widgetConfig';
 import type {
   DesktopColumnCount,
   DesktopData,
@@ -169,7 +169,7 @@ export function getItemRowSpan(item: DesktopItem): number {
 }
 
 export function getItemColumnSpan(item: DesktopItem, cols: number): number {
-  if (item.type === 'widget') return cols;
+  if (item.type === 'widget') return item.widgetType === 'weather' ? (item.weatherSize === 'large' ? 4 : 2) : cols;
   if (item.type !== 'folder') return 1;
   return item.folderLayout === '1x2' || item.folderLayout === '2x2' ? 2 : 1;
 }
@@ -198,7 +198,7 @@ function getItemGridRect(
   cols: number,
 ): GridRect {
   const { rowSpan, colSpan } = getItemGridSpan(item, cols);
-  const colStart = item.type === 'widget' ? 0 : col;
+  const colStart = isFullWidthWidget(item) ? 0 : col;
   return {
     rowStart: row,
     rowEnd: row + rowSpan,
@@ -267,7 +267,7 @@ export function isItemWithinBounds(
   rows: number,
 ): boolean {
   if (!isIntegerInRange(row, 0, rows)) return false;
-  if (item.type === 'widget' && col !== 0) return false;
+  if (isFullWidthWidget(item) && col !== 0) return false;
   if (!isIntegerInRange(col, 0, cols)) return false;
   const { rowSpan, colSpan } = getItemGridSpan(item, cols);
   return row + rowSpan <= rows && col + colSpan <= cols;
@@ -289,7 +289,7 @@ export function canPlaceItem(
   return !others.some((candidate) => itemsOverlapAt(
     item,
     row,
-    item.type === 'widget' ? 0 : col,
+    isFullWidthWidget(item) ? 0 : col,
     candidate,
     candidate.row,
     candidate.col,
@@ -303,7 +303,7 @@ export function findFirstAvailableSlot(
   cols: number,
   rows: number,
 ): { row: number; col: number } | null {
-  if (item.type === 'widget') {
+  if (isFullWidthWidget(item)) {
     const span = getItemRowSpan(item);
     for (let row = 0; row + span <= rows; row++) {
       if (canPlaceItem(pageItems, item, row, 0, cols, rows)) return { row, col: 0 };
@@ -715,11 +715,11 @@ export function moveDesktopItem(
   }
   const source = data.pages[fromPage].find((item) => item.id === itemId);
   if (!source) return { ok: false, data, reason: 'item-not-found' };
-  if (!isItemWithinBounds(source, row, source.type === 'widget' ? 0 : col, cols, rows)) {
+  if (!isItemWithinBounds(source, row, isFullWidthWidget(source) ? 0 : col, cols, rows)) {
     return { ok: false, data, reason: 'invalid-position' };
   }
 
-  const targetCol = source.type === 'widget' ? 0 : col;
+  const targetCol = isFullWidthWidget(source) ? 0 : col;
   if (source.page === toPage && source.row === row && source.col === targetCol) {
     return { ok: true, data };
   }
@@ -1012,4 +1012,29 @@ export function validateDesktopLayout(
     }
   });
   return issues;
+}
+
+/** 天气变形优先原地；放不下时寻找邻近页空位，失败不修改布局。 */
+export function resizeWeatherWidget(
+  data: DesktopData, id: string, size: 'small' | 'large', cols: number, rows: number,
+): LayoutMutationResult {
+  const page = data.pages.findIndex((items) => items.some((item) => item.id === id));
+  const item = data.pages[page]?.find((candidate) => candidate.id === id);
+  if (!item || item.type !== 'widget' || item.widgetType !== 'weather') {
+    return { ok: false, data, reason: 'item-not-found' };
+  }
+  if ((item.weatherSize ?? 'small') === size) return { ok: true, data };
+  const next = deepClone(data);
+  next.pages[page] = next.pages[page].filter((candidate) => candidate.id !== id);
+  const resized = { ...item, weatherSize: size };
+  let slot = canPlaceItem(next.pages[page], resized, item.row, item.col, cols, rows)
+    ? { page, row: item.row, col: item.col }
+    : findFirstAvailableSlotAcrossPages(next.pages, resized, cols, rows, page);
+  if (!slot && next.pages.length < LAYOUT_LIMITS.maxPages) {
+    const position = findFirstAvailableSlot([], resized, cols, rows);
+    if (position) { slot = { page: next.pages.length, ...position }; next.pages.push([]); }
+  }
+  if (!slot) return { ok: false, data, reason: 'occupied' };
+  next.pages[slot.page].push(moveToPosition(resized, slot.page, slot.row, slot.col));
+  return { ok: true, data: next };
 }

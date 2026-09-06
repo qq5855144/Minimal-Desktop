@@ -1,7 +1,7 @@
 import {
   Check, ChevronRight, Clock,
   Image, Layers, LayoutGrid, Loader2, Palette,
-  RotateCcw, Search, Video,
+  RotateCcw, Search, Video, CloudSun,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -9,7 +9,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
 import { getPanelTheme } from '@/lib/panelTheme';
-import { DEFAULT_BG_IMAGE, defaultDesktopData, WIDGET_ITEMS } from '@/lib/storage';
+import { DEFAULT_BG_IMAGE, defaultDesktopData } from '@/lib/storage';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { deepClone } from '@/lib/utils/deepClone';
 import { clearVideoDB, saveVideoDB, VIDEO_MAX_BYTES } from '@/lib/videoStorage';
@@ -365,11 +365,10 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 组件管理 ──
   const widgetExists = (id: string) => data.pages.flat().some((it) => it.id === id);
 
-  const toggleWidget = useCallback((widgetId: 'widget-clock' | 'widget-search') => {
+  const toggleWidget = useCallback((widgetId: 'widget-clock' | 'widget-search' | 'widget-weather') => {
     const exists = widgetExists(widgetId);
-    const def = WIDGET_ITEMS.find((widget) => widget.id === widgetId);
-    if (!def?.widgetType) return;
-    if (setWidgetEnabled(def.widgetType, !exists)) {
+    const type = widgetId === 'widget-clock' ? 'clock' : widgetId === 'widget-search' ? 'search' : 'weather';
+    if (setWidgetEnabled(type, !exists)) {
       toast.success(exists ? '已移除组件' : '已添加组件');
     } else {
       toast.error('空间不足');
@@ -746,6 +745,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 组件管理面板 ──
   const renderWidgets = () => {
     const widgetDefs = [
+      { id: 'widget-weather' as const, label: '天气', desc: '实时天气与预报 · 小/大两种尺寸', icon: <CloudSun className="w-5 h-5" /> },
       { id: 'widget-clock' as const, label: '时钟', desc: '显示实时时间、日期与农历', icon: <Clock className="w-5 h-5" /> },
       { id: 'widget-search' as const, label: '搜索栏', desc: '点击左侧引擎图标可切换 / 添加搜索引擎', icon: <Search className="w-5 h-5" /> },
     ];

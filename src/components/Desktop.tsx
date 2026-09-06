@@ -47,6 +47,7 @@ import AppIcon from './AppIcon';
 import type { ContextMenuPosition } from './ContextMenu';
 import SkeletonIcon from './SkeletonIcon';
 import WidgetGridCell from './WidgetGridCell';
+import { isFullWidthWidget } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 
 const FolderView = React.lazy(() => import('./FolderView'));
@@ -98,6 +99,7 @@ const Desktop: React.FC = () => {
     updateItem,
     removeItem,
     moveItemTo,
+    setWeatherSize,
     mergeToFolder,
     moveFromFolderToDesktop,
     dissolveFolder,
@@ -661,7 +663,7 @@ const Desktop: React.FC = () => {
               moveItemTo: moveTo,
               moveFromFolderToDesktop: moveOut,
               gridCols: gc } = latestRef.current;
-      const isWidget = g.item.type === 'widget';
+      const isWidget = isFullWidthWidget(g.item);
 
       // 常规位置使用浏览器命中树；只有落在 grid gap 时才读取当前页格子几何。
       // 释放在桌面之外会取消本次移动，避免旧版兜底把图标意外甩到第一空位。
@@ -994,12 +996,14 @@ const Desktop: React.FC = () => {
 
   const handleLongPress = useCallback((item: DesktopItem, x: number, y: number) => {
     // widget / system 仅进入拖拽待命，不显示编辑菜单。
-    if (item.type === 'widget' || item.type === 'system') return;
+    if (isFullWidthWidget(item) || item.type === 'system') return;
     setContextMenu({
       x,
       y,
       itemId: item.id,
       isFolder: item.type === 'folder',
+      isWeather: item.type === 'widget' && item.widgetType === 'weather',
+      weatherSize: item.weatherSize,
       folderLayout: item.type === 'folder' ? (item.folderLayout ?? '1x1') : undefined,
     });
   }, []);
@@ -1250,13 +1254,13 @@ const Desktop: React.FC = () => {
                 key={item.id}
                 data-cell="1"
                 data-row={r}
-                data-col={0}
+                data-col={c}
                 data-page={pageIndex}
                 data-itemid={item.id}
                 data-row-span={rowSpan}
                 data-col-span={colSpan}
                 style={{
-                  gridColumn: `1 / span ${colSpan}`,
+                  gridColumn: `${c + 1} / span ${colSpan}`,
                   gridRow: `${r + 1} / span ${rowSpan}`,
                   justifySelf: 'stretch',
                 }}
@@ -1685,6 +1689,7 @@ const Desktop: React.FC = () => {
       {contextMenu && !isDragging && (
         <React.Suspense fallback={null}><ContextMenu
           pos={contextMenu}
+          onWeatherSizeChange={(id, size) => { if (!setWeatherSize(id, size)) toast.error('空间不足'); }}
           onEdit={(id) => {
             // 先在普通桌面页查找
             let found = data.pages.flat().find((it) => it.id === id);
@@ -1776,14 +1781,17 @@ const Desktop: React.FC = () => {
               <div
                 className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"
                 style={{
-                  width: ghostWidgetLayout?.ghostWidthPx,
-                  minHeight: ghostWidgetLayout?.cellMinHeightPx,
+                  width: ghost.item.widgetType === 'weather'
+                  ? (desktopGridMetrics.contentWidthPx - gridColumnGapPx * (gridCols - 1)) / gridCols * getItemGridSpan(ghost.item, gridCols).colSpan + gridColumnGapPx * (getItemGridSpan(ghost.item, gridCols).colSpan - 1)
+                  : ghostWidgetLayout?.ghostWidthPx,
+                  height: ghost.item.widgetType === 'weather' ? desktopGridMetrics.rowHeightPx * 2 + gridRowGapPx : undefined,
+                minHeight: ghost.item.widgetType === 'weather' ? undefined : ghostWidgetLayout?.cellMinHeightPx,
                   borderRadius: ghostWidgetLayout?.ghostRadiusPx,
                 }}
               >
                 {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
-                <div className="w-full">
-                  {GhostWidgetComponent ? <GhostWidgetComponent /> : null}
+                <div className="w-full h-full">
+                  {GhostWidgetComponent ? <GhostWidgetComponent item={ghost.item} preview /> : null}
                 </div>
               </div>
             ) : (

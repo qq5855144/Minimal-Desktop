@@ -28,7 +28,7 @@ const iconColor = z.enum([
 ]);
 
 const itemType = z.enum(['app', 'folder', 'system', 'widget']);
-const widgetType = z.enum(['clock', 'search', 'combined']);
+const widgetType = z.enum(['clock', 'search', 'combined', 'weather']);
 const folderLayout = z.enum(['1x1', '1x2', '2x1', '2x2']);
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, '必须是有效 Base64');
 const wallpaperMarker = '__idb_wallpaper__';
@@ -140,6 +140,7 @@ export const desktopItemSchema: z.ZodType<import('@/types').DesktopItem> = z.laz
   children: z.array(desktopItemSchema).max(9).optional(),
   folderLayout: folderLayout.optional(),
   widgetType: widgetType.optional(),
+  weatherSize: z.enum(['small', 'large']).optional(),
 }));
 
 export const privacyVaultSchema = z.object({
