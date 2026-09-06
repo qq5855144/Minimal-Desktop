@@ -15,6 +15,7 @@ import {
   getExpandedFolderLayoutMetrics,
   getIconLayoutMetrics,
   getLargeFolderLayoutMetrics,
+  getWeatherSurfaceMetrics,
 } from '@/lib/iconLayout';
 import {
   canPlaceItem,
@@ -1271,6 +1272,7 @@ const Desktop: React.FC = () => {
                   ghost={ghost?.source.itemId === item.id}
                   iconPx={desktopIconMetrics.iconPx}
                   cellHeightPx={gridSpanHeightPx}
+                  weatherSurface={item.widgetType === 'weather' ? getWeatherSurfaceMetrics(item.weatherSize === 'large', desktopIconMetrics, desktopGridMetrics) : undefined}
                   bottomClearancePx={widgetBottomClearancePx}
                   onDragBegin={dragBegin}
                   onLongPress={handleLongPress}
@@ -1782,15 +1784,15 @@ const Desktop: React.FC = () => {
                 className="flex items-center overflow-hidden bg-white/5 backdrop-blur-sm"
                 style={{
                   width: ghost.item.widgetType === 'weather'
-                  ? (desktopGridMetrics.contentWidthPx - gridColumnGapPx * (gridCols - 1)) / gridCols * getItemGridSpan(ghost.item, gridCols).colSpan + gridColumnGapPx * (getItemGridSpan(ghost.item, gridCols).colSpan - 1)
+                  ? getWeatherSurfaceMetrics(ghost.item.weatherSize === 'large', desktopIconMetrics, desktopGridMetrics).width
                   : ghostWidgetLayout?.ghostWidthPx,
-                  height: ghost.item.widgetType === 'weather' ? desktopGridMetrics.rowHeightPx * 2 + gridRowGapPx : undefined,
+                  height: ghost.item.widgetType === 'weather' ? getWeatherSurfaceMetrics(ghost.item.weatherSize === 'large', desktopIconMetrics, desktopGridMetrics).height : undefined,
                 minHeight: ghost.item.widgetType === 'weather' ? undefined : ghostWidgetLayout?.cellMinHeightPx,
-                  borderRadius: ghostWidgetLayout?.ghostRadiusPx,
+                  borderRadius: ghost.item.widgetType === 'weather' ? largeFolderLayout.sidePx * 0.12 : ghostWidgetLayout?.ghostRadiusPx,
                 }}
               >
                 {/* w-full 确保 widget 内部的 items-center 能基于完整宽度居中 */}
-                <div className="w-full h-full">
+                <div className="w-full h-full" style={{ '--weather-radius': `${largeFolderLayout.sidePx * 0.12}px` } as React.CSSProperties}>
                   {GhostWidgetComponent ? <GhostWidgetComponent item={ghost.item} preview /> : null}
                 </div>
               </div>

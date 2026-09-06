@@ -7,6 +7,7 @@ import { getWidgetComponent } from './widgetRenderer';
 interface WidgetGridCellProps {
   item: DesktopItem;
   ghost?: boolean;
+  weatherSurface?: { width: number; height: number; top: number; radius: number };
   iconPx?: number;
   /** 当前网格跨度的完整视觉高度，保证组件与电脑端自适应行轨一致。 */
   cellHeightPx?: number;
@@ -19,6 +20,7 @@ interface WidgetGridCellProps {
 const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
   item,
   ghost = false,
+  weatherSurface,
   iconPx,
   cellHeightPx,
   bottomClearancePx = 0,
@@ -40,7 +42,7 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     onDragStart: (x, y, pointerId) => onDragBegin?.(item, x, y, pointerId),
   });
 
-  if (ghost) {
+  if (ghost && !weatherSurface) {
     return (
       <div
         className="mx-0 rounded-2xl bg-white/10"
@@ -65,9 +67,9 @@ const WidgetGridCell: React.FC<WidgetGridCellProps> = ({
     >
       <div
         className="w-full"
-        style={{ height: item.widgetType === 'weather' ? '100%' : undefined, transform: `translateY(${-resolvedBottomClearancePx}px)` }}
+        style={weatherSurface ? { position: 'absolute', left: '50%', top: weatherSurface.top, width: weatherSurface.width, height: weatherSurface.height, transform: 'translateX(-50%)', '--weather-radius': `${weatherSurface.radius}px` } as React.CSSProperties : { height: item.widgetType === 'weather' ? '100%' : undefined, transform: `translateY(${-resolvedBottomClearancePx}px)` }}
       >
-        <WidgetComponent item={item} />
+        {ghost ? <div className="h-full w-full bg-white/10" style={{ borderRadius: weatherSurface?.radius }} /> : <WidgetComponent item={item} />}
       </div>
     </div>
   );

@@ -342,3 +342,18 @@ export function getExpandedFolderLayoutMetrics(
     totalHeightPx: heightPx + iconMetrics.labelGapPx + iconMetrics.labelHeightPx,
   };
 }
+
+/** Weather shares the expanded folder surface and reserves the same label baseline. */
+export function getWeatherSurfaceMetrics(
+  large: boolean,
+  iconMetrics: IconLayoutMetrics,
+  grid: DesktopGridLayoutMetrics,
+) {
+  const folder = getLargeFolderLayoutMetrics(iconMetrics, grid);
+  return {
+    width: folder.sidePx + (large ? 2 * (grid.columnWidthPx + grid.columnGapPx) : 0),
+    height: folder.sidePx,
+    top: 2 * grid.rowHeightPx + grid.rowGapPx - folder.totalHeightPx,
+    radius: folder.sidePx * 0.12,
+  };
+}
