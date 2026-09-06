@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { locateWeather } from '@/lib/weatherLocation';
+import { locateWeather, resetWeatherLocationRetry } from '@/lib/weatherLocation';
 import { loadWeather, readWeatherCache, readWeatherCity, WEATHER_TTL, type WeatherData } from '@/lib/weather';
 
 export function useWeather(preview = false) {
@@ -25,6 +25,19 @@ export function useWeather(preview = false) {
     const timer = setInterval(update, WEATHER_TTL);
     document.addEventListener('visibilitychange', update);
     return () => { ++locationVersion.current; setLocating(false); clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, [city?.source, locate, preview]);
+  useEffect(() => {
+    if (preview || city?.source === 'manual' || !navigator.permissions?.query) return;
+    let active = true;
+    let permission: PermissionStatus | undefined;
+    const changed = () => {
+      if (permission?.state === 'granted') { resetWeatherLocationRetry(); void locate(false); }
+    };
+    void navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      if (!active) return;
+      permission = status; status.addEventListener('change', changed);
+    }).catch(() => { /* Older browsers may not expose the Permissions API. */ });
+    return () => { active = false; permission?.removeEventListener('change', changed); };
   }, [city?.source, locate, preview]);
   const refresh = useCallback(async (force = false) => {
     if (!city) return;
