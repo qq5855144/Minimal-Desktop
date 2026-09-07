@@ -49,6 +49,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const drag = useRef<{ id: string; target: string | null; after?: boolean } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -81,7 +82,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     }
   };
   return createPortal(<div ref={root} className="bookmarks-view" role="dialog" aria-modal="true" aria-label="书签" tabIndex={-1} onKeyDown={(event) => {
-    if (event.key === 'Escape') { event.stopPropagation(); if (context) setContext(null); else if (form) setForm(null); else if (deleting) setDeleting(false); else if (menu) setMenu(null); else if (editing) finish(); else onClose(); }
+    if (event.key === 'Escape') { event.stopPropagation(); if (context) setContext(null); else if (form) setForm(null); else if (deleting || deletingGroup) { setDeleting(false); setDeletingGroup(null); } else if (menu) setMenu(null); else if (editing) finish(); else onClose(); }
     if (event.key === 'Tab') {
       const scope = root.current?.querySelector('.bookmark-sheet, .bookmark-context') ?? root.current;
       const controls = Array.from(scope?.querySelectorAll<HTMLElement>('button:not(:disabled),input,a[href]') ?? []);
@@ -123,13 +124,10 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     </div>
     {menu && <div className={`bookmark-menu ${groupMenuTop && menu === 'groups' ? 'bookmark-menu-top' : ''}`}>
       <div className="bookmark-menu-title">{menu === 'move' ? '移动到分组' : '分组'}<button type="button" aria-label="关闭菜单" onClick={() => setMenu(null)}><X size={18} /></button></div>
-      {menu === 'groups' && <button type="button" onClick={() => { setGroup('all'); setSelected([]); setMenu(null); }}>全部书签{group === 'all' && <Check size={16} />}</button>}
-      {library.groups.map((entry) => <button type="button" key={entry.id} onClick={() => {
-        if (menu === 'move') { updateBookmarks({ type: 'move', ids: selectedItems.map((item) => item.id), groupId: entry.id }); setSelected([]); }
-        else { setGroup(entry.id); setSelected([]); }
-        setMenu(null);
-      }}>{entry.name}{menu === 'groups' && group === entry.id && <Check size={16} />}</button>)}
-      {menu === 'groups' && <><button type="button" onClick={() => openForm('group')}>新建分组</button><button type="button" onClick={() => openForm('bookmark')}>添加书签</button></>}
+      {menu === 'groups' && groupMenuTop && <button type="button" onClick={() => { setGroup('all'); setSelected([]); setMenu(null); }}>全部书签{group === 'all' && <Check size={16} />}</button>}
+      {menu === 'move' && library.groups.map((entry) => <button type="button" key={entry.id} onClick={() => { updateBookmarks({ type: 'move', ids: selectedItems.map((item) => item.id), groupId: entry.id }); setSelected([]); setMenu(null); }}>{entry.name}</button>)}
+      {menu === 'groups' && groupMenuTop && library.groups.filter((entry) => entry.id !== 'default').map((entry) => <div className="bookmark-group-menu-row" key={entry.id}><button type="button" onClick={() => { setGroup(entry.id); setSelected([]); setMenu(null); }}>{entry.name}{group === entry.id && <Check size={16} />}</button><button type="button" className="bookmark-delete-group" aria-label={`删除分组 ${entry.name}`} onClick={() => { setDeletingGroup(entry.id); setMenu(null); }}>删除</button></div>)}
+      {menu === 'groups' && !groupMenuTop && <><button type="button" onClick={() => openForm('group')}>新建分组</button><button type="button" onClick={() => openForm('bookmark')}>添加书签</button></>}
     </div>}
     <footer>{editing ? <>
       <button type="button" onClick={() => setSelected(allSelected ? [] : items.map((item) => item.id))}>{allSelected ? '取消全选' : '全选'}</button>
@@ -148,9 +146,10 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
         <button type="button" role="menuitem" onClick={() => { setSelected([context.item.id]); setContext(null); setDeleting(true); }}>删除</button>
       </div>
     </div>}
-    {(form || deleting) && <div className="bookmark-shade"><form className="bookmark-sheet" onSubmit={(event) => {
+    {(form || deleting || deletingGroup) && <div className="bookmark-shade"><form className="bookmark-sheet" onSubmit={(event) => {
       event.preventDefault();
       if (deleting) { updateBookmarks({ type: 'delete', ids: selectedItems.map((item) => item.id) }); setSelected([]); setDeleting(false); return; }
+       if (deletingGroup) { updateBookmarks({ type: 'deleteGroup', id: deletingGroup }); if (group === deletingGroup) setGroup('all'); setDeletingGroup(null); return; }
       if (!name.trim()) return;
       if (form === 'group') {
         if (!updateBookmarks({ type: 'createGroup', id: crypto.randomUUID(), name })) { toast.error('分组名称重复或数量已达上限'); return; }
@@ -163,9 +162,9 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       }
       setForm(null);
     }}>
-      <h2>{deleting ? `删除选中的 ${selectedItems.length} 个书签？` : form === 'group' ? '新建分组' : typeof form === 'object' ? '修改书签' : '添加书签'}</h2>
-      {!deleting && <><input autoFocus aria-label="名称" placeholder="名称" maxLength={form === 'group' ? 80 : 256} required value={name} onChange={(event) => setName(event.target.value)} />{form !== 'group' && <input aria-label="网址" placeholder="https://" required value={url} onChange={(event) => setUrl(event.target.value)} />}</>}
-      <div><button type="button" onClick={() => { setForm(null); setDeleting(false); }}>取消</button><button type="submit">{deleting ? '删除' : '保存'}</button></div>
+      <h2>{deletingGroup ? `删除分组“${library.groups.find((entry) => entry.id === deletingGroup)?.name ?? ''}”？书签将移到默认分组。` : deleting ? `删除选中的 ${selectedItems.length} 个书签？` : form === 'group' ? '新建分组' : typeof form === 'object' ? '修改书签' : '添加书签'}</h2>
+      {!deleting && !deletingGroup && <><input autoFocus aria-label="名称" placeholder="名称" maxLength={form === 'group' ? 80 : 256} required value={name} onChange={(event) => setName(event.target.value)} />{form !== 'group' && <input aria-label="网址" placeholder="https://" required value={url} onChange={(event) => setUrl(event.target.value)} />}</>}
+      <div><button type="button" onClick={() => { setForm(null); setDeleting(false); setDeletingGroup(null); }}>取消</button><button type="submit">{deleting || deletingGroup ? '删除' : '保存'}</button></div>
     </form></div>}
   </div>, document.body);
 }

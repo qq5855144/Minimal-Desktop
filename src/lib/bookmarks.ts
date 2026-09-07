@@ -9,7 +9,8 @@ export type BookmarkAction =
   | { type: 'delete'; ids: string[] }
   | { type: 'move'; ids: string[]; groupId: string }
   | { type: 'reorder'; id: string; beforeId: string; after?: boolean }
-  | { type: 'createGroup'; id: string; name: string };
+  | { type: 'createGroup'; id: string; name: string }
+  | { type: 'deleteGroup'; id: string };
 export function changeBookmarks(current: BookmarkCollection | undefined, action: BookmarkAction): BookmarkCollection {
   const state = current ?? emptyBookmarks();
   const selected = new Set('ids' in action ? action.ids : []);
@@ -35,6 +36,10 @@ export function changeBookmarks(current: BookmarkCollection | undefined, action:
       const items = state.items.filter((item) => item.id !== action.id);
       items.splice(items.findIndex((item) => item.id === action.beforeId) + (action.after ? 1 : 0), 0, moving);
       return { ...state, items };
+    }
+    case 'deleteGroup': {
+      if (action.id === 'default' || !state.groups.some((group) => group.id === action.id)) return state;
+      return { groups: state.groups.filter((group) => group.id !== action.id), items: state.items.map((item) => item.groupId === action.id ? { ...item, groupId: 'default' } : item) };
     }
     case 'createGroup': {
       const name = action.name.trim().slice(0, 80);

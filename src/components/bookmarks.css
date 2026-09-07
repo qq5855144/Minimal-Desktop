@@ -21,3 +21,6 @@
 .bookmark-context { position:fixed; width:168px; padding:6px; border-radius:14px; background:white; border:1px solid #eee; box-shadow:0 6px 24px #0003; }
 .bookmark-context button { display:block; width:100%; padding:12px; text-align:left; border-radius:8px; }
 .bookmark-context button:last-child { color:#c84848; }
+.bookmark-group-menu-row { display:flex; align-items:center; gap:4px; }
+.bookmark-group-menu-row > button:first-child { flex:1; }
+.bookmark-group-menu-row .bookmark-delete-group { flex:0 0 auto; width:auto; color:#c84848; font-size:13px; padding-inline:8px; }
