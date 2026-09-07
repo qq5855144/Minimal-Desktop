@@ -1,4 +1,4 @@
-import { Folder, Globe, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { Bookmark, Folder, Globe, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDesktop } from '@/contexts/DesktopContext';
 import { useLongPressIntent } from '@/hooks/use-long-press-intent';
@@ -40,6 +40,7 @@ const SYSTEM_ICON_MAP: Record<string, React.ElementType> = {
   'sys-settings': Settings,
   'sys-sync': RefreshCw,
   'sys-add': Plus,
+  'sys-bookmarks': Bookmark,
 };
 
 /** 文件夹缩略图内的子图标 */

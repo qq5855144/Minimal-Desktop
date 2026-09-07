@@ -79,3 +79,9 @@ describe('cloud sync snapshot', () => {
     expect(snapshot.data.background?.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 });
+
+it('includes bookmark groups and order in the cloud snapshot', async () => {
+  const bookmarks = { groups: [{ id: 'default', name: '默认分组' }], items: [{ id: 'link', name: '示例', url: 'https://example.com/', groupId: 'default' }] };
+  const snapshot = await buildSyncSnapshot({ ...data, bookmarks }, { ...settings, bgType: 'color' });
+  expect(snapshot.data.bookmarks).toEqual(bookmarks);
+});

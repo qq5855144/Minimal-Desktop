@@ -164,6 +164,11 @@
         </div>
       </div>
 
+      <label for="clip-target" style="display:block;margin:12px 0 6px">保存位置</label>
+      <select id="clip-target" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:10px;background:white;color:#333">
+        <option value="desktop">添加到桌面</option>
+        <option value="bookmarks">添加到书签</option>
+      </select>
       <!-- 添加按钮 -->
       <button id="add-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -181,7 +186,7 @@
         </svg>
       </div>
       <div class="success-text">已添加到桌面</div>
-      <div class="success-hint">新标签页打开后<br>将弹出确认对话框</div>
+      <div class="success-hint">正在打开桌面</div>
     </div>
 
     <script src="./assets/popup.js" type="module"></script>
