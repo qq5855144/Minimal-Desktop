@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Minimal Desktop 网页剪藏
 // @namespace    https://github.com/qq5855144/Minimal-Desktop
-// @version      1.1.0
-// @description  使用可拖动的 U 形悬浮按钮将当前网页剪藏到 Minimal Desktop。
+// @version      1.2.0
+// @description  使用可拖动的 U 形悬浮菜单将当前网页添加到 Minimal Desktop 桌面或书签。
 // @author       Minimal Desktop
 // @match        http://*/*
 // @match        https://*/*
@@ -66,28 +66,32 @@
 
   const host = document.createElement('div');
   host.id = 'minimal-desktop-clipper-host';
-  host.style.cssText = 'all:initial;position:fixed;right:0;top:50%;z-index:2147483647;width:50px;height:40px;pointer-events:none';
+  host.style.cssText = 'all:initial;position:fixed;right:0;top:50%;z-index:2147483647;width:184px;height:40px;pointer-events:none';
   const shadow = host.attachShadow({ mode: 'closed' });
   shadow.innerHTML = `
     <style>
       :host{all:initial}
-      button{all:initial;pointer-events:auto;position:absolute;inset:0;width:50px;height:40px;padding-left:4px;box-sizing:border-box;border-radius:20px 0 0 20px;background:rgba(255,255,255,.18);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);box-shadow:-2px 0 18px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.5);display:flex;align-items:center;justify-content:flex-start;cursor:pointer;touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent;transform:translateX(calc(100% - 10px));transition:transform .4s cubic-bezier(.22,1,.36,1),background .3s,box-shadow .3s}
-      button.extend{transform:translateX(0);background:rgba(255,255,255,.32);box-shadow:-3px 0 22px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.6)}
-      button.extend:active{transform:translateX(0) scale(.93)}
-      button:hover{background:rgba(255,255,255,.32)}
-      .inner{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#00e5c0 0%,#00b4d8 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,200,180,.5),0 1px 3px rgba(0,0,0,.2);transition:box-shadow .3s,transform .3s;overflow:hidden}
-      button.extend .inner{box-shadow:0 4px 18px rgba(0,200,180,.65),0 2px 5px rgba(0,0,0,.22)}
-      button:hover .inner{transform:scale(1.05)}
+      .clipper{all:initial;pointer-events:auto;position:absolute;inset:0;width:184px;height:40px;padding:3px 5px 3px 4px;box-sizing:border-box;border-radius:20px 0 0 20px;background:rgba(255,255,255,.18);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);box-shadow:-2px 0 18px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.5);display:flex;align-items:center;gap:4px;touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent;transform:translateX(calc(100% - 10px));transition:transform .4s cubic-bezier(.22,1,.36,1),background .3s,box-shadow .3s}
+      .clipper.extend{transform:translateX(0);background:rgba(255,255,255,.32);box-shadow:-3px 0 22px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.6)}
+      button{all:initial;box-sizing:border-box;cursor:pointer;font:600 12px/1 system-ui,-apple-system,sans-serif;color:#075b55;-webkit-tap-highlight-color:transparent}
+      .drag-handle{width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:linear-gradient(135deg,#00e5c0 0%,#00b4d8 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,200,180,.5),0 1px 3px rgba(0,0,0,.2);transition:box-shadow .3s,transform .3s;overflow:hidden}
+      .clipper.extend .drag-handle{box-shadow:0 4px 18px rgba(0,200,180,.65),0 2px 5px rgba(0,0,0,.22)}
+      .drag-handle:active,.action:active{transform:scale(.94)}
+      .action{height:30px;padding:0 8px;border-radius:15px;background:rgba(255,255,255,.58);display:flex;align-items:center;justify-content:center;white-space:nowrap;opacity:0;pointer-events:none;transform:translateX(8px);transition:opacity .2s,transform .3s,background .2s}
+      .clipper.extend .action{opacity:1;pointer-events:auto;transform:translateX(0)}
+      .action:hover,.action:focus-visible{background:rgba(255,255,255,.92);outline:2px solid rgba(0,180,170,.35);outline-offset:-2px}
       img{display:block;width:26px;height:26px;border-radius:50%;object-fit:cover;background:#fff}
       .fallback{display:none;width:26px;height:26px;color:#fff;place-items:center;font:20px/1 system-ui;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
-      @media (min-width:640px){button{width:46px;height:38px;border-radius:19px 0 0 19px}}
-      @media (prefers-reduced-motion:reduce){button,.inner{transition:none}}
+      @media (prefers-reduced-motion:reduce){.clipper,.drag-handle,.action{transition:none}}
     </style>
-    <button type="button" class="extend" aria-label="剪藏到 Minimal Desktop" title="拖动调整位置 · 点击剪藏">
-      <span class="inner"><img alt="" referrerpolicy="no-referrer"><span class="fallback" aria-hidden="true">✦</span></span>
-    </button>`;
+    <div class="clipper extend" role="group" aria-label="Minimal Desktop 网页剪藏">
+      <button type="button" class="drag-handle" aria-label="展开剪藏菜单或拖动调整位置" title="拖动调整位置"><img alt="" referrerpolicy="no-referrer"><span class="fallback" aria-hidden="true">✦</span></button>
+      <button type="button" class="action" data-target="desktop">桌面</button>
+      <button type="button" class="action" data-target="bookmarks">书签</button>
+    </div>`;
 
-  const button = shadow.querySelector('button');
+  const panel = shadow.querySelector('.clipper');
+  const dragHandle = shadow.querySelector('.drag-handle');
   const image = shadow.querySelector('img');
   const fallback = shadow.querySelector('.fallback');
   const favicon = findFavicon();
@@ -109,32 +113,45 @@
   window.addEventListener('resize', applyPosition, { passive: true });
 
   let idleTimer;
+  let isClipperExtended = true;
   const extend = () => {
-    button.classList.add('extend');
+    if (!isClipperExtended) {
+      isClipperExtended = true;
+      panel.classList.add('extend');
+    }
     clearTimeout(idleTimer);
+  };
+  const retract = () => {
+    isClipperExtended = false;
+    panel.classList.remove('extend');
   };
   const scheduleRetract = (delay = IDLE_DELAY) => {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => button.classList.remove('extend'), delay);
+    idleTimer = setTimeout(retract, delay);
   };
-  button.addEventListener('pointerenter', extend);
-  button.addEventListener('pointerleave', () => scheduleRetract());
-  button.addEventListener('focus', extend);
+  panel.addEventListener('pointerenter', (event) => {
+    if (event.pointerType !== 'touch') extend();
+  });
+  panel.addEventListener('pointerleave', () => scheduleRetract());
+  panel.addEventListener('focusin', extend);
 
   let startY = 0;
   let startCenterY = 0;
   let dragging = false;
   let suppressClick = false;
-  button.addEventListener('pointerdown', (event) => {
+  let canActivateThisClick = false;
+  panel.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.pointerType !== 'touch') return;
+    canActivateThisClick = isClipperExtended;
+    extend();
+    if (!event.target.closest?.('.drag-handle')) return;
     startY = event.clientY;
     startCenterY = positionRatio * window.innerHeight;
     dragging = false;
-    button.setPointerCapture?.(event.pointerId);
-    extend();
+    panel.setPointerCapture?.(event.pointerId);
   });
-  button.addEventListener('pointermove', (event) => {
-    if (!button.hasPointerCapture?.(event.pointerId)) return;
+  panel.addEventListener('pointermove', (event) => {
+    if (!panel.hasPointerCapture?.(event.pointerId)) return;
     const delta = event.clientY - startY;
     if (Math.abs(delta) > 5) dragging = true;
     if (!dragging) return;
@@ -145,8 +162,8 @@
     applyPosition();
   });
   const finishDrag = (event) => {
-    if (!button.hasPointerCapture?.(event.pointerId)) return;
-    button.releasePointerCapture?.(event.pointerId);
+    if (!panel.hasPointerCapture?.(event.pointerId)) return;
+    panel.releasePointerCapture?.(event.pointerId);
     if (dragging) {
       writeValue(POSITION_KEY, positionRatio);
       suppressClick = true;
@@ -155,25 +172,38 @@
     dragging = false;
     scheduleRetract();
   };
-  button.addEventListener('pointerup', finishDrag);
-  button.addEventListener('pointercancel', finishDrag);
+  panel.addEventListener('pointerup', finishDrag);
+  panel.addEventListener('pointercancel', finishDrag);
 
-  button.addEventListener('click', () => {
-    if (suppressClick) return;
-    if (!button.classList.contains('extend')) {
-      extend();
-      scheduleRetract(4000);
-      return;
-    }
+  const confirmExtension = () => {
+    extend();
+    scheduleRetract(4000);
+  };
+  const openClip = (target) => {
     const payload = {
       url: location.href,
       title: extractSiteName(document.title) || location.hostname,
       favicon: findFavicon() || undefined,
-      target: 'desktop',
+      target,
     };
     const destination = `${DESKTOP_URL}#clip=${encodeURIComponent(JSON.stringify(payload))}`;
     window.open(destination, '_blank', 'noopener,noreferrer');
-    scheduleRetract();
+    retract();
+  };
+
+  panel.addEventListener('click', (event) => {
+    if (suppressClick) return;
+    const targetButton = event.target.closest?.('[data-target]');
+    const pointerActivation = event.detail !== 0;
+    if (!isClipperExtended || (pointerActivation && !canActivateThisClick)) {
+      confirmExtension();
+      return;
+    }
+    if (targetButton) openClip(targetButton.dataset.target);
+    else scheduleRetract(4000);
+  });
+  dragHandle.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') extend();
   });
 
   (document.body || document.documentElement).append(host);
