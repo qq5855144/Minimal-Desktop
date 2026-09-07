@@ -67,7 +67,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   };
   const beginDrag = (item: Bookmark, row: HTMLDivElement, pointerId: number, clientY: number) => {
     const bounds = row.getBoundingClientRect(); const current = drag.current; if (!current || current.active) return;
-    current.active = true; current.timer = null; suppressRowClick.current = true; row.setPointerCapture(event.pointerId); setDraggingId(item.id); setDragTarget(null);
+    current.active = true; current.timer = null; suppressRowClick.current = true; row.setPointerCapture(pointerId); setDraggingId(item.id); setDragTarget(null);
     setDragVisual({ item, x: bounds.left, y: bounds.top, width: bounds.width, offsetY: clientY - bounds.top });
   };
   const startDrag = (item: Bookmark, event: React.PointerEvent<HTMLDivElement>) => {
