@@ -10,6 +10,7 @@ afterEach(() => vi.unstubAllGlobals());
 it('initially renders bookmarks from every group with the normal toolbar', () => {
   vi.stubGlobal('document', { body: {} });
   const html = renderToStaticMarkup(<BookmarksView onClose={() => {}} />);
+  expect(html).toContain('切换书签分组'); expect(html).toContain('全部书签');
   expect(html).toContain('学习书签'); expect(html).toContain('工作书签');
   expect(html).toContain('>更多</button>'); expect(html).toContain('>编辑</button>');
   expect(html).not.toContain('>移动</button>'); expect(html).toContain('搜索书签');

@@ -1,8 +1,9 @@
-import { ArrowLeft, Bookmark as BookmarkIcon, GripVertical, Check, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Bookmark as BookmarkIcon, GripVertical, Check, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
+import { copyLink } from '@/lib/clipboard';
 import { emptyBookmarks, type Bookmark } from '@/lib/bookmarks';
 import { getDirectFaviconUrl } from '@/lib/favicon';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
@@ -14,6 +15,26 @@ function BookmarkImage({ item }: { item: Bookmark }) {
   const src = item.iconUrl || getDirectFaviconUrl(item.url);
   return <span className="bookmark-icon">{!failed && src ? <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <BookmarkIcon size={24} />}</span>;
 }
+function BookmarkLink({ item, editing, selected, onClick, onMenu }: { item: Bookmark; editing: boolean; selected: boolean; onClick: () => void; onMenu: (x: number, y: number) => void }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const clear = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; start.current = null; };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return <button type="button" className="bookmark-link" aria-pressed={editing ? selected : undefined}
+    onPointerDown={(event) => {
+      clear(); suppressClick.current = false;
+      if (editing || !event.isPrimary || event.button !== 0) return;
+      const x = event.clientX; const y = event.clientY; start.current = { x, y };
+      timer.current = setTimeout(() => { suppressClick.current = true; onMenu(x, y); clear(); }, 500);
+    }}
+    onPointerMove={(event) => { if (start.current && Math.hypot(event.clientX - start.current.x, event.clientY - start.current.y) > 10) clear(); }}
+    onPointerUp={clear} onPointerCancel={clear} onPointerLeave={clear}
+    onContextMenu={(event) => { if (editing) return; event.preventDefault(); clear(); suppressClick.current = true; const rect = event.currentTarget.getBoundingClientRect(); onMenu(event.clientX || rect.left + 30, event.clientY || rect.bottom); }}
+    onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } onClick(); }}>
+    <BookmarkImage key={`${item.url}-${item.iconUrl}`} item={item} /><span>{item.name}</span>
+  </button>;
+}
 export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const { data, updateBookmarks } = useDesktop();
   const library = data.bookmarks ?? emptyBookmarks();
@@ -21,6 +42,8 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [group, setGroup] = useState('all');
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [groupMenuTop, setGroupMenuTop] = useState(false);
+  const [context, setContext] = useState<{ item: Bookmark; x: number; y: number } | null>(null);
   const [menu, setMenu] = useState<'groups' | 'move' | null>(null);
   const [form, setForm] = useState<'group' | 'bookmark' | Bookmark | null>(null);
   const [name, setName] = useState('');
@@ -38,6 +61,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     return () => previous?.focus();
   }, []);
   useEffect(() => { if (form || deleting) root.current?.querySelector<HTMLElement>('.bookmark-sheet input, .bookmark-sheet button')?.focus(); }, [form, deleting]);
+  useEffect(() => { if (context) root.current?.querySelector<HTMLElement>('.bookmark-context button')?.focus(); }, [context]);
   const toggle = (id: string) => setSelected((ids) => ids.includes(id) ? ids.filter((candidate) => candidate !== id) : [...ids, id]);
   const finish = () => { setEditing(false); setSelected([]); setMenu(null); };
   const openForm = (next: 'group' | 'bookmark' | Bookmark) => {
@@ -57,22 +81,22 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     }
   };
   return createPortal(<div ref={root} className="bookmarks-view" role="dialog" aria-modal="true" aria-label="书签" tabIndex={-1} onKeyDown={(event) => {
-    if (event.key === 'Escape') { event.stopPropagation(); if (form) setForm(null); else if (deleting) setDeleting(false); else if (menu) setMenu(null); else if (editing) finish(); else onClose(); }
+    if (event.key === 'Escape') { event.stopPropagation(); if (context) setContext(null); else if (form) setForm(null); else if (deleting) setDeleting(false); else if (menu) setMenu(null); else if (editing) finish(); else onClose(); }
     if (event.key === 'Tab') {
-      const scope = root.current?.querySelector('.bookmark-sheet') ?? root.current;
+      const scope = root.current?.querySelector('.bookmark-sheet, .bookmark-context') ?? root.current;
       const controls = Array.from(scope?.querySelectorAll<HTMLElement>('button:not(:disabled),input,a[href]') ?? []);
       const first = controls[0]; const last = controls[controls.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   }}>
-    <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1>{group !== 'all' && <span>{library.groups.find((entry) => entry.id === group)?.name}</span>}</header>
+    <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className="bookmark-list">
       {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''}`}>
-        <button type="button" className="bookmark-link" onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} aria-pressed={editing ? selected.includes(item.id) : undefined}>
-          <BookmarkImage key={`${item.url}-${item.iconUrl}`} item={item} /><span>{item.name}</span>
-        </button>
+        <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
+          setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
+        }} />
         {editing && <>
           <button className="bookmark-grip" type="button" aria-label={`调整 ${item.name} 顺序，方向键上移或下移`} onKeyDown={(event) => {
             const index = items.findIndex((entry) => entry.id === item.id);
@@ -97,7 +121,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       </div>)}
       {!items.length && <p className="bookmark-empty">{query ? '没有匹配的书签' : '暂无书签'}</p>}
     </div>
-    {menu && <div className="bookmark-menu">
+    {menu && <div className={`bookmark-menu ${groupMenuTop && menu === 'groups' ? 'bookmark-menu-top' : ''}`}>
       <div className="bookmark-menu-title">{menu === 'move' ? '移动到分组' : '分组'}<button type="button" aria-label="关闭菜单" onClick={() => setMenu(null)}><X size={18} /></button></div>
       {menu === 'groups' && <button type="button" onClick={() => { setGroup('all'); setSelected([]); setMenu(null); }}>全部书签{group === 'all' && <Check size={16} />}</button>}
       {library.groups.map((entry) => <button type="button" key={entry.id} onClick={() => {
@@ -114,7 +138,16 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       <button type="button" disabled={!selectedItems.length} onClick={openSelected}>打开</button>
       {selectedItems.length === 1 && <button type="button" onClick={() => openForm(selectedItems[0])}>修改</button>}
       <button type="button" onClick={finish}>完成</button>
-    </> : <><button type="button" onClick={() => setMenu(menu === 'groups' ? null : 'groups')}>更多</button><button type="button" onClick={() => { setEditing(true); setMenu(null); }}>编辑</button></>}</footer>
+    </> : <><button type="button" onClick={() => { setGroupMenuTop(false); setMenu(menu === 'groups' ? null : 'groups'); }}>更多</button><button type="button" onClick={() => { setEditing(true); setMenu(null); }}>编辑</button></>}</footer>
+    {context && <div className="bookmark-context-shade" onPointerDown={(event) => { if (event.target === event.currentTarget) setContext(null); }}>
+      <div className="bookmark-context" role="menu" aria-label="书签操作" style={{ left: context.x, top: context.y }}>
+        <button type="button" role="menuitem" onClick={async () => {
+          try { await copyLink(context.item.url); toast.success('链接已复制'); } catch { toast.error('复制失败，请检查浏览器权限'); }
+          setContext(null);
+        }}>复制链接</button>
+        <button type="button" role="menuitem" onClick={() => { setSelected([context.item.id]); setContext(null); setDeleting(true); }}>删除</button>
+      </div>
+    </div>}
     {(form || deleting) && <div className="bookmark-shade"><form className="bookmark-sheet" onSubmit={(event) => {
       event.preventDefault();
       if (deleting) { updateBookmarks({ type: 'delete', ids: selectedItems.map((item) => item.id) }); setSelected([]); setDeleting(false); return; }

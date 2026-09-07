@@ -12,3 +12,12 @@
 .bookmark-menu { position:absolute; left:14px; bottom:calc(60px + env(safe-area-inset-bottom,0px)); width:min(300px,calc(100% - 28px)); background:#fff; border:1px solid #eee; border-radius:16px; box-shadow:0 8px 32px #0002; max-height:55%; overflow:auto; padding:8px; z-index:1; }.bookmark-menu>button { display:flex; align-items:center; justify-content:space-between; width:100%; text-align:left; padding:12px; border-radius:10px; }.bookmark-menu-title { display:flex; justify-content:space-between; align-items:center; color:#999; font-size:13px; padding:6px 12px; }
 .bookmark-shade { position:absolute; inset:0; background:#0003; display:grid; place-items:center; padding:24px; z-index:2; }.bookmark-sheet { width:100%; max-width:380px; border-radius:20px; padding:22px; background:white; }.bookmark-sheet h2 { font-size:18px; margin-bottom:16px; }.bookmark-sheet input { display:block; width:100%; padding:12px; background:#f4f4f4; border-radius:10px; margin:10px 0; }.bookmark-sheet>div { display:flex; justify-content:flex-end; gap:24px; margin-top:22px; }
 @media(min-width:800px) { .bookmark-search,.bookmark-list { width:100%; max-width:900px; margin-inline:auto; }.bookmark-row { min-height:66px; }.bookmarks-view footer { padding-inline:max(24px,calc((100vw - 850px)/2)); } }
+
+.bookmarks-view header .bookmark-group-picker { margin-left:auto; display:flex; align-items:center; gap:6px; min-width:0; font-size:14px; color:#666; }
+.bookmark-group-picker span { max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.bookmark-menu.bookmark-menu-top { top:calc(66px + env(safe-area-inset-top,0px)); bottom:auto; left:auto; right:14px; }
+.bookmark-link { -webkit-touch-callout:none; user-select:none; touch-action:pan-y; }
+.bookmark-context-shade { position:absolute; inset:0; z-index:3; }
+.bookmark-context { position:fixed; width:168px; padding:6px; border-radius:14px; background:white; border:1px solid #eee; box-shadow:0 6px 24px #0003; }
+.bookmark-context button { display:block; width:100%; padding:12px; text-align:left; border-radius:8px; }
+.bookmark-context button:last-child { color:#c84848; }
