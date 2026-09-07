@@ -51,6 +51,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [deleting, setDeleting] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const drag = useRef<{ id: string; target: string | null; after?: boolean } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const items = library.items.filter((item) => (group === 'all' || item.groupId === group) && `${item.name} ${item.url}`.toLowerCase().includes(query.trim().toLowerCase()));
@@ -94,7 +95,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className="bookmark-list">
-      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''}`}>
+      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`}>
         <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
           setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
         }} />
@@ -103,7 +104,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
             const index = items.findIndex((entry) => entry.id === item.id);
             if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: item.id, beforeId: items[index - 1].id }); }
             if (event.key === 'ArrowDown' && index < items.length - 1) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: items[index + 1].id, beforeId: item.id }); }
-          }} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: item.id, target: null }; }} onPointerMove={(event) => {
+          }} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: item.id, target: null }; setDraggingId(item.id); }} onPointerMove={(event) => {
             if (!drag.current) return;
             const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-bookmark-id]');
             const target = row?.dataset.bookmarkId;
@@ -115,8 +116,8 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
             if (list && rect) { if (event.clientY < rect.top + 40) list.scrollTop -= 16; else if (event.clientY > rect.bottom - 40) list.scrollTop += 16; }
           }} onPointerUp={() => {
             if (drag.current?.target) updateBookmarks({ type: 'reorder', id: drag.current.id, beforeId: drag.current.target, after: drag.current.after });
-            drag.current = null; setDragTarget(null);
-          }} onPointerCancel={() => { drag.current = null; setDragTarget(null); }}><GripVertical size={20} /></button>
+            drag.current = null; setDragTarget(null); setDraggingId(null);
+          }} onPointerCancel={() => { drag.current = null; setDragTarget(null); setDraggingId(null); }}><GripVertical size={20} /></button>
           <button type="button" className="bookmark-select" aria-label={`选择 ${item.name}`} aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}><span>{selected.includes(item.id) && <Check size={17} />}</span></button>
         </>}
       </div>)}

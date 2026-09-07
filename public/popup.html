@@ -86,29 +86,13 @@
       }
 
       /* ── 按钮 ─────────────────────── */
-      #add-btn {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 11px;
-        border: none;
-        border-radius: 11px;
-        background: #0a84ff;
-        color: #fff;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity .12s, transform .1s;
-        font-family: inherit;
-        letter-spacing: .01em;
-      }
-      #add-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
-      #add-btn:hover:not(:disabled) { opacity: .88; }
-      #add-btn:active:not(:disabled) { transform: scale(.98); }
-      #add-btn:disabled { opacity: .4; cursor: default; }
-
+      .clip-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+      .clip-btn { min-height: 44px; display:flex; align-items:center; justify-content:center; gap:6px; border:0; border-radius:11px; background:#0a84ff; color:#fff; font:600 13px inherit; cursor:pointer; transition:opacity .12s,transform .1s; }
+      .clip-btn svg { width:15px; height:15px; flex-shrink:0; }
+      .clip-btn.secondary { background:#3a3a3c; }
+      .clip-btn:hover:not(:disabled) { opacity:.88; }
+      .clip-btn:active:not(:disabled) { transform:scale(.98); }
+      .clip-btn:disabled { opacity:.4; cursor:default; }
       /* ── 成功状态 ─────────────────────── */
       #status {
         display: none;
@@ -164,18 +148,14 @@
         </div>
       </div>
 
-      <label for="clip-target" style="display:block;margin:12px 0 6px">保存位置</label>
-      <select id="clip-target" style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:10px;background:white;color:#333">
-        <option value="desktop">添加到桌面</option>
-        <option value="bookmarks">添加到书签</option>
-      </select>
-      <!-- 添加按钮 -->
-      <button id="add-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-        </svg>
-        添加到桌面
-      </button>
+      <div class="clip-actions" aria-label="选择保存位置">
+        <button class="clip-btn" data-clip-target="desktop">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>添加到桌面
+        </button>
+        <button class="clip-btn secondary" data-clip-target="bookmarks">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>添加到书签
+        </button>
+      </div>
     </div>
 
     <!-- 成功状态 -->

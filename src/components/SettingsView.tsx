@@ -17,7 +17,7 @@ import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wa
 import type { DesktopColumnCount, DesktopSettings, DesktopStyle, SearchBarStyle } from '@/types';
 import SystemSheet from './SystemSheet';
 
-type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets';
+type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets' | 'about';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
 
 interface BingImage {
@@ -378,6 +378,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   if (!open) return null;
 
   // ── 主面板 ──
+  const renderAbout = () => (<div className="px-5 py-6 space-y-4"><div className={`rounded-2xl p-5 text-center ${t.itemBg} border ${t.itemBorder}`}><h3 className={`text-lg font-semibold ${t.textPrimary}`}>Minimal Desktop</h3><p className={`mt-1 text-xs ${t.textDim}`}>版本 1.2.33</p></div><div className={`rounded-2xl p-4 space-y-3 text-sm ${t.itemBg} border ${t.itemBorder}`}><p className={t.textPrimary}><b>开发语言：</b>React + TypeScript</p><p className={t.textPrimary}><b>开源地址：</b>github.com/qq5855144/Minimal-Desktop</p><p className={t.textPrimary}><b>作者：</b>qq5855144</p></div><div className={`rounded-2xl p-4 text-xs leading-6 ${t.itemBg} border ${t.itemBorder}`}><p className={`font-medium ${t.textPrimary}`}>法律声明</p><p className={t.textDim}>不得二次修改后分发，不得用于商业用途，不得删除或修改作者署名，不得在内置项目中加入引流内容。</p><p className={`mt-2 ${t.textDim}`}>本项目依据 MIT License 开源。</p></div></div>);
   const renderMain = () => (
     <div className="px-5 py-4 space-y-2">
       {[
@@ -431,14 +432,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           {!item.disabled && <ChevronRight className={`w-4 h-4 shrink-0 ${t.textDim}`} />}
         </button>
       ))}
-
-      <div className={`mt-2 flex items-center gap-3 rounded-2xl px-4 py-3 border ${t.itemBg} ${t.itemBorder}`}>
-        <LayoutGrid className={`w-5 h-5 shrink-0 ${t.textMuted}`} />
-        <div className="min-w-0">
-          <p className={`text-sm font-medium ${t.textPrimary}`}>智能桌面分页</p>
-          <p className={`text-xs ${t.textDim}`}>拖到最后一页右边缘自动创建；空白页会自动回收</p>
-        </div>
-      </div>
+      <button type="button" onClick={() => setPanel('about')} className="flex items-center gap-3 w-full rounded-2xl px-4 py-3 border border-white/10 bg-white/5 hover:bg-white/10"><div className="w-9 h-9 rounded-xl flex items-center justify-center text-white bg-slate-500">ⓘ</div><div className="flex-1 text-left"><p className="text-sm font-medium">关于</p><p className="text-xs opacity-60">版本、作者与开源许可</p></div><ChevronRight className="w-4 h-4 opacity-60" /></button>
       <div className="pt-2">
         <button
           type="button"
@@ -816,6 +810,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     view: { title: '应用视图' },
     style: { title: '桌面风格' },
     widgets: { title: '桌面组件' },
+    about: { title: '关于' },
   };
   const meta = panelMeta[panel];
 
@@ -833,6 +828,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
       {panel === 'view'    && renderView()}
       {panel === 'style'   && renderStyle()}
       {panel === 'widgets' && renderWidgets()}
+      {panel === 'about' && renderAbout()}
       {panel !== 'bg' && <div className="pb-4" />}
     </SystemSheet>
   );

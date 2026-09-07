@@ -24,3 +24,8 @@
 .bookmark-group-menu-row { display:flex; align-items:center; gap:4px; }
 .bookmark-group-menu-row > button:first-child { flex:1; }
 .bookmark-group-menu-row .bookmark-delete-group { flex:0 0 auto; width:auto; color:#c84848; font-size:13px; padding-inline:8px; }
+.bookmark-row { transition: transform .18s ease, opacity .18s ease, background-color .18s ease, border-color .18s ease; }
+.bookmark-row.bookmark-dragging { opacity: .45; transform: scale(.985); }
+.bookmark-drop { border-top-color: #5b7cff; box-shadow: inset 0 2px 0 #5b7cff; background: rgba(91,124,255,.08); }
+.bookmark-grip { transition: transform .15s ease, color .15s ease; }
+.bookmark-grip:active { transform: scale(1.15); color: #5b7cff; }
