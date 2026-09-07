@@ -1,3 +1,4 @@
+import { changeBookmarks, emptyBookmarks, type BookmarkAction } from '@/lib/bookmarks';
 // @refresh reset
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
@@ -69,6 +70,7 @@ interface DesktopContextType {
   settings: DesktopSettings;
   updateSettings: (patch: Partial<DesktopSettings>) => void;
   // 添加应用（preferPage：优先放置到指定页面）
+  updateBookmarks: (action: BookmarkAction) => boolean;
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
   setWidgetEnabled: (widgetType: WidgetType, enabled: boolean) => boolean;
   setWeatherSize: (id: string, size: 'small' | 'large') => boolean;
@@ -275,6 +277,13 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     applyCompactedDesktopData(next);
     return true;
   }, [applyCompactedDesktopData, captureHistoryState]);
+
+  const updateBookmarks = useCallback((action: BookmarkAction) => {
+    const previous = dataRef.current.bookmarks;
+    const bookmarks = changeBookmarks(previous, action);
+    if (JSON.stringify(previous ?? emptyBookmarks()) === JSON.stringify(bookmarks)) return false;
+    return commitDesktopData({ ...dataRef.current, bookmarks });
+  }, [commitDesktopData]);
 
   const applyHistoryState = useCallback((state: DesktopHistoryState) => {
     const nextData = compactDesktopPages(dataForHistory(state.data)).data;
@@ -1165,6 +1174,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settings,
         updateSettings,
         addItem,
+        updateBookmarks,
         setWidgetEnabled,
         setWeatherSize,
         updateItem,

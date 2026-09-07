@@ -74,6 +74,7 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
   return [
     { id: 'sys-add',      type: 'system', name: '添加应用', color: 'blue',   page: 0, row: widgetRows,     col: 0 },
     { id: 'sys-settings', type: 'system', name: '设置',     color: 'gray',   page: 0, row: widgetRows,     col: 1 },
+    { id: 'sys-bookmarks', type: 'system', name: '书签', color: 'orange', page: 0, row: widgetRows, col: 3 },
     { id: 'sys-sync',     type: 'system', name: '同步',     color: 'indigo', page: 0, row: widgetRows,     col: 2 },
   ] as import('@/types').DesktopItem[];
 })();

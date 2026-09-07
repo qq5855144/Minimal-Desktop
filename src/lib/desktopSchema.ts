@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DesktopBackup, DesktopData, DesktopSettings } from '@/types';
 
-export const CURRENT_DESKTOP_VERSION = 5;
+export const CURRENT_DESKTOP_VERSION = 6;
 
 const httpUrl = z.string().max(4096).refine((value) => {
   try {
@@ -151,7 +151,18 @@ export const privacyVaultSchema = z.object({
   iterations: z.number().int().min(100_000).max(2_000_000).optional(),
 }).strict();
 
+export const bookmarkCollectionSchema = z.object({
+  groups: z.array(z.object({ id: z.string().min(1).max(256), name: z.string().trim().min(1).max(80) })).min(1).max(100),
+  items: z.array(z.object({ id: z.string().min(1).max(256), name: z.string().trim().min(1).max(256), url: httpUrl, iconUrl: iconUrl.optional(), groupId: z.string().min(1).max(256) })).max(10000),
+}).superRefine((value, ctx) => {
+  const groups = new Set(value.groups.map((group) => group.id));
+  if (groups.size !== value.groups.length || new Set(value.items.map((item) => item.id)).size !== value.items.length || value.items.some((item) => !groups.has(item.groupId))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: '书签分组或标识无效' });
+  }
+});
+
 const desktopDataObjectSchema = z.object({
+  bookmarks: bookmarkCollectionSchema.optional(),
   pages: z.array(z.array(desktopItemSchema).max(1000)).min(1).max(20),
   version: z.number().int().min(1).max(CURRENT_DESKTOP_VERSION),
   privacyVault: privacyVaultSchema.optional(),

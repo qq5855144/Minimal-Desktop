@@ -1,3 +1,4 @@
+import { normalizeHttpUrl } from '@/lib/urlSafety';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
@@ -51,6 +52,7 @@ import WidgetGridCell from './WidgetGridCell';
 import { isFullWidthWidget } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 
+const BookmarksView = React.lazy(() => import('./BookmarksView'));
 const FolderView = React.lazy(() => import('./FolderView'));
 const AddEditDialog = React.lazy(() => import('./AddEditDialog'));
 const SettingsView = React.lazy(() => import('./SettingsView'));
@@ -97,6 +99,7 @@ const Desktop: React.FC = () => {
     settings,
     updateSettings,
     addItem,
+    updateBookmarks,
     updateItem,
     removeItem,
     moveItemTo,
@@ -129,6 +132,7 @@ const Desktop: React.FC = () => {
       ?? privacyPageItems.find((it) => it.id === openFolderId)
       ?? null
     : null;
+  const [openBookmarks, setOpenBookmarks] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
   const [openSync, setOpenSync] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -257,18 +261,28 @@ const Desktop: React.FC = () => {
     };
   }, [settings.style, settings.bgType]);
 
-  // 扩展环境：启动时检测 pendingClip（用户点击工具栏「剪藏」后留下的数据）
-  // 直接添加到桌面，无需打开编辑对话框
+  // The clip is claimed once per extension origin before it is added to the chosen collection.
+  const consumingClip = useRef(false);
   useEffect(() => {
-    if (typeof chrome === 'undefined' || !chrome?.storage?.local) return;
-    chrome.storage.local.get(['pendingClip'], (result: Record<string, unknown>) => {
-      const clip = result.pendingClip as { url: string; title: string; favicon?: string } | undefined;
+    if (typeof chrome === 'undefined' || !chrome?.storage?.local || consumingClip.current) return;
+    consumingClip.current = true;
+    const consume = async () => {
+      const result = await chrome.storage.local.get(['pendingClip']);
+      const clip = result.pendingClip as { id?: string; url?: string; title?: string; favicon?: string; target?: string } | undefined;
       if (!clip) return;
-      chrome.storage.local.remove(['pendingClip']);
-      addItem({ name: clip.title, url: clip.url, iconUrl: clip.favicon, type: 'app', color: 'blue' }, currentPage);
-      toast.success(`已添加「${clip.title}」到桌面`);
-    });
-  }, [addItem]);
+      const safeUrl = typeof clip.url === 'string' ? normalizeHttpUrl(clip.url) : null;
+      if (!safeUrl || typeof clip.title !== 'string') { await chrome.storage.local.remove(['pendingClip']); return; }
+      if (clip.target === 'bookmarks') {
+        const saved = updateBookmarks({ type: 'add', item: { id: clip.id || crypto.randomUUID(), name: clip.title, url: safeUrl, iconUrl: clip.favicon, groupId: 'default' } });
+        if (!saved) { toast.error('无法保存书签，请检查数量限制'); return; }
+        setOpenBookmarks(true);
+      } else addItem({ name: clip.title, url: safeUrl, iconUrl: clip.favicon, type: 'app', color: 'blue' }, currentPage);
+      await chrome.storage.local.remove(['pendingClip']);
+      toast.success(clip.target === 'bookmarks' ? '已添加到书签' : '已添加到桌面');
+    };
+    const task = navigator.locks ? navigator.locks.request('minimal-desktop-pending-clip', consume) : consume();
+    void task.catch(() => toast.error('剪藏失败，请重试')).finally(() => { consumingClip.current = false; });
+  }, [addItem, updateBookmarks, currentPage]);
 
   // 自动同步：5 秒静默期合并编辑，远端抢先更新时由 GitHub 层自动基于最新 HEAD 重试。
   // 临时失败保留 dirty 状态后台重试，不再用“冲突锁”永久暂停队列。
@@ -1010,7 +1024,8 @@ const Desktop: React.FC = () => {
   }, []);
 
   const handleSystemClick = useCallback((item: DesktopItem) => {
-    if (item.id === 'sys-settings') setOpenSettings(true);
+    if (item.id === 'sys-bookmarks') setOpenBookmarks(true);
+    else if (item.id === 'sys-settings') setOpenSettings(true);
     else if (item.id === 'sys-sync') setOpenSync(true);
     else if (item.id === 'sys-add') setAddDialogOpen(true);
   }, []);
@@ -1740,6 +1755,7 @@ const Desktop: React.FC = () => {
         /></React.Suspense>
       )}
 
+      {openBookmarks && <React.Suspense fallback={null}><BookmarksView onClose={() => setOpenBookmarks(false)} /></React.Suspense>}
       {openSettings && (
         <React.Suspense fallback={null}>
           <SettingsView open onClose={() => setOpenSettings(false)} />

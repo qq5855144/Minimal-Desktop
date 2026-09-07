@@ -202,3 +202,16 @@ describe('sync credential storage', () => {
     expect(ids).toContain('widget-search');
   });
 });
+
+describe('bookmark entry migration', () => {
+  it('adds the bookmark system entry once without moving existing applications', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    localStorage.setItem('ios_desktop_data', JSON.stringify({ version: 5, pages: [[{ id: 'existing', type: 'app', name: 'existing', url: 'https://example.com', color: 'blue', page: 0, row: 5, col: 2 }]] }));
+    const first = loadDesktopData();
+    expect(first.pages.flat().filter((item) => item.id === 'sys-bookmarks')).toHaveLength(1);
+    expect(first.pages.flat().find((item) => item.id === 'existing')).toMatchObject({ row: 5, col: 2 });
+    localStorage.setItem('ios_desktop_data', JSON.stringify(first));
+    expect(loadDesktopData().pages.flat().filter((item) => item.id === 'sys-bookmarks')).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+});

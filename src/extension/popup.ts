@@ -38,6 +38,7 @@ async function init() {
   const faviconPh  = document.getElementById('favicon-ph') as HTMLElement;
   const titleEl    = document.getElementById('title') as HTMLElement;
   const urlEl      = document.getElementById('url') as HTMLElement;
+  const targetEl = document.getElementById('clip-target') as HTMLSelectElement;
   const addBtn     = document.getElementById('add-btn') as HTMLButtonElement;
   const statusEl   = document.getElementById('status') as HTMLElement;
   const mainEl     = document.getElementById('main') as HTMLElement;
@@ -46,12 +47,13 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   const forbidden = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'moz-extension://'];
-  const isSystem = !tab?.url || forbidden.some((p) => tab.url!.startsWith(p));
+  const isSystem = !tab?.url || forbidden.some((p) => tab.url!.startsWith(p)) || !/^https?:\/\//i.test(tab.url);
 
   if (isSystem) {
     titleEl.textContent = '无法剪藏系统页面';
     urlEl.textContent = tab?.url ?? '';
     addBtn.disabled = true;
+    targetEl.disabled = true;
     addBtn.textContent = '不支持此页面';
     return;
   }
@@ -79,20 +81,26 @@ async function init() {
   }
   // 无 favicon 时占位符默认可见（HTML 中 display:flex）
 
+  targetEl.addEventListener('change', () => { addBtn.textContent = targetEl.value === 'bookmarks' ? '添加到书签' : '添加到桌面'; });
+
   addBtn.addEventListener('click', async () => {
     addBtn.disabled = true;
     const btnText = addBtn.childNodes[addBtn.childNodes.length - 1];
     if (btnText?.nodeType === Node.TEXT_NODE) btnText.textContent = '正在添加…';
 
+    try {
     await chrome.storage.local.set({
-      pendingClip: { url: pageUrl, title: pageTitle, favicon: pageFavicon || undefined },
+      pendingClip: { id: crypto.randomUUID(), target: targetEl.value, url: pageUrl, title: pageTitle, favicon: pageFavicon || undefined },
     });
 
-    await chrome.tabs.create({});
+    await chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
 
     mainEl.style.display = 'none';
     statusEl.style.display = 'flex';
+    const success = statusEl.querySelector('.success-text');
+    if (success) success.textContent = '正在保存';
     setTimeout(() => window.close(), 1200);
+    } catch { addBtn.disabled = false; addBtn.textContent = '保存失败，点击重试'; }
   });
 }
 
