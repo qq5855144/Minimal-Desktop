@@ -3,6 +3,7 @@
 .bookmarks-view header button { padding:8px; }.bookmarks-view h1 { font-size:20px; font-weight:500; }.bookmarks-view header>span { font-size:13px; color:#888; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bookmark-search { padding:12px 16px; }.bookmark-search input { width:100%; background:#f1f1f1; border-radius:24px; padding:12px 18px; outline:none; }
 .bookmark-list { flex:1; overflow-y:auto; min-height:0; overscroll-behavior:contain; padding:8px 16px; }
+.bookmark-list-sorting { touch-action:none; }
 .bookmark-row { display:flex; align-items:center; min-height:62px; border-top:2px solid transparent; }
 .bookmark-link { flex:1; display:flex; align-items:center; gap:20px; min-width:0; text-align:left; padding:14px 2px; }
 .bookmark-link>span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -16,7 +17,7 @@
 .bookmarks-view header .bookmark-group-picker { margin-left:auto; display:flex; align-items:center; gap:6px; min-width:0; font-size:14px; color:#666; }
 .bookmark-group-picker span { max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .bookmark-menu.bookmark-menu-top { top:calc(66px + env(safe-area-inset-top,0px)); bottom:auto; left:auto; right:14px; }
-.bookmark-link { -webkit-touch-callout:none; user-select:none; touch-action:pan-y; }
+.bookmark-link { -webkit-touch-callout:none; user-select:none; }
 .bookmark-context-shade { position:absolute; inset:0; z-index:3; }
 .bookmark-context { position:fixed; width:168px; padding:6px; border-radius:14px; background:white; border:1px solid #eee; box-shadow:0 6px 24px #0003; }
 .bookmark-context button { display:block; width:100%; padding:12px; text-align:left; border-radius:8px; }
@@ -24,25 +25,11 @@
 .bookmark-group-menu-row { display:flex; align-items:center; gap:4px; }
 .bookmark-group-menu-row > button:first-child { flex:1; }
 .bookmark-group-menu-row .bookmark-delete-group { flex:0 0 auto; width:auto; color:#c84848; font-size:13px; padding-inline:8px; }
-.bookmark-row { transition: transform .18s ease, opacity .18s ease, background-color .18s ease, border-color .18s ease; }
-.bookmark-row.bookmark-dragging { opacity: .45; transform: scale(.985); }
-.bookmark-drop { border-top-color: #5b7cff; box-shadow: inset 0 2px 0 #5b7cff; background: rgba(91,124,255,.08); }
-.bookmark-grip { transition: transform .15s ease, color .15s ease; }
-.bookmark-grip:active { transform: scale(1.15); color: #5b7cff; }
-/* Reorder feedback: move surrounding rows out of the way instead of painting a full-width blue line. */
-.bookmark-row { position:relative; will-change:transform; transition:transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease, background-color .18s ease; }
-.bookmark-row.bookmark-drop { border-top-color:transparent; box-shadow:none; background:rgba(91,124,255,.10); border-radius:12px; }
-.bookmark-row.bookmark-drop::after { content:''; position:absolute; left:12px; right:12px; top:50%; height:3px; border-radius:3px; background:#5b7cff; opacity:.0; pointer-events:none; }
-.bookmark-row.bookmark-dragging { opacity:.42; transform:scale(.985); }
-.bookmark-grip { cursor:grab; }
-.bookmark-grip:active { cursor:grabbing; }
-
-/* Keep the list in its natural flow while dragging. Moving sibling rows based on
-   transformed hit-test rectangles creates a feedback loop and visible jitter. */
-.bookmark-row.bookmark-dragging { transform: none; }
-/* Long-press sorting: the source keeps its slot while surrounding rows flow into it. */
+/* Long-press sorting owns touch movement, preventing pointer cancellation after activation. */
 .bookmark-row { position:relative; will-change:transform; transition:transform .2s cubic-bezier(.2,.75,.25,1), opacity .16s ease, background-color .16s ease; }
 .bookmark-row.bookmark-dragging { opacity:.22; background:#f3f5ff; border-radius:12px; }
+.bookmark-grip { cursor:grab; }
+.bookmark-grip:active { cursor:grabbing; }
 .bookmark-drag-mirror { position:fixed; z-index:10; display:flex; align-items:center; gap:20px; min-height:62px; padding:14px 16px; box-sizing:border-box; border-radius:14px; background:#fff; box-shadow:0 12px 30px rgba(37,48,95,.22), 0 2px 8px rgba(0,0,0,.12); pointer-events:none; opacity:.97; transform:scale(1.025); transform-origin:center; }
 .bookmark-drag-mirror span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .bookmark-drag-mirror .bookmark-icon { flex:0 0 26px; }

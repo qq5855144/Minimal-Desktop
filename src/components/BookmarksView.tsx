@@ -52,59 +52,136 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [dragVisual, setDragVisual] = useState<{ item: Bookmark; x: number; y: number; width: number; offsetY: number } | null>(null);
-  type DragState = { id: string; sourceIndex: number; dropIndex: number; pointerId: number; timer: ReturnType<typeof setTimeout> | null; latest: { x: number; y: number }; active: boolean; rows: { id: string; center: number }[]; rowHeight: number; scrollTop: number };
+  const [dragVisual, setDragVisual] = useState<{ item: Bookmark; x: number; y: number; width: number; offsetX: number; offsetY: number } | null>(null);
+  type GesturePhase = 'pending' | 'scrolling' | 'dragging';
+  type DragState = {
+    id: string; sourceIndex: number; dropIndex: number; pointerId: number; pointerType: string;
+    phase: GesturePhase; timer: ReturnType<typeof setTimeout> | null;
+    start: { x: number; y: number }; latest: { x: number; y: number };
+    rows: { id: string; center: number }[]; rowHeight: number; startScrollTop: number;
+  };
   const drag = useRef<DragState | null>(null);
   const suppressRowClick = useRef(false);
-  const clearDrag = () => { if (drag.current?.timer) clearTimeout(drag.current.timer); drag.current = null; setDropIndex(null); setDraggingId(null); setDragVisual(null); };
-  const updateDragPosition = (event: React.PointerEvent<HTMLDivElement>) => {
-    const current = drag.current; if (!current) return;
-    current.latest = { x: event.clientX, y: event.clientY };
-    if (!current.active) return;
-    setDragVisual((visual) => visual ? { ...visual, x: event.clientX - visual.width / 2, y: event.clientY - visual.offsetY } : visual);
-    // Geometry is frozen when dragging begins. Transformed rows therefore never feed
-    // their animated positions back into hit testing and cannot oscillate.
-    const list = root.current?.querySelector<HTMLElement>('.bookmark-list');
-    const scrollOffset = (list?.scrollTop ?? current.scrollTop) - current.scrollTop;
-    const remaining = current.rows.filter((entry) => entry.id !== current.id);
-    const nextIndex = remaining.reduce((index, entry) => index + (event.clientY > entry.center - scrollOffset ? 1 : 0), 0);
-    if (nextIndex !== current.dropIndex) { current.dropIndex = nextIndex; setDropIndex(nextIndex); }
-    const rect = list?.getBoundingClientRect();
-    if (list && rect) { if (event.clientY < rect.top + 48) list.scrollTop -= 14; else if (event.clientY > rect.bottom - 48) list.scrollTop += 14; }
+  const root = useRef<HTMLDivElement>(null);
+  const getList = () => root.current?.querySelector<HTMLElement>('.bookmark-list') ?? null;
+  const clearTimer = (current: DragState) => {
+    if (current.timer) clearTimeout(current.timer);
+    current.timer = null;
   };
-  const beginDrag = (item: Bookmark, row: HTMLDivElement, pointerId: number) => {
-    const current = drag.current; if (!current || current.active) return;
+  const resetGesture = () => {
+    if (drag.current) clearTimer(drag.current);
+    drag.current = null;
+    setDropIndex(null);
+    setDraggingId(null);
+    setDragVisual(null);
+  };
+  const updateDropIndex = (current: DragState) => {
+    const list = getList();
+    const scrollOffset = (list?.scrollTop ?? current.startScrollTop) - current.startScrollTop;
+    const remaining = current.rows.filter((entry) => entry.id !== current.id);
+    const nextIndex = remaining.reduce(
+      (index, entry) => index + (current.latest.y > entry.center - scrollOffset ? 1 : 0), 0,
+    );
+    if (nextIndex !== current.dropIndex) {
+      current.dropIndex = nextIndex;
+      setDropIndex(nextIndex);
+    }
+    const rect = list?.getBoundingClientRect();
+    if (!list || !rect) return;
+    if (current.latest.y < rect.top + 48) list.scrollTop -= 14;
+    else if (current.latest.y > rect.bottom - 48) list.scrollTop += 14;
+  };
+  const activateDrag = (item: Bookmark, row: HTMLDivElement) => {
+    const current = drag.current;
+    if (!current || current.phase !== 'pending') return;
     const bounds = row.getBoundingClientRect();
-    const rows = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? []).map((entry) => { const rect = entry.getBoundingClientRect(); return { id: entry.dataset.bookmarkId ?? '', center: rect.top + rect.height / 2 }; });
-    current.active = true; current.timer = null; current.rows = rows; current.scrollTop = root.current?.querySelector<HTMLElement>('.bookmark-list')?.scrollTop ?? 0; current.sourceIndex = rows.findIndex((entry) => entry.id === item.id); current.dropIndex = current.sourceIndex; current.rowHeight = bounds.height;
-    suppressRowClick.current = true; row.setPointerCapture(pointerId); setDraggingId(item.id); setDropIndex(current.sourceIndex);
-    setDragVisual({ item, x: current.latest.x - bounds.width / 2, y: current.latest.y - (current.latest.y - bounds.top), width: bounds.width, offsetY: current.latest.y - bounds.top });
+    const rows = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-bookmark-id]') ?? []).map((entry) => {
+      const rect = entry.getBoundingClientRect();
+      return { id: entry.dataset.bookmarkId ?? '', center: rect.top + rect.height / 2 };
+    });
+    current.phase = 'dragging';
+    clearTimer(current);
+    current.rows = rows;
+    current.startScrollTop = getList()?.scrollTop ?? 0;
+    current.sourceIndex = rows.findIndex((entry) => entry.id === item.id);
+    current.dropIndex = current.sourceIndex;
+    current.rowHeight = bounds.height;
+    suppressRowClick.current = true;
+    setDraggingId(item.id);
+    setDropIndex(current.sourceIndex);
+    setDragVisual({
+      item, x: bounds.left, y: bounds.top, width: bounds.width,
+      offsetX: current.latest.x - bounds.left, offsetY: current.latest.y - bounds.top,
+    });
   };
   const startDrag = (item: Bookmark, event: React.PointerEvent<HTMLDivElement>) => {
-    if (!editing || !event.isPrimary || event.button !== 0) return; if (drag.current) clearDrag();
-    const current: DragState = { id: item.id, sourceIndex: -1, dropIndex: -1, pointerId: event.pointerId, timer: null, latest: { x: event.clientX, y: event.clientY }, active: false, rows: [], rowHeight: 0, scrollTop: 0 };
-    drag.current = current; const row = event.currentTarget; const pointerId = event.pointerId;
-    // Do not cancel for small pre-activation movement. Native vertical panning emits
-    // pointercancel; otherwise the long press remains forgiving and easy to trigger.
-    current.timer = setTimeout(() => beginDrag(item, row, pointerId), 400);
+    if (!editing || !event.isPrimary || event.button !== 0) return;
+    resetGesture();
+    const current: DragState = {
+      id: item.id, sourceIndex: -1, dropIndex: -1, pointerId: event.pointerId,
+      pointerType: event.pointerType, phase: 'pending', timer: null,
+      start: { x: event.clientX, y: event.clientY }, latest: { x: event.clientX, y: event.clientY },
+      rows: [], rowHeight: 0, startScrollTop: getList()?.scrollTop ?? 0,
+    };
+    drag.current = current;
+    // Capture immediately: delaying capture allows native panning to cancel the stream.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const row = event.currentTarget;
+    current.timer = setTimeout(() => activateDrag(item, row), 400);
   };
-  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => { if (drag.current) updateDragPosition(event); };
-  const endDrag = () => {
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const current = drag.current;
-    if (current?.active && current.dropIndex !== current.sourceIndex) {
+    if (!current || current.pointerId !== event.pointerId) return;
+    current.latest = { x: event.clientX, y: event.clientY };
+    if (current.phase === 'dragging') {
+      setDragVisual((visual) => visual ? {
+        ...visual, x: event.clientX - visual.offsetX, y: event.clientY - visual.offsetY,
+      } : visual);
+      updateDropIndex(current);
+      return;
+    }
+    const deltaX = event.clientX - current.start.x;
+    const deltaY = event.clientY - current.start.y;
+    // Scrolling and sorting are exclusive. Clear vertical intent claims scrolling;
+    // ordinary hold jitter remains pending and can still become a drag.
+    if (current.phase === 'pending' && current.pointerType !== 'mouse'
+      && Math.abs(deltaY) >= 18 && Math.abs(deltaY) > Math.abs(deltaX) * 1.15) {
+      current.phase = 'scrolling';
+      clearTimer(current);
+      suppressRowClick.current = true;
+    }
+    if (current.phase === 'scrolling') {
+      const list = getList();
+      if (list) list.scrollTop = current.startScrollTop - deltaY;
+    }
+  };
+  const finishDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.phase === 'dragging' && current.dropIndex !== current.sourceIndex) {
       const remaining = current.rows.filter((entry) => entry.id !== current.id);
       const target = current.dropIndex === remaining.length ? remaining[remaining.length - 1] : remaining[current.dropIndex];
       if (target) updateBookmarks({ type: 'reorder', id: current.id, beforeId: target.id, after: current.dropIndex === remaining.length });
     }
-    clearDrag();
+    resetGesture();
+    // Keep suppression through the synthetic click generated after pointerup, but
+    // never let it leak into the next intentional click when scrolling produced none.
+    if (suppressRowClick.current) window.setTimeout(() => { suppressRowClick.current = false; }, 100);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const cancelDrag = (event?: React.PointerEvent<HTMLDivElement>) => {
+    const current = drag.current;
+    if (event && current && current.pointerId !== event.pointerId) return;
+    resetGesture();
+    if (suppressRowClick.current) window.setTimeout(() => { suppressRowClick.current = false; }, 100);
   };
   const rowShift = (index: number) => {
-    const current = drag.current; if (!current?.active || dropIndex === null || index === current.sourceIndex) return 0;
+    const current = drag.current;
+    if (current?.phase !== 'dragging' || dropIndex === null || index === current.sourceIndex) return 0;
     if (dropIndex > current.sourceIndex && index > current.sourceIndex && index <= dropIndex) return -current.rowHeight;
     if (dropIndex < current.sourceIndex && index >= dropIndex && index < current.sourceIndex) return current.rowHeight;
     return 0;
   };
-  const root = useRef<HTMLDivElement>(null);
   const items = library.items.filter((item) => (group === 'all' || item.groupId === group) && `${item.name} ${item.url}`.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedItems = library.items.filter((item) => selected.includes(item.id));
   const allSelected = items.length > 0 && items.every((item) => selected.includes(item.id));
@@ -145,10 +222,10 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   }}>
     <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
-    <div className="bookmark-list">
+    <div className={`bookmark-list ${editing ? 'bookmark-list-sorting' : ''}`}>
       {items.map((item, index) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${draggingId === item.id ? 'bookmark-dragging' : ''}`}
         style={{ transform: `translateY(${rowShift(index)}px)` }}
-        onPointerDown={(event) => startDrag(item, event)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={clearDrag} onLostPointerCapture={() => { if (drag.current?.active) clearDrag(); }}
+        onPointerDown={(event) => startDrag(item, event)} onPointerMove={moveDrag} onPointerUp={finishDrag} onPointerCancel={cancelDrag} onLostPointerCapture={() => { if (drag.current) resetGesture(); }}
         onClickCapture={(event) => { if (suppressRowClick.current) { event.preventDefault(); event.stopPropagation(); suppressRowClick.current = false; } }}>
         <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
           setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
