@@ -12,6 +12,7 @@ import {
   normalizeDesktopColumnCount,
   normalizeResponsiveColumnCount,
   resolveResponsiveColumnState,
+  shouldReflowDesktopData,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren,
@@ -97,6 +98,16 @@ describe('layoutEngine', () => {
       gridCols: 5,
       patch: { cols: 5 },
     });
+  });
+
+  it('竖横屏往返只同步有效列数，不触发永久布局重排', () => {
+    const portrait = { cols: 4 as const, rows: 8 };
+    const landscape = { ...portrait, cols: 6 as const };
+
+    expect(shouldReflowDesktopData(portrait, landscape, { reflowGrid: false })).toBe(false);
+    expect(shouldReflowDesktopData(landscape, portrait, { reflowGrid: false })).toBe(false);
+    expect(shouldReflowDesktopData(portrait, landscape)).toBe(true);
+    expect(shouldReflowDesktopData(portrait, { ...portrait, rows: 9 })).toBe(true);
   });
 
   it('10 列布局可完整放置一整行应用及位于末两列的 2×2 文件夹', () => {

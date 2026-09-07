@@ -50,9 +50,24 @@ export interface ResponsiveColumnState {
   patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>> | null;
 }
 
+export interface DesktopSettingsUpdateOptions {
+  /** false 用于方向响应同步：更新有效列数，但保留已有桌面坐标。 */
+  reflowGrid?: boolean;
+}
+
+/** 仅用户显式修改网格时，列数/行数变化才应永久重排桌面数据。 */
+export function shouldReflowDesktopData(
+  previous: Pick<DesktopSettings, 'cols' | 'rows'>,
+  next: Pick<DesktopSettings, 'cols' | 'rows'>,
+  options?: DesktopSettingsUpdateOptions,
+): boolean {
+  if (options?.reflowGrid === false) return false;
+  return previous.cols !== next.cols || previous.rows !== next.rows;
+}
+
 /**
  * 横屏可以临时把 4/5 列扩为 6 列，但不能覆盖用户的竖屏列数。
- * 返回值中的 patch 只负责让数据层按当前实际列数重排，并持久化竖屏偏好。
+ * 返回值中的 patch 只同步当前实际列数与竖屏偏好，不应触发持久化坐标重排。
  */
 export function resolveResponsiveColumnState(
   currentCols: number | undefined,

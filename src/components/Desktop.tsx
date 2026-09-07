@@ -231,9 +231,12 @@ const Desktop: React.FC = () => {
     paddingBottom: 8,
   };
 
-  // 按当前方向原子重排，但横屏自动扩列不能覆盖用户的竖屏列数。
+  // 方向变化只同步当前有效列数与竖屏偏好；坐标仍保留用户原布局。
+  // 只有设置页的显式网格修改才允许重排并跳回第一页。
   useEffect(() => {
-    if (responsiveColumns.patch) updateSettings(responsiveColumns.patch);
+    if (responsiveColumns.patch) {
+      updateSettings(responsiveColumns.patch, { reflowGrid: false });
+    }
   }, [responsiveColumns.patch, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，

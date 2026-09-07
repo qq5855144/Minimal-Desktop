@@ -21,6 +21,7 @@ import {
   resizeWeatherWidget,
   movePrivacyItem,
   normalizeDesktopColumnCount,
+  shouldReflowDesktopData,
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren as reorderFolderChildrenLayout,
@@ -68,7 +69,10 @@ interface DesktopContextType {
   loading: boolean;
   // 外观设置
   settings: DesktopSettings;
-  updateSettings: (patch: Partial<DesktopSettings>) => void;
+  updateSettings: (
+    patch: Partial<DesktopSettings>,
+    options?: { reflowGrid?: boolean },
+  ) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   updateBookmarks: (action: BookmarkAction) => boolean;
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
@@ -1136,15 +1140,17 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   }, [applyCompactedDesktopData, applyCompactedPrivacyItems, clearDesktopHistory]);
 
-  const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
+  const updateSettings = useCallback((
+    patch: Partial<DesktopSettings>,
+    options?: { reflowGrid?: boolean },
+  ) => {
     const prev = settingsRef.current;
     const requested = { ...prev, ...patch };
     const cols = normalizeDesktopColumnCount(requested.cols);
     const minRows = minimumRowsForEnabledWidgets(dataRef.current);
     const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
     const next: DesktopSettings = { ...requested, cols, rows };
-    const gridChanged = cols !== prev.cols || rows !== prev.rows;
-    if (gridChanged) {
+    if (shouldReflowDesktopData(prev, next, options)) {
       try {
         const reflowed = reflowDesktopData(dataRef.current, cols, rows);
         const reflowedPrivacy = privacyUnlocked
