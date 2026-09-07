@@ -51,8 +51,22 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [deleting, setDeleting] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const [dragAfter, setDragAfter] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const drag = useRef<{ id: string; target: string | null; after?: boolean } | null>(null);
+  const [dragRowHeight, setDragRowHeight] = useState(62);
+  const drag = useRef<{ id: string; target: string | null; after: boolean } | null>(null);
+  const clearDrag = () => { drag.current = null; setDragTarget(null); setDragAfter(false); setDraggingId(null); };
+  const rowShift = (itemId: string) => {
+    if (!drag.current || !dragTarget || itemId === draggingId) return 0;
+    const from = items.findIndex((item) => item.id === draggingId);
+    const target = items.findIndex((item) => item.id === dragTarget);
+    if (from < 0 || target < 0) return 0;
+    const insertion = target + (dragAfter ? 1 : 0);
+    const index = items.findIndex((item) => item.id === itemId);
+    if (from < insertion && index > from && index < insertion) return -dragRowHeight;
+    if (from > insertion && index >= insertion && index < from) return dragRowHeight;
+    return 0;
+  };
   const root = useRef<HTMLDivElement>(null);
   const items = library.items.filter((item) => (group === 'all' || item.groupId === group) && `${item.name} ${item.url}`.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedItems = library.items.filter((item) => selected.includes(item.id));
@@ -95,7 +109,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className="bookmark-list">
-      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`}>
+      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`} style={{ transform: `translate3d(0, ${rowShift(item.id)}px, 0)` }}>
         <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
           setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
         }} />
@@ -104,13 +118,15 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
             const index = items.findIndex((entry) => entry.id === item.id);
             if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: item.id, beforeId: items[index - 1].id }); }
             if (event.key === 'ArrowDown' && index < items.length - 1) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: items[index + 1].id, beforeId: item.id }); }
-          }} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: item.id, target: null }; setDraggingId(item.id); }} onPointerMove={(event) => {
+          }} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setDragRowHeight(event.currentTarget.closest<HTMLElement>('[data-bookmark-id]')?.getBoundingClientRect().height ?? 62); drag.current = { id: item.id, target: null, after: false }; setDragTarget(null); setDragAfter(false); setDraggingId(item.id); }} onPointerMove={(event) => {
             if (!drag.current) return;
             const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-bookmark-id]');
             const target = row?.dataset.bookmarkId;
             const bounds = row?.getBoundingClientRect();
-            drag.current.after = !!bounds && event.clientY > bounds.top + bounds.height / 2;
-            drag.current.target = target && target !== item.id ? target : null; setDragTarget(drag.current.target);
+            const isAfter = !!bounds && event.clientY > bounds.top + bounds.height / 2;
+            drag.current.after = isAfter;
+            drag.current.target = target && target !== item.id ? target : null;
+            setDragTarget(drag.current.target); setDragAfter(isAfter);
             const list = root.current?.querySelector('.bookmark-list');
             const rect = list?.getBoundingClientRect();
             if (list && rect) { if (event.clientY < rect.top + 40) list.scrollTop -= 16; else if (event.clientY > rect.bottom - 40) list.scrollTop += 16; }
