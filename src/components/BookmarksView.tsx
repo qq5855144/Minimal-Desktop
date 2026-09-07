@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, Bookmark as BookmarkIcon, GripVertical, Check, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Bookmark as BookmarkIcon, Check, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -52,8 +52,31 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const drag = useRef<{ id: string; target: string | null; after: boolean } | null>(null);
-  const clearDrag = () => { drag.current = null; setDragTarget(null); setDraggingId(null); };
+  const [dragVisual, setDragVisual] = useState<{ item: Bookmark; x: number; y: number; width: number; offsetY: number } | null>(null);
+  const drag = useRef<{ id: string; target: string | null; after: boolean; pointerId: number; timer: ReturnType<typeof setTimeout> | null; start: { x: number; y: number } | null; active: boolean } | null>(null);
+  const suppressRowClick = useRef(false);
+  const clearDrag = () => { if (drag.current?.timer) clearTimeout(drag.current.timer); drag.current = null; setDragTarget(null); setDraggingId(null); setDragVisual(null); };
+  const updateDragPosition = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = drag.current; if (!current?.active) return;
+    setDragVisual((visual) => visual ? { ...visual, x: event.clientX - visual.width / 2, y: event.clientY - visual.offsetY } : visual);
+    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-bookmark-id]');
+    const target = row?.dataset.bookmarkId; const bounds = row?.getBoundingClientRect();
+    current.after = !!bounds && event.clientY > bounds.top + bounds.height / 2; current.target = target && target !== current.id ? target : null; setDragTarget(current.target);
+    const list = root.current?.querySelector('.bookmark-list'); const rect = list?.getBoundingClientRect();
+    if (list && rect) { if (event.clientY < rect.top + 40) list.scrollTop -= 16; else if (event.clientY > rect.bottom - 40) list.scrollTop += 16; }
+  };
+  const beginDrag = (item: Bookmark, row: HTMLDivElement, pointerId: number, clientY: number) => {
+    const bounds = row.getBoundingClientRect(); const current = drag.current; if (!current || current.active) return;
+    current.active = true; current.timer = null; suppressRowClick.current = true; row.setPointerCapture(event.pointerId); setDraggingId(item.id); setDragTarget(null);
+    setDragVisual({ item, x: bounds.left, y: bounds.top, width: bounds.width, offsetY: clientY - bounds.top });
+  };
+  const startDrag = (item: Bookmark, event: React.PointerEvent<HTMLDivElement>) => {
+    if (!editing || !event.isPrimary || event.button !== 0) return; if (drag.current) clearDrag();
+    const current = { id: item.id, target: null as string | null, after: false, pointerId: event.pointerId, timer: null as ReturnType<typeof setTimeout> | null, start: { x: event.clientX, y: event.clientY }, active: false };
+    drag.current = current; const row = event.currentTarget; const pointerId = event.pointerId; const clientY = event.clientY; current.timer = setTimeout(() => beginDrag(item, row, pointerId, clientY), 450);
+  };
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => { const current = drag.current; if (!current) return; if (!current.active) { if (current.start && Math.hypot(event.clientX - current.start.x, event.clientY - current.start.y) > 10) clearDrag(); return; } updateDragPosition(event); };
+  const endDrag = () => { const current = drag.current; if (current?.active && current.target) updateBookmarks({ type: 'reorder', id: current.id, beforeId: current.target, after: current.after }); clearDrag(); };
   const root = useRef<HTMLDivElement>(null);
   const items = library.items.filter((item) => (group === 'all' || item.groupId === group) && `${item.name} ${item.url}`.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedItems = library.items.filter((item) => selected.includes(item.id));
@@ -96,33 +119,13 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className="bookmark-list">
-      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`} >
+      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`}
+        onPointerDown={(event) => startDrag(item, event)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={clearDrag} onLostPointerCapture={clearDrag}
+        onClickCapture={(event) => { if (suppressRowClick.current) { event.preventDefault(); event.stopPropagation(); suppressRowClick.current = false; } }}>
         <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
           setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
         }} />
-        {editing && <>
-          <button className="bookmark-grip" type="button" aria-label={`调整 ${item.name} 顺序，方向键上移或下移`} onKeyDown={(event) => {
-            const index = items.findIndex((entry) => entry.id === item.id);
-            if (event.key === 'ArrowUp' && index > 0) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: item.id, beforeId: items[index - 1].id }); }
-            if (event.key === 'ArrowDown' && index < items.length - 1) { event.preventDefault(); updateBookmarks({ type: 'reorder', id: items[index + 1].id, beforeId: item.id }); }
-          }} onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: item.id, target: null, after: false }; setDragTarget(null); setDraggingId(item.id); }} onPointerMove={(event) => {
-            if (!drag.current) return;
-            const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-bookmark-id]');
-            const target = row?.dataset.bookmarkId;
-            const bounds = row?.getBoundingClientRect();
-            const isAfter = !!bounds && event.clientY > bounds.top + bounds.height / 2;
-            drag.current.after = isAfter;
-            drag.current.target = target && target !== item.id ? target : null;
-            setDragTarget(drag.current.target);
-            const list = root.current?.querySelector('.bookmark-list');
-            const rect = list?.getBoundingClientRect();
-            if (list && rect) { if (event.clientY < rect.top + 40) list.scrollTop -= 16; else if (event.clientY > rect.bottom - 40) list.scrollTop += 16; }
-          }} onPointerUp={() => {
-            if (drag.current?.target) updateBookmarks({ type: 'reorder', id: drag.current.id, beforeId: drag.current.target, after: drag.current.after });
-            drag.current = null; setDragTarget(null); setDraggingId(null);
-          }} onPointerCancel={clearDrag} onLostPointerCapture={clearDrag}><GripVertical size={20} /></button>
-          <button type="button" className="bookmark-select" aria-label={`选择 ${item.name}`} aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}><span>{selected.includes(item.id) && <Check size={17} />}</span></button>
-        </>}
+        {editing && <button type="button" className="bookmark-select" aria-label={`选择 ${item.name}`} aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}><span>{selected.includes(item.id) && <Check size={17} />}</span></button>}
       </div>)}
       {!items.length && <p className="bookmark-empty">{query ? '没有匹配的书签' : '暂无书签'}</p>}
     </div>
@@ -150,6 +153,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
         <button type="button" role="menuitem" onClick={() => { setSelected([context.item.id]); setContext(null); setDeleting(true); }}>删除</button>
       </div>
     </div>}
+    {dragVisual && <div className="bookmark-drag-mirror" style={{ left: dragVisual.x, top: dragVisual.y, width: dragVisual.width }}><BookmarkImage item={dragVisual.item} /><span>{dragVisual.item.name}</span></div>}
     {(form || deleting || deletingGroup) && <div className="bookmark-shade"><form className="bookmark-sheet" onSubmit={(event) => {
       event.preventDefault();
       if (deleting) { updateBookmarks({ type: 'delete', ids: selectedItems.map((item) => item.id) }); setSelected([]); setDeleting(false); return; }

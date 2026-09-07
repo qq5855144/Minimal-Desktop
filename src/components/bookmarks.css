@@ -40,3 +40,12 @@
 /* Keep the list in its natural flow while dragging. Moving sibling rows based on
    transformed hit-test rectangles creates a feedback loop and visible jitter. */
 .bookmark-row.bookmark-dragging { transform: none; }
+/* Long-press sorting: keep the list in normal flow and lift a stable visual mirror. */
+.bookmark-row { transition: opacity .18s ease, background-color .18s ease, border-color .18s ease; }
+.bookmark-row.bookmark-dragging { opacity: .28; background: #f3f5ff; border-radius: 12px; }
+.bookmark-row.bookmark-drop { border-top-color: transparent; box-shadow: inset 0 3px 0 #5b7cff; background: rgba(91,124,255,.10); border-radius: 12px; }
+.bookmark-row.bookmark-drop::after { content:''; position:absolute; left:14px; right:14px; bottom:-2px; height:3px; border-radius:3px; background:#5b7cff; pointer-events:none; }
+.bookmark-drag-mirror { position:fixed; z-index:10; display:flex; align-items:center; gap:20px; min-height:62px; padding:14px 16px; box-sizing:border-box; border-radius:14px; background:#fff; box-shadow:0 12px 30px rgba(37,48,95,.22), 0 2px 8px rgba(0,0,0,.12); pointer-events:none; opacity:.96; transform:scale(1.025); transform-origin:center; }
+.bookmark-drag-mirror span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.bookmark-drag-mirror .bookmark-icon { flex:0 0 26px; }
+@media (prefers-reduced-motion: reduce) { .bookmark-row { transition:none; } .bookmark-drag-mirror { transform:none; } }
