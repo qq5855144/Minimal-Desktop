@@ -1,4 +1,5 @@
 import { normalizeHttpUrl } from '@/lib/urlSafety';
+import { parseWebClipHash } from '@/lib/webClip';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
@@ -263,6 +264,34 @@ const Desktop: React.FC = () => {
       if (appRoot) appRoot.style.backgroundColor = '';
     };
   }, [settings.style, settings.bgType]);
+
+  // Web userscripts pass clip data in the URL fragment so it is never sent to the host server.
+  // Claim and remove it before opening the confirmation dialog to prevent refresh duplicates.
+  const consumedWebClip = useRef(false);
+  useEffect(() => {
+    if (import.meta.env.VITE_IS_EXTENSION === 'true' || consumedWebClip.current) return;
+    consumedWebClip.current = true;
+    const clip = parseWebClipHash(window.location.hash);
+    if (!clip) return;
+
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    if (clip.target === 'bookmarks') {
+      const saved = updateBookmarks({
+        type: 'add',
+        item: { id: crypto.randomUUID(), name: clip.title, url: clip.url, iconUrl: clip.favicon, groupId: 'default' },
+      });
+      if (!saved) {
+        toast.error('无法保存书签，请检查数量限制');
+        return;
+      }
+      setOpenBookmarks(true);
+      toast.success('已添加到书签');
+      return;
+    }
+
+    setClipPrefill({ name: clip.title, url: clip.url, iconUrl: clip.favicon });
+    setAddDialogOpen(true);
+  }, [updateBookmarks]);
 
   // The clip is claimed once per extension origin before it is added to the chosen collection.
   const consumingClip = useRef(false);

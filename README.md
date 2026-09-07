@@ -93,6 +93,14 @@ Secret，禁止提交到仓库。Chrome 稳定版可能受侧载策略限制；Z
 
 Web 版默认不执行第三方 JSONP 搜索建议脚本。如需 Web 搜索建议，可在构建时把 `VITE_SUGGEST_API_URL` 指向同源 JSON API；响应格式为 `{ "suggestions": ["..."] }` 或 `{ "data": ["..."] }`。
 
+## 网页剪藏用户脚本
+
+不安装浏览器扩展时，也可以安装 [`minimal-desktop-clipper.user.js`](./public/minimal-desktop-clipper.user.js)。在 Tampermonkey 或 Violentmonkey 中导入脚本后，普通 HTTP(S) 网页右下角会显示当前网站 favicon 按钮；按钮闲置 1.8 秒后自动向右贴边，悬停时展开。点击后会打开 Web 版 Minimal Desktop，并显示预填的“添加应用”确认框。
+
+在线安装地址：`https://qq5855144.github.io/Minimal-Desktop/minimal-desktop-clipper.user.js`
+
+剪藏数据通过 URL fragment 传递，不会发送给 GitHub Pages 服务器；Minimal Desktop 读取后会立即清除 fragment。仅接受 HTTP(S) 页面地址。
+
 ## 本地开发
 
 ```bash
