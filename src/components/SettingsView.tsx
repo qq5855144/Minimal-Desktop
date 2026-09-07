@@ -378,7 +378,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   if (!open) return null;
 
   // ── 主面板 ──
-  const renderAbout = () => (<div className="px-5 py-6 space-y-4"><div className={`rounded-2xl p-5 text-center ${t.itemBg} border ${t.itemBorder}`}><h3 className={`text-lg font-semibold ${t.textPrimary}`}>Minimal Desktop</h3><p className={`mt-1 text-xs ${t.textDim}`}>版本 1.2.33</p></div><div className={`rounded-2xl p-4 space-y-3 text-sm ${t.itemBg} border ${t.itemBorder}`}><p className={t.textPrimary}><b>开发语言：</b>React + TypeScript</p><p className={t.textPrimary}><b>开源地址：</b>github.com/qq5855144/Minimal-Desktop</p><p className={t.textPrimary}><b>作者：</b>qq5855144</p></div><div className={`rounded-2xl p-4 text-xs leading-6 ${t.itemBg} border ${t.itemBorder}`}><p className={`font-medium ${t.textPrimary}`}>法律声明</p><p className={t.textDim}>不得二次修改后分发，不得用于商业用途，不得删除或修改作者署名，不得在内置项目中加入引流内容。</p><p className={`mt-2 ${t.textDim}`}>本项目依据 MIT License 开源。</p></div></div>);
+  const renderAbout = () => (<div className="px-5 py-6 space-y-4"><div className={`rounded-2xl p-4 space-y-3 text-sm ${t.itemBg} border ${t.itemBorder}`}><p className={t.textPrimary}><b>开发语言：</b>React + TypeScript</p><p className={t.textPrimary}><b>开源地址：</b>github.com/qq5855144/Minimal-Desktop</p><p className={t.textPrimary}><b>联系：</b>QQ：3214931827</p></div><div className={`rounded-2xl p-4 text-xs leading-6 ${t.itemBg} border ${t.itemBorder}`}><p className={`font-medium ${t.textPrimary}`}>法律声明</p><p className={t.textDim}>不得二改分发（需经过作者授权），不得用于商业用途，不得删除或修改作者署名、联系方式，不得在内置项目中加入引流内容。</p></div></div>);
   const renderMain = () => (
     <div className="px-5 py-4 space-y-2">
       {[
