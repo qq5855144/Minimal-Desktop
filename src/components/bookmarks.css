@@ -14,9 +14,13 @@
 .bookmark-shade { position:absolute; inset:0; background:#0003; display:grid; place-items:center; padding:24px; z-index:2; }.bookmark-sheet { width:100%; max-width:380px; border-radius:20px; padding:22px; background:white; }.bookmark-sheet h2 { font-size:18px; margin-bottom:16px; }.bookmark-sheet input { display:block; width:100%; padding:12px; background:#f4f4f4; border-radius:10px; margin:10px 0; }.bookmark-sheet>div { display:flex; justify-content:flex-end; gap:24px; margin-top:22px; }
 @media(min-width:800px) { .bookmark-search,.bookmark-list { width:100%; max-width:900px; margin-inline:auto; }.bookmark-row { min-height:66px; }.bookmarks-view footer { padding-inline:max(24px,calc((100vw - 850px)/2)); } }
 
-.bookmarks-view header .bookmark-group-picker { margin-left:auto; display:flex; align-items:center; gap:6px; min-width:0; font-size:14px; color:#666; }
-.bookmark-group-picker span { max-width:150px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.bookmark-menu.bookmark-menu-top { top:calc(66px + env(safe-area-inset-top,0px)); bottom:auto; left:auto; right:14px; }
+.bookmark-group-control { position:relative; margin-left:auto; min-width:0; }
+.bookmarks-view header .bookmark-group-picker { display:flex; align-items:center; gap:6px; min-width:0; max-width:min(48vw,220px); font-size:14px; color:#666; }
+.bookmark-group-picker span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.bookmark-group-popover { position:absolute; top:calc(100% + 8px); right:0; z-index:2; width:min(320px,calc(100vw - 28px)); max-height:min(55dvh,420px); overflow:hidden; padding:8px; background:#fff; border:1px solid #eee; border-radius:16px; box-shadow:0 12px 36px #0003; }
+.bookmark-group-options { max-height:calc(min(55dvh,420px) - 42px); overflow-y:auto; overscroll-behavior:contain; }
+.bookmark-group-options>button,.bookmark-group-menu-row>button:first-child { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; padding:12px; border-radius:10px; text-align:left; }
+.bookmark-group-options button span { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .bookmark-link { -webkit-touch-callout:none; user-select:none; }
 .bookmark-context-shade { position:absolute; inset:0; z-index:3; }
 .bookmark-context { position:fixed; width:168px; padding:6px; border-radius:14px; background:white; border:1px solid #eee; box-shadow:0 6px 24px #0003; }

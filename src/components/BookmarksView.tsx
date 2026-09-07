@@ -42,9 +42,8 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
   const [group, setGroup] = useState('all');
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [groupMenuTop, setGroupMenuTop] = useState(false);
   const [context, setContext] = useState<{ item: Bookmark; x: number; y: number } | null>(null);
-  const [menu, setMenu] = useState<'groups' | 'move' | null>(null);
+  const [menu, setMenu] = useState<'group-picker' | 'actions' | 'move' | null>(null);
   const [form, setForm] = useState<'group' | 'bookmark' | Bookmark | null>(null);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
@@ -220,7 +219,14 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   }}>
-    <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
+    <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><div className="bookmark-group-control"><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-haspopup="menu" aria-expanded={menu === 'group-picker'} onClick={() => setMenu(menu === 'group-picker' ? null : 'group-picker')}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button>
+      {menu === 'group-picker' && <div className="bookmark-group-popover" role="menu" aria-label="书签分组">
+        <div className="bookmark-menu-title">选择分组<button type="button" aria-label="关闭菜单" onClick={() => setMenu(null)}><X size={18} /></button></div>
+        <div className="bookmark-group-options"><button type="button" role="menuitemradio" aria-checked={group === 'all'} onClick={() => { setGroup('all'); setSelected([]); setMenu(null); }}><span>全部书签</span>{group === 'all' && <Check size={16} />}</button>
+          {library.groups.filter((entry) => entry.id !== 'default').map((entry) => <div className="bookmark-group-menu-row" key={entry.id}><button type="button" role="menuitemradio" aria-checked={group === entry.id} onClick={() => { setGroup(entry.id); setSelected([]); setMenu(null); }}><span>{entry.name}</span>{group === entry.id && <Check size={16} />}</button><button type="button" className="bookmark-delete-group" aria-label={`删除分组 ${entry.name}`} onClick={() => { setDeletingGroup(entry.id); setMenu(null); }}>删除</button></div>)}
+        </div>
+      </div>}
+    </div></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className={`bookmark-list ${editing ? 'bookmark-list-sorting' : ''}`}>
       {items.map((item, index) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${draggingId === item.id ? 'bookmark-dragging' : ''}`}
@@ -234,12 +240,9 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       </div>)}
       {!items.length && <p className="bookmark-empty">{query ? '没有匹配的书签' : '暂无书签'}</p>}
     </div>
-    {menu && <div className={`bookmark-menu ${groupMenuTop && menu === 'groups' ? 'bookmark-menu-top' : ''}`}>
-      <div className="bookmark-menu-title">{menu === 'move' ? '移动到分组' : '分组'}<button type="button" aria-label="关闭菜单" onClick={() => setMenu(null)}><X size={18} /></button></div>
-      {menu === 'groups' && groupMenuTop && <button type="button" onClick={() => { setGroup('all'); setSelected([]); setMenu(null); }}>全部书签{group === 'all' && <Check size={16} />}</button>}
-      {menu === 'move' && library.groups.map((entry) => <button type="button" key={entry.id} onClick={() => { updateBookmarks({ type: 'move', ids: selectedItems.map((item) => item.id), groupId: entry.id }); setSelected([]); setMenu(null); }}>{entry.name}</button>)}
-      {menu === 'groups' && groupMenuTop && library.groups.filter((entry) => entry.id !== 'default').map((entry) => <div className="bookmark-group-menu-row" key={entry.id}><button type="button" onClick={() => { setGroup(entry.id); setSelected([]); setMenu(null); }}>{entry.name}{group === entry.id && <Check size={16} />}</button><button type="button" className="bookmark-delete-group" aria-label={`删除分组 ${entry.name}`} onClick={() => { setDeletingGroup(entry.id); setMenu(null); }}>删除</button></div>)}
-      {menu === 'groups' && !groupMenuTop && <><button type="button" onClick={() => openForm('group')}>新建分组</button><button type="button" onClick={() => openForm('bookmark')}>添加书签</button></>}
+    {(menu === 'actions' || menu === 'move') && <div className="bookmark-menu" role="menu" aria-label={menu === 'move' ? '移动到分组' : '书签操作'}>
+      <div className="bookmark-menu-title">{menu === 'move' ? '移动到分组' : '更多操作'}<button type="button" aria-label="关闭菜单" onClick={() => setMenu(null)}><X size={18} /></button></div>
+      {menu === 'move' ? library.groups.map((entry) => <button type="button" role="menuitem" key={entry.id} onClick={() => { updateBookmarks({ type: 'move', ids: selectedItems.map((item) => item.id), groupId: entry.id }); setSelected([]); setMenu(null); }}>{entry.name}</button>) : <><button type="button" role="menuitem" onClick={() => openForm('group')}>新建分组</button><button type="button" role="menuitem" onClick={() => openForm('bookmark')}>添加书签</button></>}
     </div>}
     <footer>{editing ? <>
       <button type="button" onClick={() => setSelected(allSelected ? [] : items.map((item) => item.id))}>{allSelected ? '取消全选' : '全选'}</button>
@@ -248,7 +251,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
       <button type="button" disabled={!selectedItems.length} onClick={openSelected}>打开</button>
       {selectedItems.length === 1 && <button type="button" onClick={() => openForm(selectedItems[0])}>修改</button>}
       <button type="button" onClick={finish}>完成</button>
-    </> : <><button type="button" onClick={() => { setGroupMenuTop(false); setMenu(menu === 'groups' ? null : 'groups'); }}>更多</button><button type="button" onClick={() => { setEditing(true); setMenu(null); }}>编辑</button></>}</footer>
+    </> : <><button type="button" onClick={() => setMenu(menu === 'actions' ? null : 'actions')}>更多</button><button type="button" onClick={() => { setEditing(true); setMenu(null); }}>编辑</button></>}</footer>
     {context && <div className="bookmark-context-shade" onPointerDown={(event) => { if (event.target === event.currentTarget) setContext(null); }}>
       <div className="bookmark-context" role="menu" aria-label="书签操作" style={{ left: context.x, top: context.y }}>
         <button type="button" role="menuitem" onClick={async () => {
