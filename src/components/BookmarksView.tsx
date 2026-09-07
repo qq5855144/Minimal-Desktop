@@ -109,7 +109,7 @@ export default function BookmarksView({ onClose }: { onClose: () => void }) {
     <header><button type="button" aria-label="返回桌面" onClick={onClose}><ArrowLeft /></button><h1>书签</h1><button type="button" className="bookmark-group-picker" aria-label="切换书签分组" aria-expanded={menu === 'groups'} onClick={() => { setGroupMenuTop(true); setMenu(menu === 'groups' ? null : 'groups'); }}><span>{group === 'all' ? '全部书签' : library.groups.find((entry) => entry.id === group)?.name ?? '默认分组'}</span><ChevronDown size={16} /></button></header>
     <div className="bookmark-search"><input aria-label="搜索书签" placeholder="搜索" value={query} onChange={(event) => { setQuery(event.target.value); setSelected([]); }} /></div>
     <div className="bookmark-list">
-      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`} style={{ transform: `translate3d(0, ${rowShift(item.id)}px, 0)` }}>
+      {items.map((item) => <div key={item.id} data-bookmark-id={item.id} className={`bookmark-row ${dragTarget === item.id ? 'bookmark-drop' : ''} ${draggingId === item.id ? 'bookmark-dragging' : ''}`} style={{ transform: draggingId === item.id ? 'scale(.985)' : `translate3d(0, ${rowShift(item.id)}px, 0)` }}>
         <BookmarkLink item={item} editing={editing} selected={selected.includes(item.id)} onClick={() => editing ? toggle(item.id) : openExternalUrl(item.url)} onMenu={(x, y) => {
           setMenu(null); setContext({ item, x: Math.max(12, Math.min(x, window.innerWidth - 180)), y: Math.max(12, Math.min(y, window.innerHeight - 124)) });
         }} />
