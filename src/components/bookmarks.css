@@ -36,3 +36,7 @@
 .bookmark-row.bookmark-dragging { opacity:.42; transform:scale(.985); }
 .bookmark-grip { cursor:grab; }
 .bookmark-grip:active { cursor:grabbing; }
+
+/* Keep the list in its natural flow while dragging. Moving sibling rows based on
+   transformed hit-test rectangles creates a feedback loop and visible jitter. */
+.bookmark-row.bookmark-dragging { transform: none; }
