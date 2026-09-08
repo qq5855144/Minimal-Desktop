@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Minimal Desktop 网页剪藏
 // @namespace    https://github.com/qq5855144/Minimal-Desktop
-// @version      1.2.0
-// @description  使用可拖动的 U 形悬浮菜单将当前网页添加到 Minimal Desktop 桌面或书签。
+// @version      1.3.0
+// @description  使用可拖动的 U 形悬浮菜单打开 Minimal Desktop，或将当前网页添加到桌面、书签。
 // @author       Minimal Desktop
 // @match        http://*/*
 // @match        https://*/*
@@ -66,12 +66,12 @@
 
   const host = document.createElement('div');
   host.id = 'minimal-desktop-clipper-host';
-  host.style.cssText = 'all:initial;position:fixed;right:0;top:50%;z-index:2147483647;width:184px;height:40px;pointer-events:none';
+  host.style.cssText = 'all:initial;position:fixed;right:0;top:50%;z-index:2147483647;width:232px;height:40px;pointer-events:none';
   const shadow = host.attachShadow({ mode: 'closed' });
   shadow.innerHTML = `
     <style>
       :host{all:initial}
-      .clipper{all:initial;pointer-events:auto;position:absolute;inset:0;width:184px;height:40px;padding:3px 5px 3px 4px;box-sizing:border-box;border-radius:20px 0 0 20px;background:rgba(255,255,255,.18);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);box-shadow:-2px 0 18px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.5);display:flex;align-items:center;gap:4px;touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent;transform:translateX(calc(100% - 10px));transition:transform .4s cubic-bezier(.22,1,.36,1),background .3s,box-shadow .3s}
+      .clipper{all:initial;pointer-events:auto;position:absolute;inset:0;width:232px;height:40px;padding:3px 5px 3px 4px;box-sizing:border-box;border-radius:20px 0 0 20px;background:rgba(255,255,255,.18);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%);box-shadow:-2px 0 18px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.5);display:flex;align-items:center;gap:4px;touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent;transform:translateX(calc(100% - 10px));transition:transform .4s cubic-bezier(.22,1,.36,1),background .3s,box-shadow .3s}
       .clipper.extend{transform:translateX(0);background:rgba(255,255,255,.32);box-shadow:-3px 0 22px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.6)}
       button{all:initial;box-sizing:border-box;cursor:pointer;font:600 12px/1 system-ui,-apple-system,sans-serif;color:#075b55;-webkit-tap-highlight-color:transparent}
       .drag-handle{width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:linear-gradient(135deg,#00e5c0 0%,#00b4d8 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,200,180,.5),0 1px 3px rgba(0,0,0,.2);transition:box-shadow .3s,transform .3s;overflow:hidden}
@@ -86,6 +86,7 @@
     </style>
     <div class="clipper extend" role="group" aria-label="Minimal Desktop 网页剪藏">
       <button type="button" class="drag-handle" aria-label="展开剪藏菜单或拖动调整位置" title="拖动调整位置"><img alt="" referrerpolicy="no-referrer"><span class="fallback" aria-hidden="true">✦</span></button>
+      <button type="button" class="action" data-action="home">主页</button>
       <button type="button" class="action" data-target="desktop">桌面</button>
       <button type="button" class="action" data-target="bookmarks">书签</button>
     </div>`;
@@ -179,6 +180,10 @@
     extend();
     scheduleRetract(4000);
   };
+  const openHome = () => {
+    window.open(DESKTOP_URL, '_blank', 'noopener,noreferrer');
+    retract();
+  };
   const openClip = (target) => {
     const payload = {
       url: location.href,
@@ -193,13 +198,15 @@
 
   panel.addEventListener('click', (event) => {
     if (suppressClick) return;
+    const homeButton = event.target.closest?.('[data-action="home"]');
     const targetButton = event.target.closest?.('[data-target]');
     const pointerActivation = event.detail !== 0;
     if (!isClipperExtended || (pointerActivation && !canActivateThisClick)) {
       confirmExtension();
       return;
     }
-    if (targetButton) openClip(targetButton.dataset.target);
+    if (homeButton) openHome();
+    else if (targetButton) openClip(targetButton.dataset.target);
     else scheduleRetract(4000);
   });
   dragHandle.addEventListener('keydown', (event) => {
