@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DesktopData, DesktopItem } from '@/types';
 import {
   canPlaceItem,
+  clampPageForGridChange,
   compactDesktopPages,
   compactPrivacyPages,
   getPrivacyPageCount,
@@ -16,6 +17,7 @@ import {
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren,
+  resolveOrientationTransition,
   resolvePageAfterCompaction,
   setDesktopWidgetEnabled,
   transferDesktopToPrivacy,
@@ -98,6 +100,112 @@ describe('layoutEngine', () => {
       gridCols: 5,
       patch: { cols: 5 },
     });
+  });
+
+  it('进入横屏时普通桌面重排，未解锁隐私不参与', () => {
+    const plan = resolveOrientationTransition(
+      null,
+      { data: data([[app('a', 0, 0, 0)]]), privacyItems: [], privacyUnlocked: false },
+      true,
+    );
+    expect(plan).toEqual({ desktop: 'reflow', privacy: 'skip' });
+  });
+
+  it('横屏期间无编辑时，回竖屏精确恢复竖屏快照', () => {
+    const portrait = data([
+      [
+        app('a', 0, 0, 0),
+        app('b', 0, 0, 1),
+        app('c', 0, 0, 2),
+        app('d', 0, 1, 0),
+        app('e', 0, 1, 3),
+      ],
+    ]);
+    const landscape = reflowDesktopData(portrait, 6, 8);
+    const privacyItems = [app('p', -1, 0, 0)];
+
+    const plan = resolveOrientationTransition(
+      {
+        portraitData: portrait,
+        portraitPrivacy: privacyItems,
+        landscapeData: landscape,
+        landscapePrivacy: privacyItems,
+      },
+      { data: landscape, privacyItems, privacyUnlocked: true },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'restore', privacy: 'restore' });
+  });
+
+  it('横屏期间编辑过桌面时，回竖屏降级为重排并保留编辑', () => {
+    const portrait = data([[app('a', 0, 0, 0), app('b', 0, 0, 1)]]);
+    const landscape = reflowDesktopData(portrait, 6, 8);
+    const edited = moveDesktopItem(landscape, 'a', 0, 0, 2, 5, 6, 8);
+    expect(edited.ok).toBe(true);
+
+    const plan = resolveOrientationTransition(
+      { portraitData: portrait, portraitPrivacy: null, landscapeData: landscape, landscapePrivacy: null },
+      { data: edited.data, privacyItems: [], privacyUnlocked: false },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'reflow', privacy: 'skip' });
+  });
+
+  it('横屏期间编辑过隐私时，桌面恢复、隐私降级为重排', () => {
+    const portrait = data([[app('a', 0, 0, 0)]]);
+    const privacyBase = [app('p', -1, 0, 0)];
+
+    const plan = resolveOrientationTransition(
+      {
+        portraitData: portrait,
+        portraitPrivacy: privacyBase,
+        landscapeData: portrait,
+        landscapePrivacy: privacyBase,
+      },
+      {
+        data: portrait,
+        privacyItems: [...privacyBase, app('q', -1, 0, 1)],
+        privacyUnlocked: true,
+      },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'restore', privacy: 'reflow' });
+  });
+
+  it('没有横屏会话（如刷新后）时回竖屏直接重排', () => {
+    const plan = resolveOrientationTransition(
+      null,
+      { data: data([[app('a', 0, 0, 0)]]), privacyItems: [], privacyUnlocked: true },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'reflow', privacy: 'reflow' });
+  });
+
+  it('竖横屏往返重排（无快照降级路径）保持项目相对顺序', () => {
+    const portrait = data([
+      [
+        app('a', 0, 0, 0),
+        app('b', 0, 0, 1),
+        app('c', 0, 0, 2),
+        app('d', 0, 1, 0),
+        app('e', 0, 1, 3),
+      ],
+    ]);
+    const landscape = reflowDesktopData(portrait, 6, 8);
+    const back = reflowDesktopData(landscape, 4, 8);
+    const ids = (value: DesktopData) => value.pages.flat().map((item) => item.id);
+
+    expect(ids(back)).toEqual(ids(portrait));
+    expect(validateDesktopLayout(back, { cols: 4, rows: 8 })).toEqual([]);
+  });
+
+  it('列数变化后当前页号收拢到新页数范围（含隐私负页）', () => {
+    expect(clampPageForGridChange(0, 3, 1)).toBe(0);
+    expect(clampPageForGridChange(5, 3, 1)).toBe(2);
+    expect(clampPageForGridChange(-1, 2, 3)).toBe(-1);
+    expect(clampPageForGridChange(-5, 2, 3)).toBe(-3);
+    expect(clampPageForGridChange(-5, 0, 0)).toBe(-1);
+    expect(clampPageForGridChange(2, 0, 0)).toBe(0);
   });
 
   it('竖横屏往返只同步有效列数，不触发永久布局重排', () => {

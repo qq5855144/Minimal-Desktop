@@ -99,6 +99,7 @@ const Desktop: React.FC = () => {
     loading,
     settings,
     updateSettings,
+    applyOrientationLayout,
     addItem,
     updateBookmarks,
     updateItem,
@@ -232,13 +233,38 @@ const Desktop: React.FC = () => {
     paddingBottom: 8,
   };
 
-  // 方向变化只同步当前有效列数与竖屏偏好；坐标仍保留用户原布局。
-  // 只有设置页的显式网格修改才允许重排并跳回第一页。
+  // 上一次视口方向；用于区分“运行时旋转”和“加载时方向修正”。
+  const previousWideRef = useRef<boolean | null>(null);
+  // 每个补丁只处理一次：极端重排失败时不会每帧重试。
+  const orientationPatchKeyRef = useRef<string | null>(null);
+
+  // 方向变化时重排桌面布局：
+  // - 竖屏 →横屏：保存竖屏快照，按横屏网格自动重排应用布局；
+  // - 横屏 →竖屏：横屏期间无编辑则精确恢复竖屏布局，否则重排回竖屏网格。
+  // 页面加载时若数据网格与当前方向不一致（如横屏保存、竖屏打开），按当前网格重排并留在原页。
   useEffect(() => {
-    if (responsiveColumns.patch) {
-      updateSettings(responsiveColumns.patch, { reflowGrid: false });
+    const patch = responsiveColumns.patch;
+    const previousWide = previousWideRef.current;
+    previousWideRef.current = viewport.isWide;
+
+    if (!patch) {
+      orientationPatchKeyRef.current = null;
+      return;
     }
-  }, [responsiveColumns.patch, updateSettings]);
+    const patchKey = `${patch.cols ?? ''}:${patch.portraitCols ?? ''}`;
+    if (orientationPatchKeyRef.current === patchKey) return;
+    orientationPatchKeyRef.current = patchKey;
+
+    if (
+      patch.cols !== undefined
+      && previousWide !== null
+      && previousWide !== viewport.isWide
+    ) {
+      applyOrientationLayout({ toLandscape: viewport.isWide, patch });
+      return;
+    }
+    updateSettings(patch, { reflowGrid: true, preservePage: true });
+  }, [responsiveColumns.patch, viewport.isWide, applyOrientationLayout, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），

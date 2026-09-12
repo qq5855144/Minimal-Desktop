@@ -6,6 +6,7 @@ import { HistoryBuffer } from '@/lib/historyBuffer';
 import { pruneIconCaches } from '@/lib/iconCache';
 import {
   canPlaceItem,
+  clampPageForGridChange,
   compactDesktopPages,
   compactPrivacyPages,
   findItemCoveringCell,
@@ -25,6 +26,7 @@ import {
   reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren as reorderFolderChildrenLayout,
+  resolveOrientationTransition,
   resolvePageAfterCompaction,
   resolvePrivacyPageAfterCompaction,
   setDesktopWidgetEnabled,
@@ -34,6 +36,7 @@ import {
   updatePrivacyFolderLayout,
   validateDesktopLayout,
 } from '@/lib/layoutEngine';
+import type { OrientationGridSnapshot } from '@/lib/layoutEngine';
 import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
 import {
   dissolvePrivacyFolder,
@@ -71,8 +74,18 @@ interface DesktopContextType {
   settings: DesktopSettings;
   updateSettings: (
     patch: Partial<DesktopSettings>,
-    options?: { reflowGrid?: boolean },
+    options?: { reflowGrid?: boolean; preservePage?: boolean },
   ) => void;
+  /**
+   * 方向变化时的原子重排：竖屏 →横屏保存竖屏快照并按横屏网格重排；
+   * 横屏 →竖屏优先精确恢复快照（横屏期间无编辑时），否则重排回竖屏网格。
+   */
+  applyOrientationLayout: (change: {
+    /** true = 进入（或处于）横屏；false = 回到竖屏。 */
+    toLandscape: boolean;
+    /** 目标列数补丁（cols/portraitCols）。 */
+    patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>>;
+  }) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   updateBookmarks: (action: BookmarkAction) => boolean;
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
@@ -236,6 +249,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
   const privacyLockTokenRef = useRef<object | null>(null);
   const historyRef = useRef(new HistoryBuffer<DesktopHistoryState>(50));
+  // 方向会话快照：进入横屏时保存竖屏布局，回到竖屏时用于精确恢复或识别编辑。
+  const orientationSnapshotRef = useRef<OrientationGridSnapshot | null>(null);
   const privacyPageCount = getPrivacyPageCount(privacyPageItems);
   // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
@@ -1004,6 +1019,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rows,
       );
       commitDesktopData(next, options.recordHistory ?? true);
+      // 导入/云恢复代表全新布局，方向会话快照不再可信。
+      orientationSnapshotRef.current = null;
       if (options.settings) {
         const restoredSettings = { ...requestedSettings, cols, rows };
         settingsRef.current = restoredSettings;
@@ -1142,7 +1159,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateSettings = useCallback((
     patch: Partial<DesktopSettings>,
-    options?: { reflowGrid?: boolean },
+    options?: { reflowGrid?: boolean; preservePage?: boolean },
   ) => {
     const prev = settingsRef.current;
     const requested = { ...prev, ...patch };
@@ -1151,21 +1168,123 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
     const next: DesktopSettings = { ...requested, cols, rows };
     if (shouldReflowDesktopData(prev, next, options)) {
+      let reflowed: DesktopData;
+      let reflowedPrivacy: DesktopItem[] | null = null;
       try {
-        const reflowed = reflowDesktopData(dataRef.current, cols, rows);
-        const reflowedPrivacy = privacyUnlocked
-          ? reflowPrivacyItems(privacyPageItemsRef.current, cols, rows)
-          : null;
-        commitDesktopData(reflowed);
-        if (reflowedPrivacy) applyCompactedPrivacyItems(reflowedPrivacy);
-        setCurrentPage(0);
+        reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        if (privacyUnlocked) {
+          reflowedPrivacy = reflowPrivacyItems(privacyPageItemsRef.current, cols, rows);
+        }
       } catch {
         return;
+      }
+      commitDesktopData(reflowed);
+      if (reflowedPrivacy) applyCompactedPrivacyItems(reflowedPrivacy);
+      if (options?.preservePage) {
+        // 方向修正/加载修正时尽量留在原页，仅在页数收缩时向有效范围收拢。
+        setCurrentPage((page) => clampPageForGridChange(
+          page,
+          reflowed.pages.length,
+          reflowedPrivacy
+            ? getPrivacyPageCount(reflowedPrivacy)
+            : getPrivacyPageCount(privacyPageItemsRef.current),
+        ));
+      } else {
+        setCurrentPage(0);
+        // 显式修改网格表示用户重新布局，方向会话快照不再适用。
+        orientationSnapshotRef.current = null;
       }
     }
     settingsRef.current = next;
     setSettings(next);
     saveSettings(next);
+  }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
+
+  /**
+   * 方向变化的原子重排：
+   * - 竖屏 →横屏：保存竖屏快照（含隐私）→ 按横屏网格重排 → 记录横屏基准；
+   * - 横屏 →竖屏：横屏期间无编辑则精确恢复竖屏快照，否则重排回竖屏网格。
+   * 重排后尽量保留用户原页；隐私未解锁时完全不触碰加密数据。
+   */
+  const applyOrientationLayout = useCallback((change: {
+    toLandscape: boolean;
+    patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>>;
+  }) => {
+    const prev = settingsRef.current;
+    const requested = { ...prev, ...change.patch };
+    const cols = normalizeDesktopColumnCount(requested.cols);
+    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
+    const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
+    const next: DesktopSettings = { ...requested, cols, rows };
+
+    const commitSettings = () => {
+      settingsRef.current = next;
+      setSettings(next);
+      saveSettings(next);
+    };
+    const reflowAndApplyPrivacy = (): DesktopItem[] | null => {
+      if (!privacyUnlocked) return null;
+      const reflowed = reflowPrivacyItems(privacyPageItemsRef.current, cols, rows);
+      return applyCompactedPrivacyItems(reflowed);
+    };
+    const clampCurrentPage = () => {
+      setCurrentPage((page) => clampPageForGridChange(
+        page,
+        dataRef.current.pages.length,
+        getPrivacyPageCount(privacyPageItemsRef.current),
+      ));
+    };
+
+    if (change.toLandscape) {
+      const existing = orientationSnapshotRef.current;
+      // 数据仍与横屏基准一致时复用原快照；否则以当前数据重新建立基准。
+      const reusable = existing !== null && existing.landscapeData === dataRef.current;
+      const portraitData = reusable ? existing.portraitData : deepClone(dataRef.current);
+      const portraitPrivacy = reusable
+        ? existing.portraitPrivacy
+        : (privacyUnlocked ? deepClone(privacyPageItemsRef.current) : null);
+      try {
+        const reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        const appliedPrivacy = reflowAndApplyPrivacy();
+        commitDesktopData(reflowed);
+        orientationSnapshotRef.current = {
+          portraitData,
+          portraitPrivacy,
+          // 重排后的引用即横屏基准，用于识别横屏期间的编辑。
+          landscapeData: dataRef.current,
+          landscapePrivacy: appliedPrivacy,
+        };
+      } catch {
+        return;
+      }
+      commitSettings();
+      clampCurrentPage();
+      return;
+    }
+
+    const snapshot = orientationSnapshotRef.current;
+    const plan = resolveOrientationTransition(
+      snapshot,
+      { data: dataRef.current, privacyItems: privacyPageItemsRef.current, privacyUnlocked },
+      false,
+    );
+    try {
+      if (plan.desktop === 'restore' && snapshot) {
+        commitDesktopData(deepClone(snapshot.portraitData));
+      } else {
+        commitDesktopData(reflowDesktopData(dataRef.current, cols, rows));
+      }
+      if (plan.privacy === 'restore' && snapshot?.portraitPrivacy) {
+        applyCompactedPrivacyItems(deepClone(snapshot.portraitPrivacy));
+      } else if (plan.privacy === 'reflow') {
+        reflowAndApplyPrivacy();
+      }
+    } catch {
+      return;
+    }
+    orientationSnapshotRef.current = null;
+    commitSettings();
+    clampCurrentPage();
   }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
 
   return (
@@ -1179,6 +1298,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loading,
         settings,
         updateSettings,
+        applyOrientationLayout,
         addItem,
         updateBookmarks,
         setWidgetEnabled,

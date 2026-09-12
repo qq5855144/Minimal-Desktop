@@ -1,6 +1,8 @@
 /**
  * SearchEnginePanel
  * 搜索引擎选择面板 + 添加自定义引擎对话框
+ * 以搜索框为对齐基准：面板竖直中轴与搜索框中轴对齐（竖向对齐）、
+ * 宽度不超过搜索框，横屏扩列后依然与搜索框保持对齐。
  * 图标使用用户提供的内联 SVG data URL，无需网络请求
  */
 
@@ -21,6 +23,7 @@ import { clampFloatingPosition } from '@/lib/viewport';
 import type { CustomSearchEngine } from '@/types';
 
 interface SearchEnginePanelProps {
+  /** 搜索栏外壳（整个搜索框）的矩形：面板竖直中轴与其对齐，垂直贴其边缘弹出。 */
   anchorRect: DOMRect | null;
   onClose: () => void;
 }
@@ -460,11 +463,16 @@ const SearchEnginePanel: React.FC<SearchEnginePanelProps> = ({ anchorRect, onClo
     ? currentId
     : allEngines[0]?.id;
 
-  // 水平定位：居中对齐 anchor，边界保护
-  const PANEL_W = Math.max(0, Math.min(340, viewport.visual.width - 24));
+  // 水平定位：与搜索框竖向对齐——面板竖直中轴与搜索框中轴共线；
+  // 面板比搜索框窄时居中，等宽时左右边缘同时对齐（与竖屏效果一致）。
+  const PANEL_W = Math.max(0, Math.min(
+    340,
+    viewport.visual.width - 24,
+    anchorRect?.width ?? Number.POSITIVE_INFINITY,
+  ));
   const horizontalStyle = React.useMemo<React.CSSProperties>(() => {
     if (!anchorRect) return { display: 'none' };
-    const desiredLeft = anchorRect.left + anchorRect.width / 2 - PANEL_W / 2;
+    const desiredLeft = anchorRect.left + (anchorRect.width - PANEL_W) / 2;
     const left = clampFloatingPosition(
       desiredLeft,
       PANEL_W,

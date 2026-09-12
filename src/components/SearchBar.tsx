@@ -10,7 +10,7 @@ const SearchBar: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [searchScreenOpen, setSearchScreenOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const engineBtnRef = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const isOutline = settings.searchBarStyle === 'outline';
@@ -26,7 +26,8 @@ const SearchBar: React.FC = () => {
   const openPanel = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setAnchorRect(engineBtnRef.current?.getBoundingClientRect() ?? null);
+    // 面板以整个搜索框为对齐基准：横屏扩列时也会贴着搜索框展开。
+    setAnchorRect(shellRef.current?.getBoundingClientRect() ?? null);
     setPanelOpen(true);
   }, []);
 
@@ -50,6 +51,7 @@ const SearchBar: React.FC = () => {
     <div className="desktop-widget-search-padding pb-3">
       {/* 搜索栏外壳：点击任意位置打开搜索专用屏 */}
       <div
+        ref={shellRef}
         className={formCls}
         style={formStyle}
         onClick={() => setSearchScreenOpen(true)}
@@ -61,7 +63,6 @@ const SearchBar: React.FC = () => {
       >
         {/* 搜索引擎图标按钮（点击不打开搜索屏，改为切换引擎面板） */}
         <button
-          ref={engineBtnRef}
           type="button"
           onClick={openPanel}
           aria-label="切换搜索引擎"

@@ -102,6 +102,83 @@ export function resolveResponsiveColumnState(
   };
 }
 
+/**
+ * 方向切换时的布局快照。
+ * 竖屏 →横屏前保存竖屏布局，并用重排后的横屏布局作为“未编辑”基准；
+ * 横屏 →竖屏时若基准引用未变化，即可精确恢复竖屏布局。
+ */
+export interface OrientationGridSnapshot {
+  /** 进入横屏时保存的竖屏普通桌面布局。 */
+  portraitData: DesktopData;
+  /** 进入横屏时保存的竖屏隐私布局；当时未解锁时为 null。 */
+  portraitPrivacy: DesktopItem[] | null;
+  /** 进入横屏并完成重排后的普通桌面布局，用于识别横屏期间的编辑。 */
+  landscapeData: DesktopData;
+  /** 进入横屏并完成重排后的隐私布局；未参与重排时为 null。 */
+  landscapePrivacy: DesktopItem[] | null;
+}
+
+export interface OrientationTransitionPlan {
+  /** 普通桌面动作：restore =按竖屏快照精确恢复；reflow =按目标网格重排。 */
+  desktop: 'restore' | 'reflow';
+  /** 隐私动作：restore / reflow / skip（未解锁不参与）。 */
+  privacy: 'restore' | 'reflow' | 'skip';
+}
+
+/**
+ * 判定方向切换时普通桌面与隐私布局的执行动作。
+ * 进入横屏固定重排；回竖屏时若横屏期间没有编辑，恢复竖屏快照，
+ * 否则把当前布局重排回竖屏网格（保留用户在横屏下的编辑）。
+ */
+export function resolveOrientationTransition(
+  snapshot: OrientationGridSnapshot | null,
+  current: {
+    data: DesktopData;
+    privacyItems: DesktopItem[];
+    privacyUnlocked: boolean;
+  },
+  toLandscape: boolean,
+): OrientationTransitionPlan {
+  if (toLandscape) {
+    return {
+      desktop: 'reflow',
+      privacy: current.privacyUnlocked ? 'reflow' : 'skip',
+    };
+  }
+
+  const desktop: OrientationTransitionPlan['desktop'] =
+    snapshot !== null && snapshot.landscapeData === current.data ? 'restore' : 'reflow';
+
+  let privacy: OrientationTransitionPlan['privacy'];
+  if (!current.privacyUnlocked) {
+    privacy = 'skip';
+  } else if (
+    snapshot !== null
+    && snapshot.landscapePrivacy !== null
+    && snapshot.landscapePrivacy === current.privacyItems
+  ) {
+    privacy = 'restore';
+  } else {
+    privacy = 'reflow';
+  }
+
+  return { desktop, privacy };
+}
+
+/** 列数变化后把当前页号收缩到新的页数范围内（含隐私负页），尽量保留用户所在位置。 */
+export function clampPageForGridChange(
+  page: number,
+  desktopPageCount: number,
+  privacyPageCount: number,
+): number {
+  if (page >= 0) {
+    const count = Math.max(1, Math.floor(desktopPageCount));
+    return Math.min(page, count - 1);
+  }
+  const count = Math.max(1, Math.floor(privacyPageCount));
+  return Math.max(-count, Math.min(-1, page));
+}
+
 export type LayoutFailure =
   | 'invalid-page'
   | 'invalid-position'

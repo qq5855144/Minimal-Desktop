@@ -44,7 +44,7 @@ const CombinedWidget: React.FC = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const engineBtnRef = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<HTMLFormElement>(null);
 
   const hours   = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -77,7 +77,8 @@ const CombinedWidget: React.FC = () => {
   const openPanel = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setAnchorRect(engineBtnRef.current?.getBoundingClientRect() ?? null);
+    // 面板以整个搜索框为对齐基准：横屏扩列时也会贴着搜索框展开。
+    setAnchorRect(shellRef.current?.getBoundingClientRect() ?? null);
     setPanelOpen(true);
   }, []);
 
@@ -102,6 +103,7 @@ const CombinedWidget: React.FC = () => {
       {/* 搜索框区 */}
       <div className="desktop-widget-search-padding">
         <form
+          ref={shellRef}
           onSubmit={handleSubmit}
           className={isOutline
             ? `flex h-[42px] items-center gap-2 rounded-[12px] border-2 border-white/90 bg-transparent px-3 transition-all duration-200 ${focused ? 'shadow-[0_0_0_2px_rgba(255,255,255,0.22)]' : 'shadow-[0_4px_14px_rgba(0,0,0,0.10)]'}`
@@ -112,7 +114,6 @@ const CombinedWidget: React.FC = () => {
         >
           {/* 搜索引擎图标（可点击） */}
           <button
-            ref={engineBtnRef}
             type="button"
             onClick={openPanel}
             aria-label="切换搜索引擎"
