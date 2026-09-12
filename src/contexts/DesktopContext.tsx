@@ -1171,7 +1171,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       let reflowed: DesktopData;
       let reflowedPrivacy: DesktopItem[] | null = null;
       try {
-        reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        reflowed = reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: options?.preservePage === true });
         if (privacyUnlocked) {
           reflowedPrivacy = reflowPrivacyItems(privacyPageItemsRef.current, cols, rows);
         }
@@ -1244,7 +1244,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ? existing.portraitPrivacy
         : (privacyUnlocked ? deepClone(privacyPageItemsRef.current) : null);
       try {
-        const reflowed = reflowDesktopData(dataRef.current, cols, rows);
+        const reflowed = reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: true });
         const appliedPrivacy = reflowAndApplyPrivacy();
         commitDesktopData(reflowed);
         orientationSnapshotRef.current = {
@@ -1272,7 +1272,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (plan.desktop === 'restore' && snapshot) {
         commitDesktopData(deepClone(snapshot.portraitData));
       } else {
-        commitDesktopData(reflowDesktopData(dataRef.current, cols, rows));
+        commitDesktopData(reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: true }));
       }
       if (plan.privacy === 'restore' && snapshot?.portraitPrivacy) {
         applyCompactedPrivacyItems(deepClone(snapshot.portraitPrivacy));

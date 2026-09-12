@@ -747,3 +747,34 @@ describe('weather widget rectangles', () => {
     expect(result.ok).toBe(false); expect(result.data).toBe(original);
   });
 });
+describe('reflowDesktopData keepWidgetsFixed（方向重排只动应用）', () => {
+  it('组件保持原位置，应用填充剩余区域', () => {
+    const original = data([
+      [clock(0, 0), app('a', 0, 2, 0), app('b', 0, 2, 1), app('c', 0, 2, 2), app('d', 0, 2, 3)],
+    ]);
+    const reflowed = reflowDesktopData(original, 6, 8, { keepWidgetsFixed: true });
+    const clockItem = reflowed.pages[0].find((item) => item.id === 'widget-clock');
+    expect(clockItem).toMatchObject({ row: 0, col: 0 });
+    const apps = reflowed.pages[0]
+      .filter((item) => item.type !== 'widget')
+      .sort((l, r) => (l.row - r.row) || (l.col - r.col));
+    expect(apps.map((item) => item.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(apps[0]).toMatchObject({ row: 2, col: 0 });
+  });
+  it('组件不在顶部时也不会被推动，保持原行', () => {
+    const original = data([
+      [app('x', 0, 0, 0), app('y', 0, 0, 1), clock(0, 2)],
+    ]);
+    const reflowed = reflowDesktopData(original, 6, 8, { keepWidgetsFixed: true });
+    const clockItem = reflowed.pages[0].find((item) => item.id === 'widget-clock');
+    expect(clockItem).toMatchObject({ row: 2, col: 0 });
+  });
+  it('未开启选项时组件参与全量重排（保持原有行为）', () => {
+    const original = data([
+      [app('x', 0, 0, 0), app('y', 0, 0, 1), clock(0, 2)],
+    ]);
+    const reflowed = reflowDesktopData(original, 6, 8);
+    const clockItem = reflowed.pages[0].find((item) => item.id === 'widget-clock');
+    expect(clockItem).toMatchObject({ row: 1, col: 0 });
+  });
+});

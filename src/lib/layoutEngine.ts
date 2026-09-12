@@ -1012,10 +1012,21 @@ export function updatePrivacyFolderLayout(
 }
 
 /** 根据新的网格尺寸稳定重排，保证任何项目都不会被放到不可见区域。 */
-export function reflowDesktopData(data: DesktopData, cols: number, rows: number): DesktopData {
+export function reflowDesktopData(
+  data: DesktopData,
+  cols: number,
+  rows: number,
+  options?: {
+    /**
+     * 方向重排时保持桌面组件（时钟/搜索等）原位置不变，只重排应用与文件夹；
+     * 默认 false，保持原有“全量重排”行为。
+     */
+    keepWidgetsFixed?: boolean;
+  },
+): DesktopData {
   const source = deepClone(data);
   const output: DesktopItem[][] = [];
-
+  const keepWidgetsFixed = options?.keepWidgetsFixed === true;
   const ensurePage = (preferNew = false): number => {
     if (preferNew || output.length === 0) {
       if (output.length >= LAYOUT_LIMITS.maxPages) throw new Error('桌面页数已达到上限');
@@ -1027,8 +1038,22 @@ export function reflowDesktopData(data: DesktopData, cols: number, rows: number)
   for (const originalPage of source.pages) {
     let outputPage = ensurePage(true);
     const sorted = [...originalPage].sort((a, b) => (a.row - b.row) || (a.col - b.col));
-    for (const item of sorted) {
-      let slot = findFirstAvailableSlot(output[outputPage], item, cols, rows);
+    // 方向重排时组件先钉回原位置（全宽组件左缘固定为 0），应用再填充剩余区域。
+    const ordered = keepWidgetsFixed
+      ? [...sorted.filter((item) => item.type === 'widget'), ...sorted.filter((item) => item.type !== 'widget')]
+      : sorted;
+    for (const item of ordered) {
+      let slot: { row: number; col: number } | null = null;
+      if (keepWidgetsFixed && item.type === 'widget') {
+        // 组件保持原位置：全宽组件左缘固定为 0，weather 保留原列。
+        const col = isFullWidthWidget(item) ? 0 : item.col;
+        if (canPlaceItem(output[outputPage], item, item.row, col, cols, rows)) {
+          slot = { row: item.row, col };
+        }
+      }
+      if (!slot) {
+        slot = findFirstAvailableSlot(output[outputPage], item, cols, rows);
+      }
       if (!slot) {
         outputPage = ensurePage(true);
         slot = findFirstAvailableSlot(output[outputPage], item, cols, rows);
