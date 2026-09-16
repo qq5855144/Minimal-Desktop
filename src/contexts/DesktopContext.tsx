@@ -241,6 +241,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [privacyRevision, setPrivacyRevision] = useState(0);
   const firstRender = useRef(true);
   const dataRef = useRef<DesktopData>(data);
+  const currentPageRef = useRef(currentPage);
   const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
   const settingsRef = useRef<DesktopSettings>(settings);
   const privacyCryptoKeyRef = useRef(privacyCryptoKey);
@@ -254,6 +255,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyPageCount = getPrivacyPageCount(privacyPageItems);
   // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
+  currentPageRef.current = currentPage;
   privacyPageItemsRef.current = privacyPageItems;
   settingsRef.current = settings;
   privacyCryptoKeyRef.current = privacyCryptoKey;
@@ -1243,6 +1245,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const portraitPrivacy = reusable
         ? existing.portraitPrivacy
         : (privacyUnlocked ? deepClone(privacyPageItemsRef.current) : null);
+      // 复用快照时保留最初的竖屏页号，避免横屏期间的翻页覆盖恢复目标。
+      const portraitPage = reusable ? existing.portraitPage : currentPageRef.current;
       try {
         const reflowed = reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: true });
         const appliedPrivacy = reflowAndApplyPrivacy();
@@ -1253,6 +1257,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 重排后的引用即横屏基准，用于识别横屏期间的编辑。
           landscapeData: dataRef.current,
           landscapePrivacy: appliedPrivacy,
+          portraitPage,
         };
       } catch {
         return;
@@ -1279,12 +1284,19 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else if (plan.privacy === 'reflow') {
         reflowAndApplyPrivacy();
       }
+      // 精确恢复场景下同时还原用户进入横屏前所在的页号；
+      // 隐私未解锁时若原页号指向隐私页，则退回普通桌面首页。
+      if (plan.desktop === 'restore' && snapshot) {
+        const restoredPage = snapshot.portraitPage;
+        setCurrentPage(restoredPage < 0 && !privacyUnlocked ? 0 : restoredPage);
+      } else {
+        clampCurrentPage();
+      }
     } catch {
       return;
     }
     orientationSnapshotRef.current = null;
     commitSettings();
-    clampCurrentPage();
   }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
 
   return (

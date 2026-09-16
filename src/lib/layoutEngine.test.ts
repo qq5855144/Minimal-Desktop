@@ -102,6 +102,45 @@ describe('layoutEngine', () => {
     });
   });
 
+  it('未设置横屏列数时进入横屏自动使用 6 列并重排应用', () => {
+    // 用户仅配置了竖屏 4 列（portraitCols 缺省，表示尚未设置横屏列数）。
+    const landscape = resolveResponsiveColumnState(4, undefined, true);
+    expect(landscape.gridCols).toBe(6);
+    expect(landscape.patch).toEqual({ cols: 6, portraitCols: 4 });
+
+    // 竖屏 5 列同样在未设置横屏列数时扩为 6 列。
+    expect(resolveResponsiveColumnState(5, undefined, true)).toEqual({
+      gridCols: 6,
+      patch: { cols: 6, portraitCols: 5 },
+    });
+
+    // 自动重排：横屏网格下不会出现越界或重叠。
+    const portrait = data([
+      [app('a', 0, 0, 0), app('b', 0, 0, 1), app('c', 0, 1, 0), app('d', 0, 1, 1)],
+    ]);
+    const reflowed = reflowDesktopData(portrait, landscape.gridCols, 8, { keepWidgetsFixed: true });
+    expect(validateDesktopLayout(reflowed, { cols: 6, rows: 8 })).toEqual([]);
+    expect(reflowed.pages[0].map((item) => item.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('横屏返回竖屏后恢复进入横屏前所在页号', () => {
+    const snapshot = {
+      portraitData: data([[app('a', 0, 0, 0)], [app('b', 1, 0, 0)]]),
+      portraitPrivacy: null,
+      landscapeData: data([[app('a', 0, 0, 0), app('b', 0, 0, 1)]]),
+      landscapePrivacy: null,
+      // 进入横屏前用户停留在第 2 页。
+      portraitPage: 1,
+    };
+    const plan = resolveOrientationTransition(
+      snapshot,
+      { data: snapshot.landscapeData, privacyItems: [], privacyUnlocked: false },
+      false,
+    );
+    expect(plan.desktop).toBe('restore');
+    expect(snapshot.portraitPage).toBe(1);
+  });
+
   it('进入横屏时普通桌面重排，未解锁隐私不参与', () => {
     const plan = resolveOrientationTransition(
       null,
@@ -130,6 +169,7 @@ describe('layoutEngine', () => {
         portraitPrivacy: privacyItems,
         landscapeData: landscape,
         landscapePrivacy: privacyItems,
+        portraitPage: 0,
       },
       { data: landscape, privacyItems, privacyUnlocked: true },
       false,
@@ -144,7 +184,7 @@ describe('layoutEngine', () => {
     expect(edited.ok).toBe(true);
 
     const plan = resolveOrientationTransition(
-      { portraitData: portrait, portraitPrivacy: null, landscapeData: landscape, landscapePrivacy: null },
+      { portraitData: portrait, portraitPrivacy: null, landscapeData: landscape, landscapePrivacy: null, portraitPage: 0 },
       { data: edited.data, privacyItems: [], privacyUnlocked: false },
       false,
     );
@@ -161,6 +201,7 @@ describe('layoutEngine', () => {
         portraitPrivacy: privacyBase,
         landscapeData: portrait,
         landscapePrivacy: privacyBase,
+        portraitPage: 0,
       },
       {
         data: portrait,

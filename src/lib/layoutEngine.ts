@@ -116,6 +116,8 @@ export interface OrientationGridSnapshot {
   landscapeData: DesktopData;
   /** 进入横屏并完成重排后的隐私布局；未参与重排时为 null。 */
   landscapePrivacy: DesktopItem[] | null;
+  /** 进入横屏时用户所在的页号（普通页 >= 0，隐私页 < 0），用于精确恢复。 */
+  portraitPage: number;
 }
 
 export interface OrientationTransitionPlan {
