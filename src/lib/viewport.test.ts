@@ -20,8 +20,26 @@ describe('viewport', () => {
 
     expect(mobile.shell).toMatchObject({ width: 390, height: 844 });
     expect(mobile.isWide).toBe(false);
+    expect(mobile.isLandscape).toBe(false);
     expect(desktop.shell).toMatchObject({ width: 1440, height: 900 });
     expect(desktop.isWide).toBe(true);
+    expect(desktop.isLandscape).toBe(true);
+  });
+
+  it('小屏手机横屏：有效宽度不足 768px 仍判定为横向', () => {
+    // 一加 13T 等小屏设备横屏时 CSS 有效宽度可能仅约 720px，
+    // 固定宽度断点会把它误判为竖屏，导致仍保持 4 列。
+    const geometry = resolveViewportGeometry({
+      layoutWidth: 720,
+      layoutHeight: 360,
+      visualWidth: 720,
+      visualHeight: 360,
+      visualScale: 1,
+    });
+
+    expect(geometry.shell).toMatchObject({ width: 720, height: 360 });
+    expect(geometry.isWide).toBe(false);
+    expect(geometry.isLandscape).toBe(true);
   });
 
   it('手机电脑模式的窄可视区覆盖伪装的 980px 布局视口', () => {

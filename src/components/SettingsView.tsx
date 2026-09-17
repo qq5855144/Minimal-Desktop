@@ -644,7 +644,8 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
   // ── 应用视图设置面板 ──
   const renderView = () => {
     const minRows = minimumRowsForEnabledWidgets(data);
-    const columnOptions: DesktopColumnCount[] = viewport.isWide
+    // 横向（含小屏手机横屏）只提供 6–10 列；竖屏额外提供 4/5 列紧凑布局。
+    const columnOptions: DesktopColumnCount[] = viewport.isLandscape
       ? [6, 7, 8, 9, 10]
       : [4, 5, 6, 7, 8, 9, 10];
     const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
@@ -665,7 +666,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
               <button
                 key={c}
                 type="button"
-                onClick={() => updateSettings(viewport.isWide
+                onClick={() => updateSettings(viewport.isLandscape
                   ? { cols: c }
                   : { cols: c, portraitCols: c })}
                 className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${

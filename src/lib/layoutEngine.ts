@@ -34,13 +34,17 @@ export function normalizeDesktopColumnCount(value?: number): DesktopColumnCount 
   ) as DesktopColumnCount;
 }
 
-/** 电脑端至少使用 6 列；窄屏继续允许 4/5 列紧凑布局。 */
+/**
+ * 横向（含小屏手机横屏）至少使用 6 列；竖屏继续允许 4/5 列紧凑布局。
+ * 判定依据是方向而非固定宽度断点：小屏手机横屏的有效宽度可能不足 768px，
+ * 仍应扩展为 6 列以适应更宽的横向网格。
+ */
 export function normalizeResponsiveColumnCount(
   value: number | undefined,
-  isWide: boolean,
+  isLandscape: boolean,
 ): DesktopColumnCount {
   const normalized = normalizeDesktopColumnCount(value);
-  return isWide && normalized < WIDE_VIEWPORT_MIN_COLS
+  return isLandscape && normalized < WIDE_VIEWPORT_MIN_COLS
     ? WIDE_VIEWPORT_MIN_COLS
     : normalized;
 }
@@ -66,17 +70,18 @@ export function shouldReflowDesktopData(
 }
 
 /**
- * 横屏可以临时把 4/5 列扩为 6 列，但不能覆盖用户的竖屏列数。
+ * 横向（含小屏手机横屏）可以临时把 4/5 列扩为 6 列，但不能覆盖用户的竖屏列数。
  * 返回值中的 patch 只同步当前实际列数与竖屏偏好，不应触发持久化坐标重排。
+ * 入参按方向而非固定宽度断点判定，确保小屏横屏也能自动扩为 6 列。
  */
 export function resolveResponsiveColumnState(
   currentCols: number | undefined,
   portraitCols: number | undefined,
-  isWide: boolean,
+  isLandscape: boolean,
 ): ResponsiveColumnState {
   const current = normalizeDesktopColumnCount(currentCols);
 
-  if (isWide) {
+  if (isLandscape) {
     const gridCols = normalizeResponsiveColumnCount(current, true);
     const rememberedPortrait = portraitCols === undefined
       ? (current < WIDE_VIEWPORT_MIN_COLS ? current : undefined)

@@ -69,6 +69,19 @@ describe('layoutEngine', () => {
     expect(normalizeResponsiveColumnCount(5, false)).toBe(5);
   });
 
+  it('小屏手机横屏（宽度不足 768px）同样扩为 6 列', () => {
+    // 判定依据是方向 isLandscape，而非固定宽度断点：
+    // 小屏横屏即便宽度只有约 720px，也应把 4/5 列扩为 6 列。
+    expect(normalizeResponsiveColumnCount(4, true)).toBe(6);
+    expect(normalizeResponsiveColumnCount(5, true)).toBe(6);
+
+    const landscape = resolveResponsiveColumnState(4, undefined, true);
+    expect(landscape).toEqual({
+      gridCols: 6,
+      patch: { cols: 6, portraitCols: 4 },
+    });
+  });
+
   it('横屏自动扩为 6 列后，返回竖屏会恢复用户的 4 列设置', () => {
     const landscape = resolveResponsiveColumnState(4, undefined, true);
     expect(landscape).toEqual({

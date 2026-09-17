@@ -1,5 +1,7 @@
 const VIEWPORT_EPSILON_PX = 1;
 const USER_ZOOM_EPSILON = 0.01;
+// 判定横向所需的宽高差：宽比高多出该像素才算横向，避免抖动误判。
+const ORIENTATION_EPSILON_PX = 8;
 
 export interface ViewportMeasurement {
   layoutWidth: number;
@@ -29,7 +31,10 @@ export interface ViewportGeometry {
   shell: ViewportRect;
   isWidthConstrained: boolean;
   isHeightConstrained: boolean;
+  /** 达到电脑端宽度断点：用于桌面外壳内边距等宽屏样式。 */
   isWide: boolean;
+  /** 是否处于横向方向：依据有效区域宽高比判定，不依赖固定宽度断点。 */
+  isLandscape: boolean;
 }
 
 function positive(value: number | undefined, fallback: number): number {
@@ -90,6 +95,9 @@ export function resolveViewportGeometry(
   const shellHeight = isHeightConstrained ? visualHeight : layoutHeight;
   const shellLeft = isWidthConstrained ? visualLeft : 0;
   const shellTop = isHeightConstrained ? visualTop : 0;
+  // 方向依据有效区域宽高比判定：宽明显大于高即为横向。
+  // 加入极小容差避免正方形/细微抖动被误判为旋转。
+  const isLandscape = shellWidth - shellHeight > ORIENTATION_EPSILON_PX;
 
   return {
     layout: rect(0, 0, layoutWidth, layoutHeight),
@@ -98,6 +106,7 @@ export function resolveViewportGeometry(
     isWidthConstrained,
     isHeightConstrained,
     isWide: shellWidth >= wideBreakpointPx,
+    isLandscape,
   };
 }
 

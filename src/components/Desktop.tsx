@@ -200,11 +200,12 @@ const Desktop: React.FC = () => {
     y: y - viewport.shell.top,
   }), [viewport.shell.left, viewport.shell.top]);
 
-  // 窄屏允许 4/5 列；有效宽度达到电脑端断点后至少使用 6 列。
+  // 竖屏允许 4/5 列；横向方向（含小屏手机横屏）至少使用 6 列。
+  // 注意依据方向而非固定宽度断点：小屏横屏宽度可能不足 768px 也应扩展列数。
   const responsiveColumns = resolveResponsiveColumnState(
     settings.cols,
     settings.portraitCols,
-    viewport.isWide,
+    viewport.isLandscape,
   );
   const gridCols = responsiveColumns.gridCols;
   const gridRows = settings.rows ?? 8;
@@ -234,7 +235,8 @@ const Desktop: React.FC = () => {
   };
 
   // 上一次视口方向；用于区分“运行时旋转”和“加载时方向修正”。
-  const previousWideRef = useRef<boolean | null>(null);
+  // 使用宽高比方向（isLandscape）而非固定宽度断点，小屏手机横屏也能被识别。
+  const previousLandscapeRef = useRef<boolean | null>(null);
   // 每个补丁只处理一次：极端重排失败时不会每帧重试。
   const orientationPatchKeyRef = useRef<string | null>(null);
 
@@ -244,8 +246,8 @@ const Desktop: React.FC = () => {
   // 页面加载时若数据网格与当前方向不一致（如横屏保存、竖屏打开），按当前网格重排并留在原页。
   useEffect(() => {
     const patch = responsiveColumns.patch;
-    const previousWide = previousWideRef.current;
-    previousWideRef.current = viewport.isWide;
+    const previousLandscape = previousLandscapeRef.current;
+    previousLandscapeRef.current = viewport.isLandscape;
 
     if (!patch) {
       orientationPatchKeyRef.current = null;
@@ -257,14 +259,14 @@ const Desktop: React.FC = () => {
 
     if (
       patch.cols !== undefined
-      && previousWide !== null
-      && previousWide !== viewport.isWide
+      && previousLandscape !== null
+      && previousLandscape !== viewport.isLandscape
     ) {
-      applyOrientationLayout({ toLandscape: viewport.isWide, patch });
+      applyOrientationLayout({ toLandscape: viewport.isLandscape, patch });
       return;
     }
     updateSettings(patch, { reflowGrid: true, preservePage: true });
-  }, [responsiveColumns.patch, viewport.isWide, applyOrientationLayout, updateSettings]);
+  }, [responsiveColumns.patch, viewport.isLandscape, applyOrientationLayout, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
