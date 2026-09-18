@@ -154,6 +154,66 @@ describe('layoutEngine', () => {
     expect(snapshot.portraitPage).toBe(1);
   });
 
+  it('加载即横屏时按横屏网格重排，并把原始竖屏布局作为快照', () => {
+    // 复现“手机横屏状态下打开桌面”的场景：加载时数据仍是竖屏 4 列网格，
+    // 但视口已经是横屏。此路径必须先保存竖屏快照再重排，
+    // 否则之后转回竖屏时无快照可恢复。
+    const portrait = data([
+      [
+        app('a', 0, 0, 0),
+        app('b', 0, 0, 1),
+        app('c', 0, 1, 0),
+        app('d', 0, 1, 1),
+      ],
+    ]);
+
+    // applyOrientationLayout({ toLandscape: true }) 的等价语义：
+    // 加载即横屏 → 视口横屏，先记录竖屏快照，再按横屏网格重排。
+    const landscape = reflowDesktopData(portrait, 6, 8);
+    const snapshot = {
+      // 之前从未进入过横屏（刷新后加载即横屏），竖屏快照即当前原始数据。
+      portraitData: portrait,
+      portraitPrivacy: null,
+      landscapeData: landscape,
+      landscapePrivacy: null,
+      // 用户进入时所处的页号（竖屏首页）。
+      portraitPage: 0,
+    };
+
+    // 横屏期间无编辑：转回竖屏应精确恢复原始竖屏布局，而不是重排。
+    const plan = resolveOrientationTransition(
+      snapshot,
+      { data: landscape, privacyItems: [], privacyUnlocked: false },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'restore', privacy: 'skip' });
+    expect(plan.desktop).not.toBe('reflow');
+
+    // 恢复后的布局与原始竖屏布局完全一致（位置不丢失、不打乱）。
+    expect(snapshot.portraitData).toEqual(portrait);
+    expect(validateDesktopLayout(snapshot.portraitData, { cols: 4, rows: 8 })).toEqual([]);
+  });
+
+  it('加载即横屏后若横屏期间编辑过，回竖屏降级为重排并保留编辑', () => {
+    const portrait = data([[app('a', 0, 0, 0), app('b', 0, 0, 1)]]);
+    const landscape = reflowDesktopData(portrait, 6, 8);
+    const edited = moveDesktopItem(landscape, 'a', 0, 0, 2, 5, 6, 8);
+    expect(edited.ok).toBe(true);
+
+    const plan = resolveOrientationTransition(
+      {
+        portraitData: portrait,
+        portraitPrivacy: null,
+        landscapeData: landscape,
+        landscapePrivacy: null,
+        portraitPage: 0,
+      },
+      { data: edited.data, privacyItems: [], privacyUnlocked: false },
+      false,
+    );
+    expect(plan).toEqual({ desktop: 'reflow', privacy: 'skip' });
+  });
+
   it('进入横屏时普通桌面重排，未解锁隐私不参与', () => {
     const plan = resolveOrientationTransition(
       null,

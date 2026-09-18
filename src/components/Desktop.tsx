@@ -243,7 +243,10 @@ const Desktop: React.FC = () => {
   // 方向变化时重排桌面布局：
   // - 竖屏 →横屏：保存竖屏快照，按横屏网格自动重排应用布局；
   // - 横屏 →竖屏：横屏期间无编辑则精确恢复竖屏布局，否则重排回竖屏网格。
-  // 页面加载时若数据网格与当前方向不一致（如横屏保存、竖屏打开），按当前网格重排并留在原页。
+  // 页面加载时的方向修正：
+  // - 竖屏打开但数据是横屏网格：按当前（竖屏）网格重排并留在原页；
+  // - 横屏打开但数据是竖屏网格：同样先保存竖屏快照再重排，
+  //   否则稍后转回竖屏时没有快照可恢复，会把竖屏桌面打乱。
   useEffect(() => {
     const patch = responsiveColumns.patch;
     const previousLandscape = previousLandscapeRef.current;
@@ -257,11 +260,18 @@ const Desktop: React.FC = () => {
     if (orientationPatchKeyRef.current === patchKey) return;
     orientationPatchKeyRef.current = patchKey;
 
-    if (
-      patch.cols !== undefined
-      && previousLandscape !== null
-      && previousLandscape !== viewport.isLandscape
-    ) {
+    if (patch.cols === undefined) {
+      updateSettings(patch, { reflowGrid: true, preservePage: true });
+      return;
+    }
+
+    // 运行时旋转（已知上一方向且发生变化）：走方向原子重排。
+    const rotated = previousLandscape !== null && previousLandscape !== viewport.isLandscape;
+    // 加载时即横屏：数据网格仍是竖屏，需先建立竖屏快照再重排，
+    // 保证之后转回竖屏能精确恢复原始竖屏布局。
+    const loadingInLandscape = previousLandscape === null && viewport.isLandscape;
+
+    if (rotated || loadingInLandscape) {
       applyOrientationLayout({ toLandscape: viewport.isLandscape, patch });
       return;
     }
