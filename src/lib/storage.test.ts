@@ -9,6 +9,7 @@ import {
   saveSyncConfig,
   updateSyncConfig,
   WIDGET_ITEMS,
+  SYSTEM_APPS,
 } from './storage';
 
 function memoryStorage(): Storage {
@@ -213,5 +214,38 @@ describe('bookmark entry migration', () => {
     localStorage.setItem('ios_desktop_data', JSON.stringify(first));
     expect(loadDesktopData().pages.flat().filter((item) => item.id === 'sys-bookmarks')).toHaveLength(1);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('built-in desktop websites', () => {
+  it('keeps legacy desktops within the page limit when the drive icon has no available slot', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    try {
+      localStorage.setItem('ios_desktop_settings', JSON.stringify({ cols: 4, rows: 1 }));
+      const systems = SYSTEM_APPS.filter((item) => item.id !== 'sys-drive');
+      const pages = Array.from({ length: 20 }, (_, page) => Array.from({ length: 4 }, (_, col) => (
+        page === 0
+          ? { ...systems[col], row: 0, col }
+          : { id: `app-${page}-${col}`, type: 'app', name: '应用', color: 'blue', page, row: 0, col }
+      )));
+      localStorage.setItem('ios_desktop_data', JSON.stringify({ version: CURRENT_DESKTOP_VERSION, pages }));
+      expect(loadDesktopData().pages).toEqual(pages);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('seeds removable shortcuts only on a new desktop and does not recreate deleted ones', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    try {
+      const desktop = loadDesktopData();
+      expect(desktop.pages[0].filter((item) => item.type === 'app')).toHaveLength(6);
+      expect(desktop.pages[0].find((item) => item.id === 'sys-drive')).toMatchObject({ type: 'system' });
+      desktop.pages[0] = desktop.pages[0].filter((item) => item.id !== 'site-maps');
+      localStorage.setItem('ios_desktop_data', JSON.stringify(desktop));
+      expect(loadDesktopData().pages.flat().some((item) => item.id === 'site-maps')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

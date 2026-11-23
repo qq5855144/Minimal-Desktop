@@ -87,7 +87,7 @@ interface DesktopContextType {
   updateSettings: (patch: Partial<DesktopSettings>) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   updateBookmarks: (action: BookmarkAction) => boolean;
-  addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
+  addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => boolean;
   setWidgetEnabled: (widgetType: WidgetType, enabled: boolean) => boolean;
   setWeatherSize: (id: string, size: 'small' | 'large') => boolean;
   updateItem: (id: string, patch: Partial<DesktopItem>) => void;
@@ -492,7 +492,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // 添加到隐私桌面；当前负页已满时自动创建更靠左的新页。
     if (preferPage !== undefined && preferPage < 0) {
-      if (draft.type !== 'app' && draft.type !== 'folder') return;
+      if (draft.type !== 'app' && draft.type !== 'folder') return false;
       const slot = findFirstAvailablePrivacySlot(
         privacyPageItemsRef.current,
         draft,
@@ -500,16 +500,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         gridRows,
         preferPage,
       );
-      if (!slot) return;
+      if (!slot) return false;
       const nextPrivacy = [
         ...privacyPageItemsRef.current.map((candidate) => ({ ...candidate })),
         { ...draft, page: slot.page, row: slot.row, col: slot.col },
       ];
-      if (commitPrivacyItems(nextPrivacy)) {
-        const inserted = privacyPageItemsRef.current.find((candidate) => candidate.id === draft.id);
-        if (inserted) setCurrentPage(inserted.page);
-      }
-      return;
+      if (!commitPrivacyItems(nextPrivacy)) return false;
+      const inserted = privacyPageItemsRef.current.find((candidate) => candidate.id === draft.id);
+      if (inserted) setCurrentPage(inserted.page);
+      return true;
     }
 
     const next = deepClone(dataRef.current);
@@ -520,9 +519,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const position = findFirstAvailableSlot(next.pages[page], draft, gridCols, gridRows);
       if (position) slot = { page, ...position };
     }
-    if (!slot) return;
+    if (!slot) return false;
     next.pages[slot.page].push({ ...draft, page: slot.page, row: slot.row, col: slot.col });
-    if (commitDesktopData(next)) setCurrentPage(slot.page);
+    if (!commitDesktopData(next)) return false;
+    setCurrentPage(slot.page);
+    return true;
   }, [commitPrivacyItems, commitDesktopData, setCurrentPage]);
 
   const setWidgetEnabled = useCallback((widgetType: WidgetType, enabled: boolean): boolean => {

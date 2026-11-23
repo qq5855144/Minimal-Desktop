@@ -1,6 +1,7 @@
+import { BUILT_IN_SITES, hasDesktopSite } from '@/lib/builtInSites';
 import {
   Check, ChevronRight, Clock,
-  Image, Layers, LayoutGrid, Loader2, Palette,
+  Cloud, Globe, Image, Layers, LayoutGrid, Loader2, Palette,
   RotateCcw, Search, Video, CloudSun,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,7 +17,7 @@ import { clearWallpaperDB, saveWallpaperDB, WALLPAPER_MAX_BYTES } from '@/lib/wa
 import type { DesktopColumnCount, DesktopSettings, DesktopStyle, SearchBarStyle } from '@/types';
 import SystemSheet from './SystemSheet';
 
-type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets' | 'about';
+type Panel = 'main' | 'bg' | 'view' | 'style' | 'widgets' | 'websites' | 'about';
 type BgCategory = 'bing' | 'nature' | 'city' | 'space' | 'minimal';
 
 interface BingImage {
@@ -94,11 +95,12 @@ function unsplashFallback(cat: Exclude<BgCategory, 'bing'>, page: number, sessio
 
 interface SettingsViewProps {
   open: boolean;
+  onOpenDrive: () => void;
   onClose: () => void;
 }
 
-const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
-  const { data, gridCols, importData, settings, setWidgetEnabled, updateSettings, viewport } = useDesktop();
+const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose, onOpenDrive }) => {
+  const { addItem, data, gridCols, importData, settings, setWidgetEnabled, updateSettings, viewport } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -389,6 +391,8 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           disabled: isNeu,
         },
         { id: 'view' as Panel, icon: <LayoutGrid className="w-5 h-5" />, label: '应用视图设置', desc: `图标 ${settings.iconSize}px · ${gridCols} 列`, color: 'bg-indigo-500', disabled: false },
+        { id: 'drive' as const, icon: <Cloud className="w-5 h-5" />, label: '云盘', desc: 'GitHub 私有文件存储', color: 'bg-teal-600', disabled: false },
+        { id: 'websites' as Panel, icon: <Globe className="w-5 h-5" />, label: '常用网站', desc: '添加到桌面', color: 'bg-cyan-600', disabled: false },
         { id: 'style' as Panel, icon: <Palette className="w-5 h-5" />, label: '风格设置', desc: isNeu ? '新拟态' : '毛玻璃', color: 'bg-purple-500', disabled: false },
         {
           id: 'widgets' as Panel,
@@ -404,6 +408,10 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           type="button"
           onClick={() => {
             if (!item.disabled) {
+              if (item.id === 'drive') {
+                onOpenDrive();
+                return;
+              }
               if (item.id === 'bg') {
                 // 每次进入壁纸面板：重置随机种子 + 清空缓存，保证图片不重复
                 sessionSeedRef.current = Math.floor(Math.random() * 10000);
@@ -809,6 +817,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     view: { title: '应用视图' },
     style: { title: '桌面风格' },
     widgets: { title: '桌面组件' },
+    websites: { title: '常用网站' },
     about: { title: '关于' },
   };
   const meta = panelMeta[panel];
@@ -828,6 +837,28 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
       {panel === 'style'   && renderStyle()}
       {panel === 'widgets' && renderWidgets()}
       {panel === 'about' && renderAbout()}
+      {panel === 'websites' && (
+        <div className="space-y-2 px-4 py-3">
+          {BUILT_IN_SITES.map((site) => {
+            const added = hasDesktopSite(data.pages, site.url);
+            return (
+              <div key={site.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${t.itemBg} ${t.itemBorder}`}>
+                <div className="min-w-0 flex-1">
+                  <p className={`truncate text-sm font-medium ${t.textPrimary}`}>{site.name}</p>
+                  <p className={`truncate text-xs ${t.textDim}`}>{new URL(site.url).hostname}</p>
+                </div>
+                <button type="button" disabled={added}
+                  className="min-h-9 shrink-0 rounded-lg bg-indigo-600 px-3 text-xs font-medium text-white disabled:opacity-40"
+                  onClick={() => {
+                    if (!addItem({ ...site, type: 'app' }, 0)) toast.error('空间不足');
+                  }}>
+                  {added ? '已添加' : '添加'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {panel !== 'bg' && <div className="pb-4" />}
     </SystemSheet>
   );

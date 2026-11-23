@@ -51,6 +51,7 @@ import WidgetGridCell from './WidgetGridCell';
 import { isFullWidthWidget } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 
+const CloudDriveView = React.lazy(() => import('./CloudDriveView'));
 const BookmarksView = React.lazy(() => import('./BookmarksView'));
 const FolderView = React.lazy(() => import('./FolderView'));
 const AddEditDialog = React.lazy(() => import('./AddEditDialog'));
@@ -137,6 +138,7 @@ const Desktop: React.FC = () => {
   const [openBookmarks, setOpenBookmarks] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
   const [openSync, setOpenSync] = useState(false);
+  const [openDrive, setOpenDrive] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
   // 剪藏预填数据（扩展工具栏点击后传入）
@@ -293,7 +295,10 @@ const Desktop: React.FC = () => {
         const saved = updateBookmarks({ type: 'add', item: { id: clip.id || crypto.randomUUID(), name: clip.title, url: safeUrl, iconUrl: clip.favicon, groupId: 'default' } });
         if (!saved) { toast.error('无法保存书签，请检查数量限制'); return; }
         setOpenBookmarks(true);
-      } else addItem({ name: clip.title, url: safeUrl, iconUrl: clip.favicon, type: 'app', color: 'blue' }, currentPage);
+      } else if (!addItem({ name: clip.title, url: safeUrl, iconUrl: clip.favicon, type: 'app', color: 'blue' }, currentPage)) {
+        toast.error('空间不足');
+        return;
+      }
       await chrome.storage.local.remove(['pendingClip']);
       toast.success(clip.target === 'bookmarks' ? '已添加到书签' : '已添加到桌面');
     };
@@ -421,7 +426,7 @@ const Desktop: React.FC = () => {
   // 桌面操作历史快捷键：⌘/Ctrl+Z 撤销，⌘/Ctrl+Shift+Z 或 Ctrl+Y 重做。
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (currentPage < 0 || openFolderId || openSync || addDialogOpen || editingItem || contextMenu || isDragging) return;
+      if (currentPage < 0 || openFolderId || openSync || openDrive || addDialogOpen || editingItem || contextMenu || isDragging) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (!event.metaKey && !event.ctrlKey) return;
@@ -437,7 +442,7 @@ const Desktop: React.FC = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openSync, redo, undo]);
+  }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openDrive, openSync, redo, undo]);
 
   const navigateToPage = useCallback((page: number) => {
     currentPageRef.current = page;
@@ -1052,6 +1057,7 @@ const Desktop: React.FC = () => {
     if (item.id === 'sys-bookmarks') setOpenBookmarks(true);
     else if (item.id === 'sys-settings') setOpenSettings(true);
     else if (item.id === 'sys-sync') setOpenSync(true);
+    else if (item.id === 'sys-drive') setOpenDrive(true);
     else if (item.id === 'sys-add') setAddDialogOpen(true);
   }, []);
 
@@ -1074,11 +1080,12 @@ const Desktop: React.FC = () => {
 
   const handleAddApp = useCallback(
     (app: { name: string; url: string; iconUrl?: string; iconCrop?: import('@/types').IconCrop }) => {
-      addItem(
+      const added = addItem(
         { type: 'app', name: app.name, url: app.url, iconUrl: app.iconUrl, iconCrop: app.iconCrop, color: 'blue' },
         currentPage,
       );
-      toast.success(`已添加「${app.name}」`);
+      if (added) toast.success(`已添加「${app.name}」`);
+      else toast.error('空间不足');
     }, [addItem, currentPage],
   );
 
@@ -1783,9 +1790,15 @@ const Desktop: React.FC = () => {
       {openBookmarks && <React.Suspense fallback={null}><BookmarksView onClose={() => setOpenBookmarks(false)} /></React.Suspense>}
       {openSettings && (
         <React.Suspense fallback={null}>
-          <SettingsView open onClose={() => setOpenSettings(false)} />
+          <SettingsView
+            open
+            onClose={() => setOpenSettings(false)}
+            onOpenDrive={() => { setOpenSettings(false); setOpenDrive(true); }}
+          />
         </React.Suspense>
       )}
+      {openDrive && <React.Suspense fallback={null}><CloudDriveView onClose={() => setOpenDrive(false)} /></React.Suspense>}
+
       {openSync && (
         <React.Suspense fallback={null}>
           <SyncView open onClose={() => setOpenSync(false)} />

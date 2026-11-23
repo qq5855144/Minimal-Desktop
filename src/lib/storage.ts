@@ -1,7 +1,8 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
+import { BUILT_IN_SITES } from './builtInSites';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
-import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
+import { findFirstAvailableSlot, LAYOUT_LIMITS, normalizeDesktopColumnCount } from './layoutEngine';
 import { normalizeOrientationSettings } from './orientationLayout';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
@@ -76,12 +77,22 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
     { id: 'sys-add',      type: 'system', name: '添加应用', color: 'blue',   page: 0, row: widgetRows,     col: 0 },
     { id: 'sys-settings', type: 'system', name: '设置',     color: 'gray',   page: 0, row: widgetRows,     col: 1 },
     { id: 'sys-bookmarks', type: 'system', name: '书签', color: 'orange', page: 0, row: widgetRows, col: 3 },
+    { id: 'sys-drive', type: 'system', name: '云盘', color: 'teal', page: 0, row: widgetRows + 1, col: 0 },
     { id: 'sys-sync',     type: 'system', name: '同步',     color: 'indigo', page: 0, row: widgetRows,     col: 2 },
   ] as import('@/types').DesktopItem[];
 })();
 
+const DEFAULT_SITE_START_ROW = SYSTEM_APPS[0].row;
+
 export const defaultDesktopData: DesktopData = {
-  pages: [JSON.parse(JSON.stringify([...WIDGET_ITEMS, ...SYSTEM_APPS]))],
+  pages: [[...WIDGET_ITEMS, ...SYSTEM_APPS, ...BUILT_IN_SITES.map((site, index) => {
+    const cell = SYSTEM_APPS.length + index;
+    return {
+      ...site, type: 'app' as const, page: 0,
+      row: DEFAULT_SITE_START_ROW + Math.floor(cell / 4),
+      col: cell % 4,
+    };
+  })]],
   version: CURRENT_DESKTOP_VERSION,
 };
 
@@ -96,7 +107,7 @@ export function loadDesktopData(): DesktopData {
       const validated = parseDesktopData(JSON.parse(raw));
       if (validated.ok) {
         const ensured = JSON.parse(JSON.stringify(validated.data)) as DesktopData;
-        // ── 迁移 1：确保三个系统应用始终存在（允许位于文件夹内）──
+        // ── 迁移 1：确保系统应用存在（允许位于文件夹内）──
         const layoutSettings = normalizeOrientationSettings(loadSettings());
         for (const sysApp of SYSTEM_APPS) {
           const exists = ensured.pages.some((page) => containsItemId(page, sysApp.id));
@@ -114,7 +125,7 @@ export function loadDesktopData(): DesktopData {
               placed = true;
               break;
             }
-            if (!placed) {
+            if (!placed && ensured.pages.length < LAYOUT_LIMITS.maxPages) {
               ensured.pages.push([{ ...sysApp, page: ensured.pages.length, row: 0, col: 0 }]);
             }
           }

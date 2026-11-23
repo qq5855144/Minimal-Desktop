@@ -39,7 +39,7 @@ export function getBackgroundBackupPath(filePath: string): string {
   return `${filePath}.assets/background`;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
@@ -48,7 +48,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function base64ToBytes(content: string): Uint8Array {
+export function base64ToBytes(content: string): Uint8Array {
   const binary = atob(content.replace(/\s/g, ''));
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
@@ -79,7 +79,7 @@ async function gitBlobSha(content: string): Promise<string | null> {
   }
 }
 // GitHub API 通用请求辅助
-async function ghFetch(
+export async function ghFetch(
   token: string,
   path: string,
   options: RequestInit = {},
@@ -101,7 +101,7 @@ function authErrorMessage(res: Response): string | null {
   return null;
 }
 // 统一的失败消息构造：优先认证错误，其次 GitHub 返回的 message
-async function errorMessage(res: Response, fallback: string): Promise<string> {
+export async function errorMessage(res: Response, fallback: string): Promise<string> {
   const auth = authErrorMessage(res);
   if (auth) return auth;
   const err = await res.json().catch(() => ({}));
@@ -121,10 +121,14 @@ export async function ensureRepo(
   token: string,
   owner: string,
   repo: string,
+  options: { description?: string; requirePrivate?: boolean } = {},
 ): Promise<{ ok: boolean; created: boolean; message: string; branch?: string }> {
   const checkRes = await ghFetch(token, `/repos/${owner}/${repo}`);
   if (checkRes.ok) {
-    const existing = await checkRes.json() as { default_branch?: string };
+    const existing = await checkRes.json() as { default_branch?: string; private?: boolean };
+    if (options.requirePrivate && existing.private !== true) {
+      return { ok: false, created: false, message: '同名仓库不是私有仓库，请在 GitHub 上检查仓库' };
+    }
     return { ok: true, created: false, message: '仓库已存在', branch: existing.default_branch };
   }
   if (checkRes.status !== 404) {
@@ -138,7 +142,7 @@ export async function ensureRepo(
     method: 'POST',
     body: JSON.stringify({
       name: repo,
-      description: 'Minimal Desktop 桌面数据备份',
+      description: options.description ?? 'Minimal Desktop 桌面数据备份',
       private: true,
       auto_init: true,
     }),
@@ -146,7 +150,10 @@ export async function ensureRepo(
   if (!createRes.ok) {
     return { ok: false, created: false, message: await errorMessage(createRes, '创建仓库失败') };
   }
-  const created = await createRes.json() as { default_branch?: string };
+  const created = await createRes.json() as { default_branch?: string; private?: boolean };
+  if (options.requirePrivate && created.private !== true) {
+    return { ok: false, created: false, message: '无法确认新仓库的私有状态' };
+  }
   return { ok: true, created: true, message: '仓库已自动创建', branch: created.default_branch };
 }
 
@@ -182,7 +189,7 @@ interface RepoFileResult {
 }
 
 /** Contents API 对大文件不返回 content；此时自动回退 Git Blob API。 */
-async function readRepoFileAtRef(
+export async function readRepoFileAtRef(
   token: string,
   owner: string,
   repo: string,

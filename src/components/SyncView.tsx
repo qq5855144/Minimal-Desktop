@@ -147,7 +147,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       setLoggedIn(true);
       saveSyncConfig(next);
       const msg = repoResult.created ? `已连接 ${user.login}，数据仓库已自动创建` : `已连接 ${user.login}`;
-      toast.success(msg);
+      toast.success(msg, { position: 'top-center' });
       setStatusMsg({ type: 'success', msg });
     } catch {
       setStatusMsg({ type: 'error', msg: '连接失败，请检查网络' });
@@ -208,7 +208,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const handleDownload = useCallback(async () => {
     if (!config.token) {
       setStatusMsg({ type: 'error', msg: '登录已过期，请重新连接' });
-      toast.error('登录已过期，请重新连接');
+      toast.error('登录已过期，请重新连接', { position: 'top-center' });
       return;
     }
     setSyncing('download'); setStatusMsg(null);
@@ -225,10 +225,10 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           summary: summarizeDesktopDiff(savedData, result.data),
         });
         setStatusMsg({ type: 'success', msg: '已读取云端备份，请确认差异后恢复' });
-        toast.success('云端备份已读取');
+        toast.success('云端备份已读取', { position: 'top-center' });
       } else {
         setStatusMsg({ type: 'error', msg: result.message });
-        toast.error(result.message);
+        toast.error(result.message, { position: 'top-center' });
       }
     } catch { setStatusMsg({ type: 'error', msg: '下载失败，请检查网络' }); }
     finally { setSyncing(null); }
@@ -332,15 +332,15 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       if (backgroundSaved) {
         toast.success(pendingRestore.data.privacyVault
           ? '已从云端恢复（隐私数据需重新解锁）'
-          : '已从云端恢复');
+          : '已从云端恢复', { position: 'top-center' });
       } else {
-        toast.error(message);
+        toast.error(message, { position: 'top-center' });
       }
     } catch (error) {
       if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
       const message = error instanceof Error ? error.message : '恢复失败，请重试';
       setStatusMsg({ type: 'error', msg: message });
-      toast.error(message);
+      toast.error(message, { position: 'top-center' });
     } finally {
       setSyncing(null);
     }
@@ -379,6 +379,13 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       bodyClassName="overflow-y-auto px-4 py-3"
     >
       <div className="space-y-3">
+        {statusMsg && (
+          <div role="status" className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
+            {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+            <span>{statusMsg.msg}</span>
+          </div>
+        )}
+
 
           {/* ── 未登录状态 ── */}
           {!loggedIn && (
@@ -411,12 +418,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               </div>
 
               {/* 状态提示 */}
-              {statusMsg && (
-                <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
-                  {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-                  <span>{statusMsg.msg}</span>
-                </div>
-              )}
+
 
               <button
                 type="button" onClick={handleConnect} disabled={connecting}
@@ -491,12 +493,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
               )}
 
               {/* 状态提示 */}
-              {statusMsg && (
-                <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${statusMsg.type === 'success' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
-                  {statusMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-                  <span>{statusMsg.msg}</span>
-                </div>
-              )}
+
 
               {pendingRestore && (
                 <div className={`rounded-2xl p-4 space-y-3 ${isNeu ? 'bg-indigo-50 border border-indigo-200' : 'bg-indigo-500/10 border border-indigo-400/20'}`}>
@@ -569,7 +566,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                   {syncing === 'upload'
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <CloudUpload className="w-4 h-4" />}
-                  立即同步
+                  同步到云端
                 </button>
                 <button
                   type="button" onClick={handleDownload} disabled={!!syncing || !!pendingRestore}
