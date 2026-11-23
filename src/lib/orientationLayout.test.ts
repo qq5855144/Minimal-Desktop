@@ -26,39 +26,82 @@ const defaults: DesktopSettings = {
 };
 
 describe('orientation layout', () => {
-  it('keeps sparse positions, page boundaries and widget anchors on rotations without edits', () => {
-    const portrait = data(
-      [app('a', 0, 2, 3)],
-      [app('b', 1, 7, 1), { ...app('clock', 1, 1, 0), type: 'widget', widgetType: 'clock' }],
-    );
+  it('keeps page boundaries and widget anchors without changing portrait coordinates', () => {
+    const clock: DesktopItem = { ...app('clock', 1, 0, 0), type: 'widget', widgetType: 'clock' };
+    const portrait = data([app('a', 0, 2, 3)], [app('b', 1, 7, 1), clock]);
     const landscape = projectLandscape(portrait, 4, 6, 8);
-    expect(landscape.pages[0][0]).toMatchObject({ id: 'a', row: 2, col: 2 });
-    expect(landscape.pages[1]).toEqual([
-      portrait.pages[1][1],
-      app('b', 1, 7, 2),
-    ]);
+    expect(landscape.pages[0]).toEqual([app('a', 0, 0, 0)]);
+    expect(landscape.pages[1]).toEqual([clock, app('b', 1, 2, 0)]);
     expect(portrait.pages[0][0]).toMatchObject({ row: 2, col: 3 });
     expect(validateDesktopLayout(landscape, { cols: 6, rows: 8 })).toEqual([]);
   });
 
-  it('fills all six columns across adjacent rows and centers the remaining icons', () => {
-    const apps = Array.from({ length: 12 }, (_, index) => app(
-      `app-${index}`, 0, 3 + Math.floor(index / 4), index % 4,
+  it.each([8, 12])('places %i apps in portrait order with the last row starting at the left', (count) => {
+    const apps = Array.from({ length: count }, (_, index) => app(
+      `app-${index + 1}`, 0, Math.floor(index / 4), index % 4,
     ));
-    const clock: DesktopItem = { ...app('clock', 0, 0, 0), type: 'widget', widgetType: 'clock' };
-    const portrait = data([clock, ...apps.slice(0, 8), ...apps.slice(8).map((item) => ({ ...item, row: 6 }))]);
+    // Stored array order may differ from the visible portrait order after a drag.
+    const portrait = data([...apps].reverse());
     const landscape = projectLandscape(portrait, 4, 6, 8);
-    const at = (row: number) => landscape.pages[0].filter((item) => item.row === row);
-    expect(at(0)).toEqual([clock]);
-    expect(at(3).map((item) => item.col)).toEqual([0, 1, 2, 3, 4, 5]);
-    expect(at(4).map((item) => item.col)).toEqual([2, 3]);
-    expect(at(5)).toEqual([]);
-    expect(at(6).map((item) => item.col)).toEqual([1, 2, 3, 4]);
-    expect(landscape.pages[0].filter((item) => item.type === 'app').map((item) => item.id))
-      .toEqual(apps.map((item) => item.id));
+    expect(landscape.pages[0]).toEqual(apps.map((item, index) => (
+      { ...item, row: Math.floor(index / 6), col: index % 6 }
+    )));
     expect(validateDesktopLayout(landscape, { cols: 6, rows: 8 })).toEqual([]);
-    expect(portrait.pages[0].filter((item) => item.row === 3).map((item) => item.col)).toEqual([0, 1, 2, 3]);
     expect(projectLandscape(portrait, 4, 4, 8)).toBe(portrait);
+  });
+
+  it('packs a 2×2 folder in reading order and skips all the cells it covers on the next row', () => {
+    const folder = { ...app('folder', 0, 1, 0), type: 'folder', folderLayout: '2x2' } satisfies DesktopItem;
+    const portrait = data([
+      ...Array.from({ length: 4 }, (_, col) => app(`app-${col}`, 0, 0, col)),
+      folder, app('a', 0, 1, 2), app('b', 0, 1, 3), app('c', 0, 2, 2), app('d', 0, 2, 3),
+      app('e', 0, 3, 0),
+    ]);
+    const landscape = projectLandscape(portrait, 4, 6, 8);
+    expect(landscape.pages[0].slice(4)).toEqual([
+      { ...folder, row: 0, col: 4 },
+      app('a', 0, 1, 0), app('b', 0, 1, 1), app('c', 0, 1, 2), app('d', 0, 1, 3),
+      app('e', 0, 2, 0),
+    ]);
+    expect(validateDesktopLayout(landscape, { cols: 6, rows: 8 })).toEqual([]);
+    expect(folder).toMatchObject({ row: 1, col: 0 });
+  });
+
+  it('moves a wide folder to the next row when only one column remains, keeping later icons after it', () => {
+    const folder = { ...app('folder', 0, 1, 1), type: 'folder', folderLayout: '2x2' } satisfies DesktopItem;
+    const portrait = data([
+      ...Array.from({ length: 5 }, (_, index) => app(`app-${index}`, 0, Math.floor(index / 4), index % 4)),
+      folder, app('a', 0, 1, 3), app('b', 0, 2, 0), app('c', 0, 2, 3),
+    ]);
+    const landscape = projectLandscape(portrait, 4, 6, 8);
+    expect(landscape.pages[0].slice(5)).toEqual([
+      { ...folder, col: 0 }, app('a', 0, 1, 2), app('b', 0, 1, 3), app('c', 0, 1, 4),
+    ]);
+    expect(validateDesktopLayout(landscape, { cols: 6, rows: 8 })).toEqual([]);
+  });
+
+  it('keeps order and all items when wide widgets and folder spans prevent the densest layout', () => {
+    const column = (id: string, row: number, col: number): DesktopItem => (
+      { ...app(id, 0, row, col), type: 'folder', folderLayout: '2x1' }
+    );
+    const wide = (id: string, row: number, col: number): DesktopItem => (
+      { ...app(id, 0, row, col), type: 'folder', folderLayout: '1x2' }
+    );
+    const weather: DesktopItem = {
+      ...app('weather', 0, 2, 1), type: 'widget', widgetType: 'weather', weatherSize: 'large',
+    };
+    const items = [
+      app('a', 0, 0, 0), app('b', 0, 0, 1), column('c', 0, 3), wide('d', 0, 4), column('e', 0, 6),
+      app('f', 0, 1, 1), app('g', 0, 1, 2), app('h', 0, 1, 4), column('i', 2, 0), wide('j', 2, 5),
+      app('k', 0, 3, 5), app('l', 0, 3, 6),
+    ];
+    const landscape = projectLandscape(data([...items, weather]), 7, 8, 4);
+    const ordered = landscape.pages[0].filter((item) => item.type !== 'widget')
+      .sort((a, b) => a.row - b.row || a.col - b.col);
+    expect(ordered.map((item) => item.id)).toEqual(items.map((item) => item.id));
+    expect(landscape.pages[0].find((item) => item.id === weather.id)).toEqual(weather);
+    expect(ordered.at(-1)).toMatchObject({ row: 3, col: 5 });
+    expect(validateDesktopLayout(landscape, { cols: 8, rows: 4 })).toEqual([]);
   });
 
   it('respects a saved manual position and does not pin automatically placed icons after a rename', () => {
@@ -108,7 +151,7 @@ describe('orientation layout', () => {
     expect(saved && projectLandscape(saved, 4, 6, 8).pages).toHaveLength(1);
     expect(saved && projectLandscape(saved, 4, 6, 8).pages[0]).toEqual(expect.arrayContaining([
       app('a', 0, 0, 5),
-      app('b', 0, 3, 2),
+      app('b', 0, 0, 0),
     ]));
   });
 
@@ -123,7 +166,7 @@ describe('orientation layout', () => {
     const saved = saveLandscape(portrait, edited, 4, 6, 8);
     expect(saved?.pages[0]).toEqual([
       folder,
-      { ...neighbor, landscapePosition: { page: 0, row: 0, col: 3 } },
+      neighbor,
       { ...app('new', 0, 0, 2), landscapePosition: { page: 0, row: 0, col: 5 } },
     ]);
   });
@@ -137,7 +180,7 @@ describe('orientation layout', () => {
     const landscape = projectLandscape(portrait, 4, 6, 8);
     expect(validateDesktopLayout(landscape, { cols: 6, rows: 8 })).toEqual([]);
     expect(landscape.pages[0].find((candidate) => candidate.id === 'neighbor'))
-      .toMatchObject({ row: 0, col: 3 });
+      .toMatchObject({ row: 0, col: 2 });
     expect(item.landscapePosition?.col).toBe(6);
   });
 

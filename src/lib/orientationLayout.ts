@@ -2,7 +2,6 @@ import type { DesktopData, DesktopItem, DesktopPosition, DesktopSettings } from 
 import {
   canPlaceItem,
   findFirstAvailableSlot,
-  findItemCoveringCell,
   getItemGridSpan,
   LAYOUT_LIMITS,
   normalizeDesktopColumnCount,
@@ -91,47 +90,38 @@ export function groupDesktopPositions(data: DesktopData, items: DesktopItem[]): 
   return { ...data, pages };
 }
 
-/** Fill wider rows within each block of icons. Empty portrait rows separate blocks. */
-function arrangeLandscapePage(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
-  const fixed: DesktopItem[] = [];
-  const iconsByRow = new Map<number, DesktopItem[]>();
-  for (const item of items) {
-    const span = getItemGridSpan(item, cols);
-    if (span.rowSpan !== 1 || span.colSpan !== 1) {
-      fixed.push(item);
-      continue;
+function packLandscapePage(
+  widgets: DesktopItem[],
+  ordered: DesktopItem[],
+  cols: number,
+  rows: number,
+  reservePortraitSlots = false,
+): DesktopItem[] | null {
+  const arranged = [...widgets];
+  let cursor = 0;
+  for (const [index, item] of ordered.entries()) {
+    const occupied = reservePortraitSlots ? arranged.concat(ordered.slice(index + 1)) : arranged;
+    const lastCell = reservePortraitSlots ? item.row * cols + item.col : cols * rows - 1;
+    while (cursor <= lastCell
+      && !canPlaceItem(occupied, item, Math.floor(cursor / cols), cursor % cols, cols, rows)) {
+      cursor++;
     }
-    const icons = iconsByRow.get(item.row) ?? [];
-    icons.push(item);
-    iconsByRow.set(item.row, icons);
+    if (cursor > lastCell) return null;
+    arranged.push(place(item, { page: item.page, row: Math.floor(cursor / cols), col: cursor % cols }));
+    cursor++;
   }
+  return arranged;
+}
 
-  const arranged = [...fixed];
-  const columns = Array.from({ length: cols }, (_, col) => col);
-  let row = 0;
-  while (row < rows) {
-    if (!iconsByRow.has(row)) {
-      row++;
-      continue;
-    }
-    const firstRow = row;
-    const block: DesktopItem[] = [];
-    while (iconsByRow.has(row)) {
-      block.push(...iconsByRow.get(row)!.sort((a, b) => a.col - b.col));
-      row++;
-    }
-    let next = 0;
-    for (let targetRow = firstRow; targetRow < row && next < block.length; targetRow++) {
-      const available = columns.filter((col) => !findItemCoveringCell(fixed, targetRow, col, cols));
-      const count = Math.min(available.length, block.length - next);
-      const start = Math.floor((available.length - count) / 2);
-      for (const col of available.slice(start, start + count)) {
-        const item = block[next++];
-        arranged.push(place(item, { page: item.page, row: targetRow, col }));
-      }
-    }
-  }
-  return arranged.length === items.length ? arranged : items;
+/** 排序以竖屏左上角为准，文件夹占满矩形区域后才继续放置下一个项目。 */
+function arrangeLandscapePage(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
+  const widgets = items.filter((item) => item.type === 'widget');
+  const ordered = items.filter((item) => item.type !== 'widget')
+    .sort((a, b) => a.row - b.row || a.col - b.col);
+  // 紧凑排布可能堵住后续文件夹的落点。重试时保留尚未放置项目的竖屏格位。
+  return packLandscapePage(widgets, ordered, cols, rows)
+    ?? packLandscapePage(widgets, ordered, cols, rows, true)
+    ?? items;
 }
 
 function automaticLandscapeItems(
