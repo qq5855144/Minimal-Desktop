@@ -5,9 +5,10 @@
 <p align="center">
   <img src="docs/preview.webp" alt="Minimal Desktop 桌面预览" width="720" />
 </p>
+
 > **在线体验**：
-> - Cloudflare Pages ：<https://mdsk.pages.dev/>
-> - GitHub Pages：<https://qq5855144.github.io/GitHubM/>
+> - Cloudflare Pages：<https://mdsk.pages.dev/>
+> - GitHub Pages：<https://qq5855144.github.io/Minimal-Desktop/>
 
 ## 基础操作
 
