@@ -82,10 +82,17 @@
 
 ## 云盘与常用网站
 
-- 打开桌面「云盘」，可继续使用云同步的 GitHub 令牌，也可以输入对云盘仓库有权限的令牌。首次连接会创建独立的私有仓库 `minimal-desktop-drive`。首次创建需要仓库创建权限，上传和删除需要 Contents 读写权限。
-- 云盘支持上传、下载和移除文件，单文件上限为 25 MiB。文件和目录索引在浏览器内加密，密钥保存在该私有仓库的 `minimal-desktop-drive-key-v1` 标签中。移除文件后，旧版本仍保留在 Git 历史里。
-- 「代理加速」默认关闭。开启后同时比较 GitHub 直连、GH-Proxy 和 GHFast 的速度，按测速结果选择下载线路，失败时回退到 GitHub API。代理只处理带短时链接的加密文件。
-- 新桌面预置常用网站，均可像普通应用一样删除。已有桌面可从「设置 → 常用网站」按需添加。
+- 在云同步登录后打开桌面「云盘」，首次进入会创建独立私有仓库 `minimal-desktop-drive`。令牌需要对云盘仓库有权限，首次创建仓库还需相应的仓库创建权限。
+- 云盘独立页面支持多选上传到当前目录、下载、目录创建、重命名、移动和删除。超过单块大小的文件会分块加密传输，仍受 GitHub 仓库容量、API 和浏览器可用存储空间限制。密钥放在私有仓库的 `minimal-desktop-drive-key-v1` 标签中，删除的文件仍保留在 Git 历史里。
+- 「分享文件」可打开设备的系统分享面板，或复制只对已有 GitHub 仓库读权限的用户有效的私有链接。
+- 「代理加速」默认关闭。开启后比较 GitHub 直连、GH-Proxy 和 GHFast 的可用速度，失败时回退 GitHub API。代理只处理带短时链接的加密分块。
+- 新桌面预置可删除的常用网站，已有桌面可从「设置 → 常用网站」添加。
+
+## Cloudflare Pages 部署
+
+Cloudflare Pages 的 Git 集成使用生产分支 `main`、构建命令 `pnpm build:cloudflare`、输出目录 `dist`。项目构建时需使用 Node.js 24。Cloudflare 产物使用站点根路径，支持刷新 `/drive`。
+
+也可用 GitHub Actions 直接部署现有 Pages 项目 `mdsk`。在仓库 Actions Variables 中配置 `CLOUDFLARE_ACCOUNT_ID`，在 Actions Secrets 中配置具有 Cloudflare Pages 编辑权限的 `CLOUDFLARE_API_TOKEN`。选择其中一种自动部署方式即可。
 
 ## 浏览器扩展
 

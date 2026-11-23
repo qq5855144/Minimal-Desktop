@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  CLOUD_DRIVE_MAX_BYTES, connectCloudDrive, downloadCloudDriveFile, listCloudDrive, removeCloudDriveFile,
-  uploadCloudDriveFile,
+  connectCloudDrive, createCloudDriveFolder, downloadCloudDriveFile, editCloudDriveEntry, listCloudDrive,
+  openSharedCloudDrive, removeCloudDriveFile, removeCloudDriveFolder, uploadCloudDriveFile,
 } from './cloudDrive';
 import { base64ToBytes } from './github';
 
@@ -203,13 +203,52 @@ describe('GitHub cloud drive', () => {
     expect(fixture.requests.slice(count).every((request) => request.url.startsWith('https://api.github.com/'))).toBe(true);
   });
 
-  it('rejects oversized files before reading or sending their contents', async () => {
+  it('uploads past the former 25 MiB limit in encrypted chunks and reconstructs the download', async () => {
     const fixture = gitFixture(true);
     const session = await connectCloudDrive(TOKEN);
-    const count = fixture.requests.length;
-    const file = { size: CLOUD_DRIVE_MAX_BYTES + 1, arrayBuffer: vi.fn() } as unknown as File;
-    await expect(uploadCloudDriveFile(session, file)).rejects.toThrow('单文件最多 25 MiB');
-    expect(file.arrayBuffer).not.toHaveBeenCalled();
-    expect(fixture.requests).toHaveLength(count);
+    const expected = new Uint8Array(25 * 1024 * 1024 + 1);
+    expected.set([19, 23, 42], 0);
+    expected.set([58, 100], expected.length - 2);
+    const progress = vi.fn();
+    const uploaded = await uploadCloudDriveFile(session, new File([expected], 'large.bin'), null, { onProgress: progress });
+    expect(progress).toHaveBeenLastCalledWith(expected.length, expected.length);
+    expect(uploaded.files[0].chunkSize).toBe(8 * 1024 * 1024);
+    const patch = fixture.requests.find((request) => request.method === 'POST'
+      && new URL(request.url).pathname.endsWith('/git/trees'))?.body as { tree: { path: string }[] };
+    expect(patch.tree.filter(({ path }) => path.startsWith('drive/files/'))).toHaveLength(4);
+    const result = await downloadCloudDriveFile(session, uploaded.files[0], uploaded.revision, false);
+    expect(result.contents.size).toBe(expected.length);
+    expect(new Uint8Array(await result.contents.slice(0, 3).arrayBuffer())).toEqual(expected.slice(0, 3));
+    expect(new Uint8Array(await result.contents.slice(-2).arrayBuffer())).toEqual(expected.slice(-2));
+  });
+
+  it('manages nested directories without moving encrypted file objects', async () => {
+    gitFixture(true);
+    const session = await connectCloudDrive(TOKEN);
+    const root = await createCloudDriveFolder(session, '资料', null);
+    const parent = root.folders[0];
+    const created = await createCloudDriveFolder(session, '原目录', parent.id);
+    const child = created.folders[1];
+    await expect(editCloudDriveEntry(session, parent.id, '循环', child.id)).rejects.toThrow('自身或子文件夹');
+    const uploaded = await uploadCloudDriveFile(session, new File(['pdf'], '文档.txt'), child.id);
+    const file = uploaded.files[0];
+    expect(file.folderId).toBe(child.id);
+    const moved = await editCloudDriveEntry(session, file.id, '新文件名.txt', parent.id);
+    expect(moved.files[0]).toMatchObject({ name: '新文件名.txt', folderId: parent.id });
+    const shared = await openSharedCloudDrive(TOKEN, 'alice');
+    const remote = await listCloudDrive(shared);
+    const result = await downloadCloudDriveFile(shared, remote.files[0], remote.revision, false);
+    expect(await result.contents.text()).toBe('pdf');
+    expect(await removeCloudDriveFolder(session, parent.id)).toMatchObject({ files: [], folders: [] });
+  });
+
+  it('leaves the directory unchanged when the user cancels before saving', async () => {
+    gitFixture(true);
+    const session = await connectCloudDrive(TOKEN);
+    const controller = new AbortController();
+    await expect(uploadCloudDriveFile(session, new File(['data'], 'cancel.txt'), null, {
+      signal: controller.signal, onProgress: () => controller.abort(),
+    })).rejects.toThrow();
+    expect((await listCloudDrive(session)).files).toEqual([]);
   });
 });
