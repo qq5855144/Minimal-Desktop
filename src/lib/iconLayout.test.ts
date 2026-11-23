@@ -190,3 +190,14 @@ describe('weather folder-aligned bounds', () => {
     expect(large.radius).toBe(small.radius);
   });
 });
+
+describe('手机横屏网格', () => {
+  it('在 768px 断点两侧保持相同中心距和正方形文件夹对齐', () => {
+    for (const width of [720, 767, 768, 844]) {
+      const layout = getDesktopGridLayoutMetrics(width, 6, 46, 360, 8, true);
+      expect(layout).toMatchObject({ iconPx: 46, columnWidthPx: 62, rowHeightPx: 62, contentWidthPx: 442 });
+      expect(layout.columnWidthPx + layout.columnGapPx).toBe(76);
+      expect(layout.rowGapPx).toBe(layout.columnGapPx);
+    }
+  });
+});

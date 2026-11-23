@@ -42,6 +42,22 @@ describe('viewport', () => {
     expect(geometry.isLandscape).toBe(true);
   });
 
+  it('手机横屏在宽度断点两侧都使用紧凑网格', () => {
+    for (const layoutWidth of [720, 768, 844]) {
+      const geometry = resolveViewportGeometry({ layoutWidth, layoutHeight: 360 });
+      expect(geometry.isCompactLandscape).toBe(true);
+    }
+    expect(resolveViewportGeometry({ layoutWidth: 1440, layoutHeight: 900 }).isCompactLandscape).toBe(false);
+  });
+
+  it('软键盘缩短可视空间时不会把竖屏切换为横屏布局', () => {
+    const geometry = resolveViewportGeometry({
+      layoutWidth: 390, layoutHeight: 844, visualWidth: 390, visualHeight: 315,
+    });
+    expect(geometry.shell.height).toBe(315);
+    expect(geometry.isLandscape).toBe(false);
+  });
+
   it('手机电脑模式的窄可视区覆盖伪装的 980px 布局视口', () => {
     const geometry = resolveViewportGeometry({
       layoutWidth: 980,

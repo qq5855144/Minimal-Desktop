@@ -67,6 +67,10 @@ const customSearchEngineSchema = z.object({
   color: z.string().min(1).max(64),
 });
 
+const desktopColumnCount = z.union([
+  z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10),
+]);
+
 export const desktopSettingsSchema: z.ZodType<DesktopSettings> = z.object({
   bgImage: backgroundSource.optional(),
   bgVideo: backgroundSource.optional(),
@@ -74,24 +78,9 @@ export const desktopSettingsSchema: z.ZodType<DesktopSettings> = z.object({
   style: z.enum(['glassmorphism', 'neumorphism']),
   iconSize: z.number().finite().min(24).max(128),
   iconRadiusPct: z.number().finite().min(0).max(50),
-  cols: z.union([
-    z.literal(4),
-    z.literal(5),
-    z.literal(6),
-    z.literal(7),
-    z.literal(8),
-    z.literal(9),
-    z.literal(10),
-  ]),
-  portraitCols: z.union([
-    z.literal(4),
-    z.literal(5),
-    z.literal(6),
-    z.literal(7),
-    z.literal(8),
-    z.literal(9),
-    z.literal(10),
-  ]).optional(),
+  cols: desktopColumnCount,
+  portraitCols: desktopColumnCount.optional(),
+  landscapeCols: desktopColumnCount.optional(),
   rows: z.number().int().min(1).max(16),
   bgOverlayEnabled: z.boolean().optional(),
   bgOverlayScheme: z.enum(['aurora', 'sunset', 'forest', 'midnight', 'warm']).optional(),
@@ -137,6 +126,11 @@ export const desktopItemSchema: z.ZodType<import('@/types').DesktopItem> = z.laz
   page: z.number().int().min(-1).max(1000),
   row: z.number().int().min(0).max(1000),
   col: z.number().int().min(0).max(1000),
+  landscapePosition: z.object({
+    page: z.number().int().min(-20).max(19),
+    row: z.number().int().min(0).max(15),
+    col: z.number().int().min(0).max(9),
+  }).optional(),
   children: z.array(desktopItemSchema).max(9).optional(),
   folderLayout: folderLayout.optional(),
   widgetType: widgetType.optional(),

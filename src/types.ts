@@ -28,8 +28,14 @@ export interface IconCrop {
   size: number; // 1~100
 }
 
+export interface DesktopPosition {
+  page: number;
+  row: number;
+  col: number;
+}
+
 // 桌面项（应用 / 文件夹 / 系统应用 / 组件）
-export interface DesktopItem {
+export interface DesktopItem extends DesktopPosition {
   id: string;
   type: ItemType;
   name: string;
@@ -41,11 +47,8 @@ export interface DesktopItem {
   iconCrop?: IconCrop;
   // 图标颜色主题（无自定义图标时使用）
   color: IconColor;
-  // 所在页面索引（普通桌面从 0 起；隐私桌面从 -1 向左递减）
-  page: number;
-  // 网格位置（行, 列）—— 全宽组件 col=0；天气按固定矩形占位
-  row: number;
-  col: number;
+  /** 仅在横屏摆放与竖屏不同时保存。 */
+  landscapePosition?: DesktopPosition;
   // 文件夹内应用列表
   children?: DesktopItem[];
   // 文件夹在桌面网格中的占位；旧数据未声明时按 1x1 处理
@@ -119,8 +122,9 @@ export interface DesktopSettings {
   iconSize: number;        // 默认 46
   iconRadiusPct: number;   // 图标圆角百分比，默认 25，范围 0-50
   cols: DesktopColumnCount;
-  /** 竖屏/窄屏偏好的列数；横屏自动扩列时保留，避免覆盖用户设置。 */
+  /** 旧版备份的竖屏列数。 */
   portraitCols?: DesktopColumnCount;
+  landscapeCols?: DesktopColumnCount;
   rows: number;            // 每页总视觉行数（含 widget 行），默认 8，范围 1-16
   bgOverlayEnabled?: boolean;
   bgOverlayScheme?: BgOverlayScheme;

@@ -2,6 +2,7 @@ import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { findFirstAvailableSlot, normalizeDesktopColumnCount } from './layoutEngine';
+import { normalizeOrientationSettings } from './orientationLayout';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
 const DESKTOP_KEY = 'ios_desktop_data';
@@ -96,7 +97,7 @@ export function loadDesktopData(): DesktopData {
       if (validated.ok) {
         const ensured = JSON.parse(JSON.stringify(validated.data)) as DesktopData;
         // ── 迁移 1：确保三个系统应用始终存在（允许位于文件夹内）──
-        const layoutSettings = loadSettings();
+        const layoutSettings = normalizeOrientationSettings(loadSettings());
         for (const sysApp of SYSTEM_APPS) {
           const exists = ensured.pages.some((page) => containsItemId(page, sysApp.id));
           if (!exists) {
@@ -302,6 +303,9 @@ export function loadSettings(): import('@/types').DesktopSettings {
       settings.portraitCols = parsed.portraitCols === undefined
         ? undefined
         : normalizeDesktopColumnCount(Number(parsed.portraitCols));
+      if (settings.landscapeCols !== undefined) {
+        settings.landscapeCols = normalizeDesktopColumnCount(Number(settings.landscapeCols));
+      }
       if (isBuiltInDefaultWallpaper(settings.bgImage)) settings.bgImage = DEFAULT_BG_IMAGE;
       return settings;
     }

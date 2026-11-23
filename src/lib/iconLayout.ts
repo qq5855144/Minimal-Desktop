@@ -99,7 +99,7 @@ export function resolveIconPx(size: IconSizeVariant = 'normal', iconPx?: number)
 /**
  * 根据真实视口和“应用视图”的行列数计算统一网格几何。
  *
- * 紧凑视口保持原有满宽布局；电脑端则以 2×2 文件夹为几何锚点：
+ * 紧凑竖屏沿用满宽布局。手机横屏限制列宽，宽屏和横屏均以 2×2 文件夹为几何锚点：
  * - 两列宽度 + 列间隔 = 文件夹正方形边长；
  * - 两行高度 + 行间隔 = 文件夹边长 + 名称区域；
  * - 行数越多，优先收紧留白和间隔，不缩小用户指定的图标尺寸；空间仍不足时滚动。
@@ -110,6 +110,7 @@ export function getDesktopGridLayoutMetrics(
   preferredIconPx: number,
   viewportHeightPx = Number.POSITIVE_INFINITY,
   rows = 8,
+  isCompactLandscape = false,
 ): DesktopGridLayoutMetrics {
   const safeViewportWidth = Number.isFinite(viewportWidthPx)
     ? Math.max(0, viewportWidthPx)
@@ -117,7 +118,7 @@ export function getDesktopGridLayoutMetrics(
   const safeCols = Number.isInteger(cols) && cols > 0 ? cols : 4;
   const safeRows = Number.isInteger(rows) && rows > 0 ? rows : 8;
   const isWide = safeViewportWidth >= DESKTOP_GRID_BREAKPOINT_PX;
-  const horizontalPadding = isWide
+  const horizontalPadding = isWide && !isCompactLandscape
     ? DESKTOP_GRID_WIDE_PADDING_X_PX
     : DESKTOP_GRID_COMPACT_PADDING_X_PX;
   const availableContentWidthPx = Math.min(
@@ -129,7 +130,7 @@ export function getDesktopGridLayoutMetrics(
     : DEFAULT_ICON_PX;
   const labelAreaPx = ICON_LABEL_GAP_PX + LABEL_HEIGHT_MAP.normal;
 
-  if (!isWide) {
+  if (!isWide && !isCompactLandscape) {
     const columnGapPx = DESKTOP_GRID_GAP_PX;
     const rowGapPx = DESKTOP_GRID_GAP_PX;
     const columnWidthPx = Math.max(
@@ -156,7 +157,7 @@ export function getDesktopGridLayoutMetrics(
   }
 
   // 8 行以内保持舒展；增加每页行数时逐级收紧，最低仍保留 12px 触控分隔。
-  const gridGapPx = safeRows <= 8 ? 16 : safeRows <= 10 ? 14 : 12;
+  const gridGapPx = isCompactLandscape ? 14 : safeRows <= 8 ? 16 : safeRows <= 10 ? 14 : 12;
   const maxColumnWidthByViewportPx = Math.max(
     0,
     (availableContentWidthPx - gridGapPx * (safeCols - 1)) / safeCols,
@@ -185,12 +186,15 @@ export function getDesktopGridLayoutMetrics(
     minColumnWidthForRequestedIconPx,
     maxRowHeightByViewportPx,
   );
+  const compactRowWidthPx = requestedIconPx + 16;
+  const preferredColumnWidthPx = isCompactLandscape
+    ? compactRowWidthPx
+    : Math.min(targetColumnWidthPx, maxColumnWidthByHeightPx);
   const columnWidthPx = Math.max(
     0,
     Math.min(
-      targetColumnWidthPx,
+      preferredColumnWidthPx,
       maxColumnWidthByViewportPx,
-      maxColumnWidthByHeightPx,
     ),
   );
   // 极端窄的伪桌面视口仍以列宽为最终边界，避免名称或图标越过格子。

@@ -35,6 +35,7 @@ export interface ViewportGeometry {
   isWide: boolean;
   /** 是否处于横向方向：依据有效区域宽高比判定，不依赖固定宽度断点。 */
   isLandscape: boolean;
+  isCompactLandscape: boolean;
 }
 
 function positive(value: number | undefined, fallback: number): number {
@@ -95,9 +96,11 @@ export function resolveViewportGeometry(
   const shellHeight = isHeightConstrained ? visualHeight : layoutHeight;
   const shellLeft = isWidthConstrained ? visualLeft : 0;
   const shellTop = isHeightConstrained ? visualTop : 0;
-  // 方向依据有效区域宽高比判定：宽明显大于高即为横向。
-  // 加入极小容差避免正方形/细微抖动被误判为旋转。
-  const isLandscape = shellWidth - shellHeight > ORIENTATION_EPSILON_PX;
+  // 软键盘只缩短可视区时，沿用布局视口方向。
+  // 手机浏览器的电脑模式可能伪造布局视口宽度，此时用实际可视区判定。
+  const orientationHeight = isWidthConstrained ? shellHeight : layoutHeight;
+  const isLandscape = shellWidth - orientationHeight > ORIENTATION_EPSILON_PX;
+  const isCompactLandscape = isLandscape && (shellWidth < wideBreakpointPx || orientationHeight <= 540);
 
   return {
     layout: rect(0, 0, layoutWidth, layoutHeight),
@@ -107,6 +110,7 @@ export function resolveViewportGeometry(
     isHeightConstrained,
     isWide: shellWidth >= wideBreakpointPx,
     isLandscape,
+    isCompactLandscape,
   };
 }
 

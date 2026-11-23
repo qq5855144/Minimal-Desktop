@@ -6,7 +6,6 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useDesktop } from '@/contexts/DesktopContext';
-import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import { minimumRowsForEnabledWidgets } from '@/lib/layoutEngine';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { DEFAULT_BG_IMAGE, defaultDesktopData } from '@/lib/storage';
@@ -99,8 +98,7 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ open, onClose }) => {
-  const { data, importData, settings, setWidgetEnabled, updateSettings } = useDesktop();
-  const viewport = useViewportGeometry();
+  const { data, gridCols, importData, settings, setWidgetEnabled, updateSettings, viewport } = useDesktop();
   const [panel, setPanel] = useState<Panel>('main');
   const [urlInput, setUrlInput] = useState('');
   const [bgCat, setBgCat] = useState<BgCategory>('bing');
@@ -390,7 +388,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
           color: 'bg-blue-500',
           disabled: isNeu,
         },
-        { id: 'view' as Panel, icon: <LayoutGrid className="w-5 h-5" />, label: '应用视图设置', desc: `图标 ${settings.iconSize}px · ${settings.cols} 列`, color: 'bg-indigo-500', disabled: false },
+        { id: 'view' as Panel, icon: <LayoutGrid className="w-5 h-5" />, label: '应用视图设置', desc: `图标 ${settings.iconSize}px · ${gridCols} 列`, color: 'bg-indigo-500', disabled: false },
         { id: 'style' as Panel, icon: <Palette className="w-5 h-5" />, label: '风格设置', desc: isNeu ? '新拟态' : '毛玻璃', color: 'bg-purple-500', disabled: false },
         {
           id: 'widgets' as Panel,
@@ -646,7 +644,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
     const minRows = minimumRowsForEnabledWidgets(data);
     // 横向（含小屏手机横屏）只提供 6–10 列；竖屏额外提供 4/5 列紧凑布局。
     const columnOptions: DesktopColumnCount[] = viewport.isLandscape
-      ? [6, 7, 8, 9, 10]
+      ? ([6, 7, 8, 9, 10] as const).filter((col) => col >= settings.cols)
       : [4, 5, 6, 7, 8, 9, 10];
     const sliders: { label: string; value: number; min: number; max: number; step: number; unit: string; key: keyof typeof settings }[] = [
       { label: '图标大小', value: settings.iconSize, min: 36, max: 64, step: 2, unit: 'px', key: 'iconSize' },
@@ -659,7 +657,7 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
         <div className={`rounded-xl px-3 py-2 ${t.itemBg} border ${t.itemBorder} space-y-2`}>
           <div className="flex items-center justify-between">
             <span className={`text-xs ${t.textMuted}`}>每行列数</span>
-            <span className="text-xs font-medium text-primary">{settings.cols} 列</span>
+            <span className="text-xs font-medium text-primary">{gridCols} 列</span>
           </div>
           <div className="grid grid-cols-4 gap-1.5">
             {columnOptions.map((c) => (
@@ -667,10 +665,10 @@ const applyRemoteImage = useCallback(async (url: string): Promise<boolean> => {
                 key={c}
                 type="button"
                 onClick={() => updateSettings(viewport.isLandscape
-                  ? { cols: c }
-                  : { cols: c, portraitCols: c })}
+                  ? { landscapeCols: c }
+                  : { cols: c })}
                 className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                  settings.cols === c
+                  gridCols === c
                     ? 'bg-primary/20 border-primary text-primary'
                     : `${t.itemBg} ${t.itemBorder} ${t.textDim}`
                 }`}

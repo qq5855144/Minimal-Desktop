@@ -1,6 +1,7 @@
 import { changeBookmarks, emptyBookmarks, type BookmarkAction } from '@/lib/bookmarks';
 // @refresh reset
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData } from '@/lib/desktopSchema';
 import { HistoryBuffer } from '@/lib/historyBuffer';
 import { pruneIconCaches } from '@/lib/iconCache';
@@ -22,11 +23,8 @@ import {
   resizeWeatherWidget,
   movePrivacyItem,
   normalizeDesktopColumnCount,
-  shouldReflowDesktopData,
-  reflowDesktopData,
   reflowPrivacyItems,
   reorderFolderChildren as reorderFolderChildrenLayout,
-  resolveOrientationTransition,
   resolvePageAfterCompaction,
   resolvePrivacyPageAfterCompaction,
   setDesktopWidgetEnabled,
@@ -36,7 +34,18 @@ import {
   updatePrivacyFolderLayout,
   validateDesktopLayout,
 } from '@/lib/layoutEngine';
-import type { OrientationGridSnapshot } from '@/lib/layoutEngine';
+import {
+  fitDesktopPositions,
+  getLandscapeColumns,
+  groupDesktopPositions,
+  normalizeOrientationSettings,
+  normalizePortraitData,
+  projectLandscape,
+  projectLandscapeItems,
+  saveLandscape,
+  saveLandscapeItems,
+  savePortraitItems,
+} from '@/lib/orientationLayout';
 import { encryptItems, LEGACY_PBKDF2_ITERATIONS } from '@/lib/privacyCrypto';
 import {
   dissolvePrivacyFolder,
@@ -65,6 +74,9 @@ const MAX_FOLDER_APPS = LAYOUT_LIMITS.maxFolderApps;
 
 interface DesktopContextType {
   data: DesktopData;
+  savedData: DesktopData;
+  viewport: ReturnType<typeof useViewportGeometry>;
+  gridCols: DesktopColumnCount;
   currentPage: number;
   setCurrentPage: (p: number) => void;
   editMode: boolean;
@@ -72,20 +84,7 @@ interface DesktopContextType {
   loading: boolean;
   // 外观设置
   settings: DesktopSettings;
-  updateSettings: (
-    patch: Partial<DesktopSettings>,
-    options?: { reflowGrid?: boolean; preservePage?: boolean },
-  ) => void;
-  /**
-   * 方向变化时的原子重排：竖屏 →横屏保存竖屏快照并按横屏网格重排；
-   * 横屏 →竖屏优先精确恢复快照（横屏期间无编辑时），否则重排回竖屏网格。
-   */
-  applyOrientationLayout: (change: {
-    /** true = 进入（或处于）横屏；false = 回到竖屏。 */
-    toLandscape: boolean;
-    /** 目标列数补丁（cols/portraitCols）。 */
-    patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>>;
-  }) => void;
+  updateSettings: (patch: Partial<DesktopSettings>) => void;
   // 添加应用（preferPage：优先放置到指定页面）
   updateBookmarks: (action: BookmarkAction) => boolean;
   addItem: (item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>, preferPage?: number) => void;
@@ -161,6 +160,7 @@ function collectIconUrls(data: DesktopData): Set<string> {
 interface DesktopHistoryState {
   data: DesktopData;
   cols: DesktopColumnCount;
+  landscapeCols?: DesktopColumnCount;
   rows: number;
 }
 
@@ -223,14 +223,23 @@ function collapsePrivacyFolderAfterChildRemoval(
 }
 
 export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [data, setData] = useState<DesktopData>(() => compactDesktopPages(loadDesktopData()).data);
-  const [currentPage, setCurrentPage] = useState(0);
+  const viewport = useViewportGeometry();
+  const isLandscape = viewport.isLandscape;
+  const [settings, setSettings] = useState(() => normalizeOrientationSettings(loadSettings()));
+  const [savedData, setSavedData] = useState<DesktopData>(() => compactDesktopPages(loadDesktopData()).data);
+  const [savedPrivacyItems, setSavedPrivacyItems] = useState<DesktopItem[]>([]);
+  const [pages, setPages] = useState<{ portrait: number; landscape?: number }>({ portrait: 0 });
+  const currentPage = isLandscape ? pages.landscape ?? pages.portrait : pages.portrait;
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<DesktopSettings>(() => loadSettings());
-  // 加密架构下，隐私数据在解锁时由 PrivacyScreen 解密注入，初始为空
-  const [privacyPageItems, setPrivacyPageItems] = useState<DesktopItem[]>([]);
-  // 解锁状态：会话内保持（切换普通页不重置），刷新/重载或手动锁定后为 false
+  const gridCols = isLandscape ? getLandscapeColumns(settings) : settings.cols;
+  const data = useMemo(() => isLandscape
+    ? projectLandscape(savedData, gridCols, settings.rows)
+    : savedData, [gridCols, isLandscape, savedData, settings.rows]);
+  const privacyPageItems = useMemo(() => isLandscape
+    ? projectLandscapeItems(savedPrivacyItems, gridCols, settings.rows, true)
+    : savedPrivacyItems, [gridCols, isLandscape, savedPrivacyItems, settings.rows]);
+  // 解锁状态：会话内保持，刷新或手动锁定后为 false。
   const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
   // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
   const [privacyCryptoKey, setPrivacyCryptoKey] = useState<{
@@ -239,9 +248,12 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     iterations: number;
   } | null>(null);
   const [privacyRevision, setPrivacyRevision] = useState(0);
-  const firstRender = useRef(true);
+  const lastSavedDataRef = useRef(savedData);
+  const savedDataRef = useRef(savedData);
+  const savedPrivacyItemsRef = useRef(savedPrivacyItems);
+  const isLandscapeRef = useRef(isLandscape);
+  const gridColsRef = useRef(gridCols);
   const dataRef = useRef<DesktopData>(data);
-  const currentPageRef = useRef(currentPage);
   const privacyPageItemsRef = useRef<DesktopItem[]>(privacyPageItems);
   const settingsRef = useRef<DesktopSettings>(settings);
   const privacyCryptoKeyRef = useRef(privacyCryptoKey);
@@ -250,76 +262,132 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const privacyLockPromiseRef = useRef<Promise<void> | null>(null);
   const privacyLockTokenRef = useRef<object | null>(null);
   const historyRef = useRef(new HistoryBuffer<DesktopHistoryState>(50));
-  // 方向会话快照：进入横屏时保存竖屏布局，回到竖屏时用于精确恢复或识别编辑。
-  const orientationSnapshotRef = useRef<OrientationGridSnapshot | null>(null);
   const privacyPageCount = getPrivacyPageCount(privacyPageItems);
-  // render 阶段同步 ref，使同一事件循环里的连续命令也读取到最近一次 state。
   dataRef.current = data;
-  currentPageRef.current = currentPage;
   privacyPageItemsRef.current = privacyPageItems;
   settingsRef.current = settings;
   privacyCryptoKeyRef.current = privacyCryptoKey;
+  isLandscapeRef.current = isLandscape;
+  gridColsRef.current = gridCols;
+
+  const setCurrentPage = useCallback((value: React.SetStateAction<number>) => {
+    const landscape = isLandscapeRef.current;
+    setPages((previous) => {
+      if (landscape) {
+        const landscape = typeof value === 'function' ? value(previous.landscape ?? previous.portrait) : value;
+        return previous.landscape === landscape ? previous : { ...previous, landscape };
+      }
+      const portrait = typeof value === 'function' ? value(previous.portrait) : value;
+      return previous.portrait === portrait ? previous : { ...previous, portrait };
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    setCurrentPage((page) => clampPageForGridChange(
+      page,
+      dataRef.current.pages.length,
+      getPrivacyPageCount(privacyPageItemsRef.current),
+    ));
+  }, [isLandscape, setCurrentPage]);
 
   const captureHistoryState = useCallback((): DesktopHistoryState => ({
-    data: dataForHistory(dataRef.current),
-    cols: normalizeDesktopColumnCount(settingsRef.current.cols),
-    rows: settingsRef.current.rows ?? 8,
+    data: dataForHistory(savedDataRef.current),
+    cols: settingsRef.current.cols,
+    landscapeCols: settingsRef.current.landscapeCols,
+    rows: settingsRef.current.rows,
   }), []);
 
-  const applyCompactedDesktopData = useCallback((next: DesktopData): DesktopData => {
-    const compacted = compactDesktopPages(next);
-    dataRef.current = compacted.data;
-    setData(compacted.data);
-    setCurrentPage((page) => resolvePageAfterCompaction(
-      page,
-      compacted.pageMap,
-      compacted.data.pages.length,
-    ));
-    return compacted.data;
+  const applySavedData = useCallback((next: DesktopData, nextSettings = settingsRef.current) => {
+    savedDataRef.current = next;
+    dataRef.current = isLandscapeRef.current
+      ? projectLandscape(next, getLandscapeColumns(nextSettings), nextSettings.rows)
+      : next;
+    setSavedData(next);
   }, []);
 
-  const applyCompactedPrivacyItems = useCallback((next: DesktopItem[]): DesktopItem[] => {
-    const compacted = compactPrivacyPages(next);
-    const pageCount = getPrivacyPageCount(compacted.items);
-    privacyPageItemsRef.current = compacted.items;
-    setPrivacyPageItems(compacted.items);
-    setCurrentPage((page) => resolvePrivacyPageAfterCompaction(
-      page,
-      compacted.pageMap,
-      pageCount,
-    ));
-    return compacted.items;
+  const applySavedPrivacyItems = useCallback((next: DesktopItem[], nextSettings = settingsRef.current) => {
+    savedPrivacyItemsRef.current = next;
+    privacyPageItemsRef.current = isLandscapeRef.current
+      ? projectLandscapeItems(next, getLandscapeColumns(nextSettings), nextSettings.rows, true)
+      : next;
+    setSavedPrivacyItems(next);
   }, []);
 
-  const commitDesktopData = useCallback((next: DesktopData, recordHistory = true): boolean => {
-    if (next === dataRef.current) return false;
-    if (recordHistory) historyRef.current.record(captureHistoryState());
-    else historyRef.current.clear();
-    applyCompactedDesktopData(next);
+  const applySettings = useCallback((next: DesktopSettings) => {
+    settingsRef.current = next;
+    gridColsRef.current = isLandscapeRef.current ? getLandscapeColumns(next) : next.cols;
+    setSettings(next);
+    saveSettings(next);
+  }, []);
+
+  const commitLayouts = useCallback((
+    nextData: DesktopData | null,
+    nextPrivacy: DesktopItem[] | null,
+    history: 'record' | 'clear' | 'skip' = 'record',
+    nextSettings = settingsRef.current,
+  ): boolean => {
+    const desktop = nextData && compactDesktopPages(nextData);
+    const privacy = nextPrivacy && compactPrivacyPages(nextPrivacy);
+    const landscape = isLandscapeRef.current;
+    const { cols, rows } = nextSettings;
+    const savedDesktop = desktop && (landscape
+      ? saveLandscape(savedDataRef.current, desktop.data, cols, rows)
+      : groupDesktopPositions(desktop.data, savePortraitItems(
+        savedDataRef.current.pages.flat(), desktop.data.pages.flat(),
+      )));
+    const savedPrivacy = privacy && (landscape
+      ? saveLandscapeItems(savedPrivacyItemsRef.current, privacy.items, cols, rows, true)
+      : savePortraitItems(savedPrivacyItemsRef.current, privacy.items));
+    // Validate both workspaces before committing a move across the privacy boundary.
+    if ((desktop && !savedDesktop) || (privacy && !savedPrivacy)) return false;
+
+    if (history === 'clear') historyRef.current.clear();
+    if (desktop && savedDesktop) {
+      if (history === 'record') historyRef.current.record(captureHistoryState());
+      applySavedData(savedDesktop, nextSettings);
+      setCurrentPage((page) => resolvePageAfterCompaction(page, desktop.pageMap, desktop.data.pages.length));
+    }
+    if (privacy && savedPrivacy) {
+      applySavedPrivacyItems(savedPrivacy, nextSettings);
+      setCurrentPage((page) => resolvePrivacyPageAfterCompaction(
+        page, privacy.pageMap, getPrivacyPageCount(privacy.items),
+      ));
+    }
     return true;
-  }, [applyCompactedDesktopData, captureHistoryState]);
+  }, [applySavedData, applySavedPrivacyItems, captureHistoryState, setCurrentPage]);
+
+  const commitDesktopData = useCallback((next: DesktopData): boolean => {
+    if (next === dataRef.current) return false;
+    return commitLayouts(next, null);
+  }, [commitLayouts]);
+
+  const commitPrivacyItems = useCallback((next: DesktopItem[]): boolean => (
+    commitLayouts(null, next, 'skip')
+  ), [commitLayouts]);
 
   const updateBookmarks = useCallback((action: BookmarkAction) => {
-    const previous = dataRef.current.bookmarks;
+    const previous = savedDataRef.current.bookmarks;
     const bookmarks = changeBookmarks(previous, action);
     if (JSON.stringify(previous ?? emptyBookmarks()) === JSON.stringify(bookmarks)) return false;
-    return commitDesktopData({ ...dataRef.current, bookmarks });
-  }, [commitDesktopData]);
+    historyRef.current.record(captureHistoryState());
+    applySavedData({ ...savedDataRef.current, bookmarks });
+    return true;
+  }, [applySavedData, captureHistoryState]);
 
   const applyHistoryState = useCallback((state: DesktopHistoryState) => {
     const nextData = compactDesktopPages(dataForHistory(state.data)).data;
     const nextSettings: DesktopSettings = {
       ...settingsRef.current,
       cols: state.cols,
+      landscapeCols: state.landscapeCols,
       rows: state.rows,
     };
-    dataRef.current = nextData;
-    settingsRef.current = nextSettings;
-    setData(nextData);
-    setSettings(nextSettings);
-    saveSettings(nextSettings);
-    setCurrentPage((page) => Math.min(page, Math.max(0, nextData.pages.length - 1)));
-  }, []);
+    applySettings(nextSettings);
+    applySavedData(nextData, nextSettings);
+    setCurrentPage((page) => clampPageForGridChange(
+      page, dataRef.current.pages.length, getPrivacyPageCount(privacyPageItemsRef.current),
+    ));
+  }, [applySavedData, applySettings, setCurrentPage]);
 
   const undo = useCallback(() => {
     const previous = historyRef.current.undo(captureHistoryState());
@@ -335,37 +403,22 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   }, [applyHistoryState, captureHistoryState]);
 
-  const clearDesktopHistory = useCallback(() => {
-    historyRef.current.clear();
-  }, []);
-
-  const initialLayoutNormalizedRef = useRef(false);
-  useEffect(() => {
-    if (initialLayoutNormalizedRef.current) return;
-    initialLayoutNormalizedRef.current = true;
-    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
-    const safeRows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, settingsRef.current.rows ?? 8));
-    const safeCols = normalizeDesktopColumnCount(settingsRef.current.cols);
-    const safeSettings: DesktopSettings = { ...settingsRef.current, rows: safeRows, cols: safeCols };
-    if (safeRows !== settingsRef.current.rows || safeCols !== settingsRef.current.cols) {
-      settingsRef.current = safeSettings;
-      setSettings(safeSettings);
-      saveSettings(safeSettings);
+  useLayoutEffect(() => {
+    const current = settingsRef.current;
+    const cols = current.cols;
+    const minRows = minimumRowsForEnabledWidgets(savedDataRef.current);
+    const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, current.rows ?? 8));
+    const nextSettings = rows === current.rows ? current : { ...current, rows };
+    if (nextSettings !== current) applySettings(nextSettings);
+    if (validateDesktopLayout(savedDataRef.current, { cols, rows }).length > 0) {
+      const normalized = normalizePortraitData(savedDataRef.current, cols, rows);
+      if (normalized) applySavedData(normalized, nextSettings);
     }
-    if (validateDesktopLayout(dataRef.current, safeSettings).length > 0) {
-      try {
-        const normalized = reflowDesktopData(dataRef.current, safeCols, safeRows);
-        dataRef.current = normalized;
-        setData(normalized);
-      } catch {
-        // 极端损坏数据保持原状，后续导入/设置操作仍会拒绝不合法写入。
-      }
-    }
-  }, []);
+  }, [applySavedData, applySettings]);
 
   // 启动时：若视频壁纸存储在 IndexedDB，恢复 blob URL
   useEffect(() => {
-    const s = loadSettings();
+    const s = normalizeOrientationSettings(loadSettings());
     let cancelled = false;
     const restoredUrls = new Set<string>();
     if (s.bgType === 'video' && s.bgVideo === IDB_VIDEO_MARKER) {
@@ -402,9 +455,10 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // data 变更时持久化（跳过首次挂载）
   useEffect(() => {
-    if (firstRender.current) { firstRender.current = false; return; }
-    saveDesktopData(data);
-  }, [data]);
+    if (lastSavedDataRef.current === savedData) return;
+    saveDesktopData(savedData);
+    lastSavedDataRef.current = savedData;
+  }, [savedData]);
 
   // 隐私页持久化（加密保存，仅在密钥可用时执行）
   // 同时依赖 privacyCryptoKey state，确保密钥清空后立即停止写入，不存在竞态
@@ -412,14 +466,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!privacyCryptoKey) return; // 未解锁 / 已重置 → 不写 vault
     const writeSeq = ++privacyWriteSeqRef.current;
     const { key, salt, iterations } = privacyCryptoKey;
-    const snapshot = deepClone(privacyPageItems);
+    const snapshot = deepClone(savedPrivacyItems);
     encryptItems(snapshot, key, salt, iterations).then((vault) => {
       // 慢的旧加密任务完成时不得覆盖更新的数据。
       if (writeSeq !== privacyWriteSeqRef.current) return;
       savePrivacyVault(vault);
       setPrivacyRevision((revision) => revision + 1);
     }).catch(() => {/* 静默失败 */});
-  }, [privacyPageItems, privacyCryptoKey]);
+  }, [savedPrivacyItems, privacyCryptoKey]);
 
   // 模拟骨架屏加载
   useEffect(() => {
@@ -431,8 +485,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>,
     preferPage?: number,
   ) => {
-    const gridCols = settings.cols ?? 4;
-    const gridRows = settings.rows ?? 8;
+    const gridCols = gridColsRef.current;
+    const gridRows = settingsRef.current.rows;
     const draft = { ...item, id: uid(), page: 0, row: 0, col: 0 } as DesktopItem;
 
     // 添加到隐私桌面；当前负页已满时自动创建更靠左的新页。
@@ -450,9 +504,10 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...privacyPageItemsRef.current.map((candidate) => ({ ...candidate })),
         { ...draft, page: slot.page, row: slot.row, col: slot.col },
       ];
-      const compacted = applyCompactedPrivacyItems(nextPrivacy);
-      const inserted = compacted.find((candidate) => candidate.id === draft.id);
-      if (inserted) setCurrentPage(inserted.page);
+      if (commitPrivacyItems(nextPrivacy)) {
+        const inserted = privacyPageItemsRef.current.find((candidate) => candidate.id === draft.id);
+        if (inserted) setCurrentPage(inserted.page);
+      }
       return;
     }
 
@@ -466,12 +521,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     if (!slot) return;
     next.pages[slot.page].push({ ...draft, page: slot.page, row: slot.row, col: slot.col });
-    commitDesktopData(next);
-    setCurrentPage(slot.page);
-  }, [applyCompactedPrivacyItems, commitDesktopData, settings.cols, settings.rows]);
+    if (commitDesktopData(next)) setCurrentPage(slot.page);
+  }, [commitPrivacyItems, commitDesktopData, setCurrentPage]);
 
   const setWidgetEnabled = useCallback((widgetType: WidgetType, enabled: boolean): boolean => {
-    const cols = normalizeDesktopColumnCount(settingsRef.current.cols);
+    const cols = gridColsRef.current;
     const currentRows = settingsRef.current.rows ?? 8;
     const rows = Math.min(
       LAYOUT_LIMITS.maxRows,
@@ -481,27 +535,23 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!result.ok) return false;
 
     if (result.data !== dataRef.current) {
-      commitDesktopData(result.data);
-      if (rows !== currentRows) {
-        const nextSettings = { ...settingsRef.current, rows };
-        settingsRef.current = nextSettings;
-        setSettings(nextSettings);
-        saveSettings(nextSettings);
-      }
+      const nextSettings = { ...settingsRef.current, rows };
+      if (!commitLayouts(result.data, null, 'record', nextSettings)) return false;
+      if (rows !== currentRows) applySettings(nextSettings);
     }
     if (enabled && result.widgetPage !== undefined) setCurrentPage(result.widgetPage);
     return true;
-  }, [commitDesktopData]);
+  }, [applySettings, commitLayouts, setCurrentPage]);
 
   const setWeatherSize = useCallback((id: string, size: 'small' | 'large') => {
     const result = resizeWeatherWidget(dataRef.current, id, size,
-      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8);
+      gridColsRef.current, settingsRef.current.rows ?? 8);
     if (!result.ok) return false;
     if (result.data !== dataRef.current && !commitDesktopData(result.data)) return false;
     const page = result.data.pages.findIndex((items) => items.some((item) => item.id === id));
     if (page >= 0) setCurrentPage(page);
     return true;
-  }, [commitDesktopData]);
+  }, [commitDesktopData, setCurrentPage]);
 
   const updateItem = useCallback((id: string, patch: Partial<DesktopItem>) => {
     const next = deepClone(dataRef.current);
@@ -525,17 +575,17 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const privacyIndex = nextPrivacy.findIndex((candidate) => candidate.id === id);
     if (privacyIndex >= 0) {
       nextPrivacy[privacyIndex] = { ...nextPrivacy[privacyIndex], ...patch };
-      applyCompactedPrivacyItems(nextPrivacy);
+      commitPrivacyItems(nextPrivacy);
       return;
     }
     for (const candidate of nextPrivacy) {
       const childIndex = candidate.children?.findIndex((child) => child.id === id) ?? -1;
       if (childIndex < 0 || !candidate.children) continue;
       candidate.children[childIndex] = { ...candidate.children[childIndex], ...patch };
-      applyCompactedPrivacyItems(nextPrivacy);
+      commitPrivacyItems(nextPrivacy);
       return;
     }
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const removeItem = useCallback((id: string) => {
     const protectedSystemItem = dataRef.current.pages.some((page) => page.some((item) => (
@@ -572,7 +622,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const privacyIndex = nextPrivacy.findIndex((candidate) => candidate.id === id);
     if (privacyIndex >= 0) {
       nextPrivacy.splice(privacyIndex, 1);
-      applyCompactedPrivacyItems(nextPrivacy);
+      commitPrivacyItems(nextPrivacy);
       return;
     }
     for (const candidate of nextPrivacy) {
@@ -581,10 +631,10 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (childIndex < 0) continue;
       candidate.children.splice(childIndex, 1);
       collapsePrivacyFolderAfterChildRemoval(nextPrivacy, candidate.id);
-      applyCompactedPrivacyItems(nextPrivacy);
+      commitPrivacyItems(nextPrivacy);
       return;
     }
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const swapDesktopItems = useCallback(
     (
@@ -604,7 +654,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!expectedTarget) return;
       const result = moveDesktopItem(
         dataRef.current, _idA, _pageA, _pageB, _rowB, cb,
-        settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+        gridColsRef.current, settingsRef.current.rows ?? 8,
       );
       if (!result.ok || result.data === dataRef.current) return;
       commitDesktopData(result.data);
@@ -621,19 +671,19 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     const result = moveDesktopItem(
       sourceData, id, fromPage, toPage, row, col,
-      settings.cols ?? 4, settings.rows ?? 8,
+      gridColsRef.current, settingsRef.current.rows,
     );
     if (!result.ok) return false;
     // 原位放回是成功的无变化操作；调用层不应把它误报为空间冲突。
     if (result.data === dataRef.current) return true;
     return commitDesktopData(result.data);
-  }, [commitDesktopData, settings.cols, settings.rows]);
+  }, [commitDesktopData]);
 
   const moveFromFolderToDesktop = useCallback((folderId: string, childId: string, page: number, row: number, col: number) => {
     const nextData = deepClone(dataRef.current);
     const nextPrivacy = deepClone(privacyPageItemsRef.current);
     const rows = settingsRef.current.rows ?? 8;
-    const cols = settingsRef.current.cols ?? 4;
+    const cols = gridColsRef.current;
     if (!Number.isInteger(row) || row < 0 || row >= rows
       || !Number.isInteger(col) || col < 0 || col >= cols) return false;
 
@@ -674,7 +724,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : nextData.pages[page];
       if (!canPlaceItem(destinationItems, child, row, col, cols, rows)) return false;
       folder.children.splice(childIndex, 1);
-      clearDesktopHistory();
       if (sourceIsPrivacy) {
         collapsePrivacyFolderAfterChildRemoval(nextPrivacy, folderId);
         nextData.pages[page].push({ ...child, page, row, col });
@@ -682,9 +731,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
         nextPrivacy.push({ ...child, page, row, col });
       }
-      applyCompactedDesktopData(nextData);
-      applyCompactedPrivacyItems(nextPrivacy);
-      return true;
+      return commitLayouts(nextData, nextPrivacy, 'clear');
     }
 
     if (sourceIsPrivacy) {
@@ -699,8 +746,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rows,
       );
       if (!result.ok) return false;
-      applyCompactedPrivacyItems(result.items);
-      return true;
+      return commitPrivacyItems(result.items);
     }
 
     const target = findItemCoveringCell(nextData.pages[page], row, col, cols);
@@ -731,9 +777,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     collapseFolderAfterChildRemoval(nextData.pages, normalFolderPage, folderId);
     return commitDesktopData(nextData);
   }, [
-    applyCompactedDesktopData,
-    applyCompactedPrivacyItems,
-    clearDesktopHistory,
+    commitLayouts,
+    commitPrivacyItems,
     commitDesktopData,
   ]);
 
@@ -758,8 +803,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         col: privacyFolder.col,
       });
       nextPrivacy.splice(privacyItemIndex, 1);
-      applyCompactedPrivacyItems(nextPrivacy);
-      return true;
+      return commitPrivacyItems(nextPrivacy);
     }
 
     const next = deepClone(dataRef.current);
@@ -787,9 +831,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (folder.children.length >= MAX_FOLDER_APPS) return false;
     folder.children.push({ ...item, page: folder.page, row: folder.row, col: folder.col });
     next.pages[itemPage].splice(itemIdx, 1);
-    commitDesktopData(next);
-    return true;
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+    return commitDesktopData(next);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const reorderFolderChildren = useCallback((folderId: string, fromIdx: number, toIdx: number) => {
     const next = deepClone(dataRef.current);
@@ -809,8 +852,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const reordered = reorderFolderChildrenLayout(folder.children, fromIdx, toIdx);
     if (!reordered) return;
     folder.children = reordered;
-    applyCompactedPrivacyItems(nextPrivacy);
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+    commitPrivacyItems(nextPrivacy);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const mergeToFolder = useCallback((sourceId: string, targetId: string, sourceFolderId?: string): boolean => {
       const privacyTargetIndex = privacyPageItemsRef.current.findIndex((item) => item.id === targetId);
@@ -823,8 +866,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
           sourceFolderId,
         );
         if (!result.ok) return false;
-        applyCompactedPrivacyItems(result.items);
-        return true;
+        return commitPrivacyItems(result.items);
       }
 
       const next = deepClone(dataRef.current);
@@ -891,8 +933,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
         }
-        commitDesktopData(next);
-        return true;
+        return commitDesktopData(next);
       }
       // 创建新文件夹
       const folder: DesktopItem = {
@@ -917,9 +958,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         collapseFolderAfterChildRemoval(next.pages, sourceFolderPage, sourceFolderId);
       }
-      commitDesktopData(next);
-      return true;
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+      return commitDesktopData(next);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const renameFolder = useCallback((folderId: string, name: string) => {
     const next = deepClone(dataRef.current);
@@ -936,20 +976,19 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const folder = nextPrivacy.find((item) => item.id === folderId);
     if (!folder || folder.type !== 'folder' || folder.name === name) return;
     folder.name = name;
-    applyCompactedPrivacyItems(nextPrivacy);
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+    commitPrivacyItems(nextPrivacy);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const setFolderLayout = useCallback((folderId: string, layout: FolderLayout): boolean => {
     const isDesktopFolder = dataRef.current.pages.some((page) => (
       page.some((item) => item.id === folderId && item.type === 'folder')
     ));
-    const cols = settingsRef.current.cols ?? 4;
+    const cols = gridColsRef.current;
     const rows = settingsRef.current.rows ?? 8;
     if (isDesktopFolder) {
       const result = updateDesktopFolderLayout(dataRef.current, folderId, layout, cols, rows);
       if (!result.ok) return false;
-      if (result.data !== dataRef.current) commitDesktopData(result.data);
-      return true;
+      return result.data === dataRef.current || commitDesktopData(result.data);
     }
 
     const result = updatePrivacyFolderLayout(
@@ -960,11 +999,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       rows,
     );
     if (!result.ok) return false;
-    if (result.privacyItems !== privacyPageItemsRef.current) {
-      applyCompactedPrivacyItems(result.privacyItems);
-    }
-    return true;
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+    return result.privacyItems === privacyPageItemsRef.current || commitPrivacyItems(result.privacyItems);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const dissolveFolder = useCallback((folderId: string) => {
     const next = deepClone(dataRef.current);
@@ -973,11 +1009,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const result = dissolvePrivacyFolder(
         privacyPageItemsRef.current,
         folderId,
-        settingsRef.current.cols ?? 4,
+        gridColsRef.current,
         settingsRef.current.rows ?? 8,
       );
       if (!result.ok) return;
-      applyCompactedPrivacyItems(result.items);
+      commitPrivacyItems(result.items);
       return;
     }
     const folderIndex = next.pages[folderPage].findIndex((item) => item.id === folderId);
@@ -985,7 +1021,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (folder.type !== 'folder') return;
     const children = folder.children ?? [];
     next.pages[folderPage].splice(folderIndex, 1);
-    const cols = settingsRef.current.cols ?? 4;
+    const cols = gridColsRef.current;
     const rows = settingsRef.current.rows ?? 8;
     for (const child of children) {
       let slot = findFirstAvailableSlotAcrossPages(next.pages, child, cols, rows, folderPage);
@@ -999,7 +1035,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       next.pages[slot.page].push({ ...child, page: slot.page, row: slot.row, col: slot.col });
     }
     commitDesktopData(next);
-  }, [applyCompactedPrivacyItems, commitDesktopData]);
+  }, [commitPrivacyItems, commitDesktopData]);
 
   const importData = useCallback((
     newData: unknown,
@@ -1008,33 +1044,24 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const parsed = parseDesktopData(newData);
     if (!parsed.ok) return false;
     try {
-      const requestedSettings = options.settings ?? settingsRef.current;
-      const cols = normalizeDesktopColumnCount(requestedSettings.cols);
+      const requestedSettings = normalizeOrientationSettings(options.settings ?? settingsRef.current);
       const minRows = minimumRowsForEnabledWidgets(parsed.data);
-      const rows = Math.min(
-        LAYOUT_LIMITS.maxRows,
-        Math.max(minRows, Math.round(requestedSettings.rows ?? 8)),
+      const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requestedSettings.rows ?? 8)));
+      const nextSettings = { ...requestedSettings, rows };
+      const next = normalizePortraitData(
+        { ...parsed.data, version: CURRENT_DESKTOP_VERSION }, nextSettings.cols, rows,
       );
-      const next = reflowDesktopData(
-        { ...parsed.data, version: CURRENT_DESKTOP_VERSION },
-        cols,
-        rows,
-      );
-      commitDesktopData(next, options.recordHistory ?? true);
-      // 导入/云恢复代表全新布局，方向会话快照不再可信。
-      orientationSnapshotRef.current = null;
-      if (options.settings) {
-        const restoredSettings = { ...requestedSettings, cols, rows };
-        settingsRef.current = restoredSettings;
-        setSettings(restoredSettings);
-        saveSettings(restoredSettings);
-      }
+      if (!next) return false;
+      if (options.recordHistory ?? true) historyRef.current.record(captureHistoryState());
+      else historyRef.current.clear();
+      if (options.settings || rows !== settingsRef.current.rows) applySettings(nextSettings);
+      applySavedData(next, nextSettings);
       setCurrentPage(0);
       return true;
     } catch {
       return false;
     }
-  }, [commitDesktopData]);
+  }, [applySavedData, applySettings, captureHistoryState, setCurrentPage]);
 
   /**
    * 恢复云端数据后调用：清除内存中的密钥和明文隐私数据。
@@ -1045,24 +1072,22 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     privacyWriteSeqRef.current += 1;
     privacyCryptoKeyRef.current = null;
     setPrivacyCryptoKey(null);
-    privacyPageItemsRef.current = [];
-    setPrivacyPageItems([]);
+    applySavedPrivacyItems([]);
     setPrivacyUnlocked(false);
     setCurrentPage((page) => page < 0 ? -1 : page);
-  }, []);
+  }, [applySavedPrivacyItems, setCurrentPage]);
 
   const lockPrivacy = useCallback((): Promise<void> => {
     if (privacyLockPromiseRef.current) return privacyLockPromiseRef.current;
     const cryptoState = privacyCryptoKeyRef.current;
     if (!cryptoState) {
-      privacyPageItemsRef.current = [];
-      setPrivacyPageItems([]);
+      applySavedPrivacyItems([]);
       setPrivacyUnlocked(false);
       setCurrentPage((page) => page < 0 ? -1 : page);
       return Promise.resolve();
     }
     const epoch = privacyEpochRef.current;
-    const snapshot = deepClone(privacyPageItemsRef.current);
+    const snapshot = deepClone(savedPrivacyItemsRef.current);
     const lockToken = {};
     privacyLockTokenRef.current = lockToken;
     const task = (async () => {
@@ -1076,9 +1101,8 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setPrivacyRevision((revision) => revision + 1);
         privacyWriteSeqRef.current += 1;
         privacyCryptoKeyRef.current = null;
-        privacyPageItemsRef.current = [];
+        applySavedPrivacyItems([]);
         setPrivacyCryptoKey(null);
-        setPrivacyPageItems([]);
         setPrivacyUnlocked(false);
         setCurrentPage((page) => page < 0 ? -1 : page);
       } finally {
@@ -1090,7 +1114,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     })();
     privacyLockPromiseRef.current = task;
     return task;
-  }, []);
+  }, [applySavedPrivacyItems, setCurrentPage]);
 
   /** 解锁隐私桌面后注入解密数据和内存密钥 */
   const setPrivacyUnlockData = useCallback((items: DesktopItem[], key: CryptoKey) => {
@@ -1098,31 +1122,27 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const salt = vault ? Uint8Array.from(atob(vault.salt), (c) => c.charCodeAt(0)) : new Uint8Array(16);
     const iterations = vault?.iterations ?? LEGACY_PBKDF2_ITERATIONS;
     privacyEpochRef.current += 1;
-    const normalized = reflowPrivacyItems(
-      compactPrivacyPages(deepClone(items)).items,
-      settingsRef.current.cols ?? 4,
-      settingsRef.current.rows ?? 8,
-    );
-    privacyPageItemsRef.current = normalized;
-    privacyCryptoKeyRef.current = { key, salt, iterations };
-    setPrivacyCryptoKey({ key, salt, iterations });
-    setPrivacyPageItems(normalized);
+    const compacted = compactPrivacyPages(deepClone(items)).items;
+    const { cols, rows } = settingsRef.current;
+    const normalized = fitDesktopPositions(compacted, cols, rows, true)
+      ?? reflowPrivacyItems(compacted, cols, rows);
+    const cryptoState = { key, salt, iterations };
+    privacyCryptoKeyRef.current = cryptoState;
+    setPrivacyCryptoKey(cryptoState);
+    applySavedPrivacyItems(normalized);
     setPrivacyUnlocked(true);
-  }, []);
+  }, [applySavedPrivacyItems]);
 
   /** 将普通桌面图标移入隐私页 */
   const moveItemToPrivacy = useCallback((id: string, page: number, row: number, col: number) => {
     const result = transferDesktopToPrivacy(
       dataRef.current, privacyPageItemsRef.current, id, page, row, col,
-      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+      gridColsRef.current, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
     // 隐私数据不进入普通桌面历史；跨边界移动后清空历史，避免撤销造成数据复制。
-    clearDesktopHistory();
-    applyCompactedDesktopData(result.data);
-    applyCompactedPrivacyItems(result.privacyItems);
-    return true;
-  }, [applyCompactedDesktopData, applyCompactedPrivacyItems, clearDesktopHistory]);
+    return commitLayouts(result.data, result.privacyItems, 'clear');
+  }, [commitLayouts]);
 
   /** 隐私页内部图标重新排列（拖拽换位） */
   const reorderPrivacyItems = useCallback((id: string, page: number, row: number, col: number) => {
@@ -1132,13 +1152,12 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       page,
       row,
       col,
-      settingsRef.current.cols ?? 4,
+      gridColsRef.current,
       settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
-    applyCompactedPrivacyItems(result.privacyItems);
-    return true;
-  }, [applyCompactedPrivacyItems]);
+    return commitPrivacyItems(result.privacyItems);
+  }, [commitPrivacyItems]);
 
   /** 将隐私页图标移回普通桌面指定页 */
   const movePrivacyToPage = useCallback((id: string, toPage: number, row: number, col: number) => {
@@ -1150,159 +1169,52 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     const result = transferPrivacyToDesktop(
       targetData, privacyPageItemsRef.current, id, toPage, row, col,
-      settingsRef.current.cols ?? 4, settingsRef.current.rows ?? 8,
+      gridColsRef.current, settingsRef.current.rows ?? 8,
     );
     if (!result.ok) return false;
-    clearDesktopHistory();
-    applyCompactedDesktopData(result.data);
-    applyCompactedPrivacyItems(result.privacyItems);
-    return true;
-  }, [applyCompactedDesktopData, applyCompactedPrivacyItems, clearDesktopHistory]);
+    return commitLayouts(result.data, result.privacyItems, 'clear');
+  }, [commitLayouts]);
 
-  const updateSettings = useCallback((
-    patch: Partial<DesktopSettings>,
-    options?: { reflowGrid?: boolean; preservePage?: boolean },
-  ) => {
-    const prev = settingsRef.current;
-    const requested = { ...prev, ...patch };
+  const updateSettings = useCallback((patch: Partial<DesktopSettings>) => {
+    const previous = settingsRef.current;
+    const requested = { ...previous, ...patch };
     const cols = normalizeDesktopColumnCount(requested.cols);
-    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
+    const minRows = minimumRowsForEnabledWidgets(savedDataRef.current);
     const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
-    const next: DesktopSettings = { ...requested, cols, rows };
-    if (shouldReflowDesktopData(prev, next, options)) {
-      let reflowed: DesktopData;
-      let reflowedPrivacy: DesktopItem[] | null = null;
-      try {
-        reflowed = reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: options?.preservePage === true });
-        if (privacyUnlocked) {
-          reflowedPrivacy = reflowPrivacyItems(privacyPageItemsRef.current, cols, rows);
-        }
-      } catch {
-        return;
-      }
-      commitDesktopData(reflowed);
-      if (reflowedPrivacy) applyCompactedPrivacyItems(reflowedPrivacy);
-      if (options?.preservePage) {
-        // 方向修正/加载修正时尽量留在原页，仅在页数收缩时向有效范围收拢。
-        setCurrentPage((page) => clampPageForGridChange(
-          page,
-          reflowed.pages.length,
-          reflowedPrivacy
-            ? getPrivacyPageCount(reflowedPrivacy)
-            : getPrivacyPageCount(privacyPageItemsRef.current),
-        ));
-      } else {
-        setCurrentPage(0);
-        // 显式修改网格表示用户重新布局，方向会话快照不再适用。
-        orientationSnapshotRef.current = null;
-      }
+    const nextSettings: DesktopSettings = { ...requested, cols, rows };
+    const portraitGridChanged = cols !== previous.cols || rows !== previous.rows;
+    const landscapeGridChanged = getLandscapeColumns(nextSettings) !== getLandscapeColumns(previous);
+    if (portraitGridChanged) {
+      const next = normalizePortraitData(savedDataRef.current, cols, rows);
+      const privacy = fitDesktopPositions(savedPrivacyItemsRef.current, cols, rows, true);
+      if (!next || !privacy) return;
+      historyRef.current.record(captureHistoryState());
+      applySavedData(next, nextSettings);
+      if (privacyUnlocked) applySavedPrivacyItems(privacy, nextSettings);
+    } else if (landscapeGridChanged) {
+      historyRef.current.record(captureHistoryState());
     }
-    settingsRef.current = next;
-    setSettings(next);
-    saveSettings(next);
-  }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
-
-  /**
-   * 方向变化的原子重排：
-   * - 竖屏 →横屏：保存竖屏快照（含隐私）→ 按横屏网格重排 → 记录横屏基准；
-   * - 横屏 →竖屏：横屏期间无编辑则精确恢复竖屏快照，否则重排回竖屏网格。
-   * 重排后尽量保留用户原页；隐私未解锁时完全不触碰加密数据。
-   */
-  const applyOrientationLayout = useCallback((change: {
-    toLandscape: boolean;
-    patch: Partial<Pick<DesktopSettings, 'cols' | 'portraitCols'>>;
-  }) => {
-    const prev = settingsRef.current;
-    const requested = { ...prev, ...change.patch };
-    const cols = normalizeDesktopColumnCount(requested.cols);
-    const minRows = minimumRowsForEnabledWidgets(dataRef.current);
-    const rows = Math.min(LAYOUT_LIMITS.maxRows, Math.max(minRows, Math.round(requested.rows ?? 8)));
-    const next: DesktopSettings = { ...requested, cols, rows };
-
-    const commitSettings = () => {
-      settingsRef.current = next;
-      setSettings(next);
-      saveSettings(next);
-    };
-    const reflowAndApplyPrivacy = (): DesktopItem[] | null => {
-      if (!privacyUnlocked) return null;
-      const reflowed = reflowPrivacyItems(privacyPageItemsRef.current, cols, rows);
-      return applyCompactedPrivacyItems(reflowed);
-    };
-    const clampCurrentPage = () => {
+    applySettings(nextSettings);
+    if (portraitGridChanged || landscapeGridChanged) {
+      const landscape = isLandscapeRef.current;
+      const landscapeCols = getLandscapeColumns(nextSettings);
+      const desktop = landscape ? projectLandscape(savedDataRef.current, landscapeCols, rows) : savedDataRef.current;
+      const privacy = landscape
+        ? projectLandscapeItems(savedPrivacyItemsRef.current, landscapeCols, rows, true)
+        : savedPrivacyItemsRef.current;
       setCurrentPage((page) => clampPageForGridChange(
-        page,
-        dataRef.current.pages.length,
-        getPrivacyPageCount(privacyPageItemsRef.current),
+        page, desktop.pages.length, getPrivacyPageCount(privacy),
       ));
-    };
-
-    if (change.toLandscape) {
-      const existing = orientationSnapshotRef.current;
-      // 数据仍与横屏基准一致时复用原快照；否则以当前数据重新建立基准。
-      const reusable = existing !== null && existing.landscapeData === dataRef.current;
-      const portraitData = reusable ? existing.portraitData : deepClone(dataRef.current);
-      const portraitPrivacy = reusable
-        ? existing.portraitPrivacy
-        : (privacyUnlocked ? deepClone(privacyPageItemsRef.current) : null);
-      // 复用快照时保留最初的竖屏页号，避免横屏期间的翻页覆盖恢复目标。
-      const portraitPage = reusable ? existing.portraitPage : currentPageRef.current;
-      try {
-        const reflowed = reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: true });
-        const appliedPrivacy = reflowAndApplyPrivacy();
-        commitDesktopData(reflowed);
-        orientationSnapshotRef.current = {
-          portraitData,
-          portraitPrivacy,
-          // 重排后的引用即横屏基准，用于识别横屏期间的编辑。
-          landscapeData: dataRef.current,
-          landscapePrivacy: appliedPrivacy,
-          portraitPage,
-        };
-      } catch {
-        return;
-      }
-      commitSettings();
-      clampCurrentPage();
-      return;
     }
-
-    const snapshot = orientationSnapshotRef.current;
-    const plan = resolveOrientationTransition(
-      snapshot,
-      { data: dataRef.current, privacyItems: privacyPageItemsRef.current, privacyUnlocked },
-      false,
-    );
-    try {
-      if (plan.desktop === 'restore' && snapshot) {
-        commitDesktopData(deepClone(snapshot.portraitData));
-      } else {
-        commitDesktopData(reflowDesktopData(dataRef.current, cols, rows, { keepWidgetsFixed: true }));
-      }
-      if (plan.privacy === 'restore' && snapshot?.portraitPrivacy) {
-        applyCompactedPrivacyItems(deepClone(snapshot.portraitPrivacy));
-      } else if (plan.privacy === 'reflow') {
-        reflowAndApplyPrivacy();
-      }
-      // 精确恢复场景下同时还原用户进入横屏前所在的页号；
-      // 隐私未解锁时若原页号指向隐私页，则退回普通桌面首页。
-      if (plan.desktop === 'restore' && snapshot) {
-        const restoredPage = snapshot.portraitPage;
-        setCurrentPage(restoredPage < 0 && !privacyUnlocked ? 0 : restoredPage);
-      } else {
-        clampCurrentPage();
-      }
-    } catch {
-      return;
-    }
-    orientationSnapshotRef.current = null;
-    commitSettings();
-  }, [applyCompactedPrivacyItems, commitDesktopData, privacyUnlocked]);
+  }, [applySavedData, applySavedPrivacyItems, applySettings, captureHistoryState, privacyUnlocked, setCurrentPage]);
 
   return (
     <DesktopContext.Provider
       value={{
         data,
+        savedData,
+        viewport,
+        gridCols,
         currentPage,
         setCurrentPage,
         editMode,
@@ -1310,7 +1222,6 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loading,
         settings,
         updateSettings,
-        applyOrientationLayout,
         addItem,
         updateBookmarks,
         setWidgetEnabled,

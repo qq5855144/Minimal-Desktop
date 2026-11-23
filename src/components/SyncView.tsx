@@ -61,7 +61,7 @@ interface PendingRestore {
 }
 
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
-  const { data, importData, resetPrivacyLock, settings, updateSettings } = useDesktop();
+  const { savedData, importData, resetPrivacyLock, settings, updateSettings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
@@ -181,7 +181,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
-      const uploadData = await buildSyncSnapshot(data, settings);
+      const uploadData = await buildSyncSnapshot(savedData, settings);
       const result = await uploadSyncSnapshot(syncCfg, uploadData, {
         source: 'manual',
       });
@@ -201,7 +201,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       toast.error(message);
     }
     finally { setSyncing(null); }
-  }, [config, data, settings]);
+  }, [config, savedData, settings]);
 
   const handleUpload = useCallback(() => performUpload(), [performUpload]);
 
@@ -222,7 +222,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           backupBlobSha: result.backupBlobSha,
           backgroundFile: result.backgroundFile,
           backgroundBlobSha: result.backgroundBlobSha,
-          summary: summarizeDesktopDiff(data, result.data),
+          summary: summarizeDesktopDiff(savedData, result.data),
         });
         setStatusMsg({ type: 'success', msg: '已读取云端备份，请确认差异后恢复' });
         toast.success('云端备份已读取');
@@ -232,7 +232,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       }
     } catch { setStatusMsg({ type: 'error', msg: '下载失败，请检查网络' }); }
     finally { setSyncing(null); }
-  }, [config, data]);
+  }, [config, savedData]);
 
   const handleConfirmRestore = useCallback(async () => {
     if (!pendingRestore) return;

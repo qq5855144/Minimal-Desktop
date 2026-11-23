@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MAX_FOLDER_APPS, useDesktop } from '@/contexts/DesktopContext';
 import { useDragMotion } from '@/hooks/use-drag-motion';
-import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
 import {
   AUTO_SYNC_DELAY_MS,
   AUTO_SYNC_REQUEST_EVENT,
@@ -25,7 +24,6 @@ import {
   getItemGridSpan,
   getPrivacyPageNumbers,
   LAYOUT_LIMITS,
-  resolveResponsiveColumnState,
 } from '@/lib/layoutEngine';
 import {
   getPageTrackIndex,
@@ -92,6 +90,9 @@ interface GhostState {
 const Desktop: React.FC = () => {
   const {
     data,
+    savedData,
+    viewport,
+    gridCols,
     currentPage,
     setCurrentPage,
     editMode,
@@ -99,7 +100,6 @@ const Desktop: React.FC = () => {
     loading,
     settings,
     updateSettings,
-    applyOrientationLayout,
     addItem,
     updateBookmarks,
     updateItem,
@@ -167,6 +167,7 @@ const Desktop: React.FC = () => {
   const { captureDrop, cancelMotion } = useDragMotion(containerRef);
 
   const [ghost, setGhost] = useState<GhostState | null>(null);
+  const cancelDragRef = useRef<(() => void) | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
   // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
   const dragOverItemRef = useRef<string | null>(null);
@@ -192,22 +193,11 @@ const Desktop: React.FC = () => {
     - 1;
   isDraggingRef.current = isDragging;
 
-  // 手机浏览器“电脑模式”可能把布局视口伪装为 980px，但实际可视区仍很窄。
-  // 网格、响应式断点、弹层和根容器统一使用已归一化的有效视口。
-  const viewport = useViewportGeometry();
   const toShellPoint = useCallback((x: number, y: number) => ({
     x: x - viewport.shell.left,
     y: y - viewport.shell.top,
   }), [viewport.shell.left, viewport.shell.top]);
 
-  // 竖屏允许 4/5 列；横向方向（含小屏手机横屏）至少使用 6 列。
-  // 注意依据方向而非固定宽度断点：小屏横屏宽度可能不足 768px 也应扩展列数。
-  const responsiveColumns = resolveResponsiveColumnState(
-    settings.cols,
-    settings.portraitCols,
-    viewport.isLandscape,
-  );
-  const gridCols = responsiveColumns.gridCols;
   const gridRows = settings.rows ?? 8;
   const desktopGridMetrics = getDesktopGridLayoutMetrics(
     viewport.shell.width,
@@ -215,6 +205,7 @@ const Desktop: React.FC = () => {
     settings.iconSize,
     viewport.shell.height,
     gridRows,
+    viewport.isCompactLandscape,
   );
   const desktopIconMetrics = getIconLayoutMetrics(
     'normal',
@@ -228,55 +219,11 @@ const Desktop: React.FC = () => {
   const gridColumnGapPx = desktopGridMetrics.columnGapPx;
   const gridRowGapPx = desktopGridMetrics.rowGapPx;
   const privacyPageNumbers = getPrivacyPageNumbers(privacyPageCount);
-  const pagePaddingClass = viewport.isWide ? 'px-8' : 'px-4';
+  const pagePaddingClass = viewport.isWide && !viewport.isCompactLandscape ? 'px-8' : 'px-4';
   const pageVerticalPaddingStyle: React.CSSProperties = {
     paddingTop: 8 + 2 * gridRowGapPx,
     paddingBottom: 8,
   };
-
-  // 上一次视口方向；用于区分“运行时旋转”和“加载时方向修正”。
-  // 使用宽高比方向（isLandscape）而非固定宽度断点，小屏手机横屏也能被识别。
-  const previousLandscapeRef = useRef<boolean | null>(null);
-  // 每个补丁只处理一次：极端重排失败时不会每帧重试。
-  const orientationPatchKeyRef = useRef<string | null>(null);
-
-  // 方向变化时重排桌面布局：
-  // - 竖屏 →横屏：保存竖屏快照，按横屏网格自动重排应用布局；
-  // - 横屏 →竖屏：横屏期间无编辑则精确恢复竖屏布局，否则重排回竖屏网格。
-  // 页面加载时的方向修正：
-  // - 竖屏打开但数据是横屏网格：按当前（竖屏）网格重排并留在原页；
-  // - 横屏打开但数据是竖屏网格：同样先保存竖屏快照再重排，
-  //   否则稍后转回竖屏时没有快照可恢复，会把竖屏桌面打乱。
-  useEffect(() => {
-    const patch = responsiveColumns.patch;
-    const previousLandscape = previousLandscapeRef.current;
-    previousLandscapeRef.current = viewport.isLandscape;
-
-    if (!patch) {
-      orientationPatchKeyRef.current = null;
-      return;
-    }
-    const patchKey = `${patch.cols ?? ''}:${patch.portraitCols ?? ''}`;
-    if (orientationPatchKeyRef.current === patchKey) return;
-    orientationPatchKeyRef.current = patchKey;
-
-    if (patch.cols === undefined) {
-      updateSettings(patch, { reflowGrid: true, preservePage: true });
-      return;
-    }
-
-    // 运行时旋转（已知上一方向且发生变化）：走方向原子重排。
-    const rotated = previousLandscape !== null && previousLandscape !== viewport.isLandscape;
-    // 加载时即横屏：数据网格仍是竖屏，需先建立竖屏快照再重排，
-    // 保证之后转回竖屏能精确恢复原始竖屏布局。
-    const loadingInLandscape = previousLandscape === null && viewport.isLandscape;
-
-    if (rotated || loadingInLandscape) {
-      applyOrientationLayout({ toLandscape: viewport.isLandscape, patch });
-      return;
-    }
-    updateSettings(patch, { reflowGrid: true, preservePage: true });
-  }, [responsiveColumns.patch, viewport.isLandscape, applyOrientationLayout, updateSettings]);
 
   // 同步 <html>/<body>/#root 背景色：打开新标签页时浏览器会短暂丢弃合成层，
   // 页面降级为纯色渲染。html 默认透明、body 默认 bg-background（近乎白色），
@@ -356,8 +303,8 @@ const Desktop: React.FC = () => {
 
   // 自动同步：5 秒静默期合并编辑，远端抢先更新时由 GitHub 层自动基于最新 HEAD 重试。
   // 临时失败保留 dirty 状态后台重试，不再用“冲突锁”永久暂停队列。
-  const autoSyncLatestRef = useRef({ data, settings });
-  autoSyncLatestRef.current = { data, settings };
+  const autoSyncLatestRef = useRef({ data: savedData, settings });
+  autoSyncLatestRef.current = { data: savedData, settings };
   const autoSyncSchedulerRef = useRef<AutoSyncScheduler | null>(null);
   const isFirstAutoSyncRenderRef = useRef(true);
 
@@ -445,7 +392,7 @@ const Desktop: React.FC = () => {
     ) return;
     updateSyncConfig({ syncStatus: 'pending', lastSyncError: undefined });
     autoSyncSchedulerRef.current?.request();
-  }, [data, privacyRevision, settings]);
+  }, [savedData, privacyRevision, settings]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
@@ -979,10 +926,9 @@ const Desktop: React.FC = () => {
 
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
-    // pointercancel：浏览器取消指针序列时（如系统手势介入）清理拖拽状态，防止 ghost 残留
-    const onCancel = (event: PointerEvent) => {
+    const cancelDrag = () => {
       const active = ghostRef.current;
-      if (!active || active.pointerId !== event.pointerId) return;
+      if (!active) return;
       ghostRef.current = null;
       dragOverItemRef.current = null;
       setGhost(null);
@@ -1009,14 +955,23 @@ const Desktop: React.FC = () => {
         setFolderRenameId(null);
       }
     };
+    const onCancel = (event: PointerEvent) => {
+      if (ghostRef.current?.pointerId === event.pointerId) cancelDrag();
+    };
+    cancelDragRef.current = cancelDrag;
     document.addEventListener('pointercancel', onCancel);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
+      cancelDragRef.current = null;
       if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     };
   }, [handleEdgeHover, clearEdgeTimer, clearMergeTimer, toShellPoint, captureDrop, mergeIntent]);
+
+  React.useLayoutEffect(() => {
+    cancelDragRef.current?.();
+  }, [viewport.isLandscape]);
 
   const handleDragBegin = useCallback((
     item: DesktopItem,
