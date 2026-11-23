@@ -1,4 +1,4 @@
-import { ArrowLeft, Cloud, Download, Edit3, ExternalLink, File, Folder, FolderPlus, Loader2, RefreshCw, Share2, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Cloud, Download, Edit3, ExternalLink, File as FileIcon, Folder, FolderPlus, Loader2, RefreshCw, Share2, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -351,7 +351,7 @@ export default function CloudDriveView() {
           <ul className="space-y-2">
             {[...activeFolders, ...activeFiles].map((entry) => {
               const file = isFile(entry) ? entry : null;
-              const Icon = file ? File : Folder;
+              const Icon = file ? FileIcon : Folder;
               return <li key={entry.id} className={block + ' flex flex-wrap items-center gap-1.5 px-3 py-2'}>
                 {file ? <div className="flex min-w-0 flex-1 items-center gap-2">
                   <Icon className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
