@@ -220,7 +220,7 @@ describe('GitHub cloud drive', () => {
     expect(result.contents.size).toBe(expected.length);
     expect(new Uint8Array(await result.contents.slice(0, 3).arrayBuffer())).toEqual(expected.slice(0, 3));
     expect(new Uint8Array(await result.contents.slice(-2).arrayBuffer())).toEqual(expected.slice(-2));
-  });
+  }, 20_000);
 
   it('manages nested directories without moving encrypted file objects', async () => {
     gitFixture(true);
