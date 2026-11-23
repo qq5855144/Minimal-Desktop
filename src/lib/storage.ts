@@ -1,6 +1,5 @@
 import type { PrivacyVault } from '@/lib/privacyCrypto';
 import type { DesktopData, SyncConfig, WidgetType } from '@/types';
-import { BUILT_IN_SITES } from './builtInSites';
 import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from './desktopSchema';
 import { findFirstAvailableSlot, LAYOUT_LIMITS, normalizeDesktopColumnCount } from './layoutEngine';
 import { normalizeOrientationSettings } from './orientationLayout';
@@ -82,17 +81,8 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
   ] as import('@/types').DesktopItem[];
 })();
 
-const DEFAULT_SITE_START_ROW = SYSTEM_APPS[0].row;
-
 export const defaultDesktopData: DesktopData = {
-  pages: [[...WIDGET_ITEMS, ...SYSTEM_APPS, ...BUILT_IN_SITES.map((site, index) => {
-    const cell = SYSTEM_APPS.length + index;
-    return {
-      ...site, type: 'app' as const, page: 0,
-      row: DEFAULT_SITE_START_ROW + Math.floor(cell / 4),
-      col: cell % 4,
-    };
-  })]],
+  pages: [[...WIDGET_ITEMS, ...SYSTEM_APPS]],
   version: CURRENT_DESKTOP_VERSION,
 };
 

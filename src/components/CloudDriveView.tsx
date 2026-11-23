@@ -1,4 +1,7 @@
-import { ArrowLeft, Cloud, Download, Edit3, ExternalLink, File as FileIcon, Folder, FolderPlus, Loader2, RefreshCw, Share2, Trash2, Upload } from 'lucide-react';
+import {
+  ArrowLeft, ChevronRight, CircleAlert, Cloud, Download, ExternalLink, FileText, Folder,
+  FolderOpen, FolderPlus, HardDrive, Loader2, MoreHorizontal, Pencil, RefreshCw, Settings2, Share2, Trash2, Upload,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -13,11 +16,18 @@ import {
 import { driveFolderSubtree } from '@/lib/cloudDriveModel';
 import { getPanelTheme } from '@/lib/panelTheme';
 import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
+import './CloudDriveView.css';
 
 const ACCELERATION_KEY = 'minimal_desktop_drive_acceleration';
 
 type Entry = CloudDriveFile | CloudDriveFolder;
-type Action = { kind: 'create' } | { kind: 'edit' | 'remove'; entry: Entry } | { kind: 'share'; entry: CloudDriveFile };
+type Action =
+  | { kind: 'create' }
+  | { kind: 'preferences' }
+  | { kind: 'menu'; entry: Entry }
+  | { kind: 'edit'; entry: Entry }
+  | { kind: 'remove'; entry: Entry }
+  | { kind: 'share'; entry: CloudDriveFile };
 type Work = { label: string; cancel: boolean; completed?: number; total?: number };
 
 function isFile(entry: Entry): entry is CloudDriveFile {
@@ -228,19 +238,24 @@ export default function CloudDriveView() {
   }
 
   function showAction(next: Action) {
-    setName(next.kind === 'create' ? '' : next.entry.name);
-    setDestination(next.kind === 'create' ? '' : (next.entry.folderId ?? ''));
+    setNotice('');
+    if (next.kind === 'create') setName('');
+    if (next.kind === 'edit') {
+      setName(next.entry.name);
+      setDestination(next.entry.folderId ?? '');
+    }
     setAction(next);
   }
 
   async function saveAction() {
-    if (!session || !action || action.kind === 'share') return;
+    if (!session || !action || action.kind === 'menu' || action.kind === 'share' || action.kind === 'preferences') return;
     await run('正在保存', false, async () => {
       let next: CloudDriveListing;
       if (action.kind === 'create') next = await createCloudDriveFolder(session, name, currentFolderId);
       else if (action.kind === 'edit') next = await editCloudDriveEntry(session, action.entry.id, name, destination || null);
-      else if (isFile(action.entry)) next = await removeCloudDriveFile(session, action.entry);
-      else next = await removeCloudDriveFolder(session, action.entry.id);
+      else next = isFile(action.entry)
+        ? await removeCloudDriveFile(session, action.entry)
+        : await removeCloudDriveFolder(session, action.entry.id);
       setListing(next);
       setAction(null);
       toast.success(action.kind === 'remove' ? '已删除' : '已保存', { position: 'top-center' });
@@ -277,108 +292,213 @@ export default function CloudDriveView() {
     }
   }
 
-  const block = 'rounded-2xl border ' + t.itemBg + ' ' + t.itemBorder;
-  const button = 'inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors disabled:opacity-40';
-  const neutral = button + ' border ' + t.itemBorder + ' ' + t.itemBgHover + ' ' + t.textPrimary;
-  const primary = button + ' bg-indigo-600 text-white hover:bg-indigo-500';
-  const main = isNeu ? 'bg-slate-100 text-slate-800' : 'bg-slate-950 text-slate-50';
+  const control = 'drive-control';
+  const neutral = control + ' drive-neutral';
+  const primary = control + ' drive-primary';
+  const iconButton = control + ' drive-icon-button';
   const actionTitle = action?.kind === 'create' ? '新建文件夹'
     : action?.kind === 'edit' ? '重命名或移动'
-    : action?.kind === 'remove' ? '删除' : '分享文件';
+    : action?.kind === 'remove' ? '删除确认'
+    : action?.kind === 'share' ? '分享文件'
+    : action?.kind === 'preferences' ? '云盘设置' : '文件操作';
   const excluded = action?.kind === 'edit' && !isFile(action.entry)
     ? driveFolderSubtree(folders, action.entry.id) : new Set<string>();
+  const entries = [...activeFolders, ...activeFiles];
+  const menuFile = action?.kind === 'menu' && isFile(action.entry) ? action.entry : null;
+  const repoUrl = session ? 'https://github.com/' + encodeURIComponent(session.owner) + '/' + CLOUD_DRIVE_REPO : '';
+  const alert = notice && (
+    <p role="alert" className="drive-alert">
+      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span className="min-w-0 break-words">{notice}</span>
+    </p>
+  );
 
   return (
-    <main className={'h-[100dvh] overflow-y-auto ' + main}>
-      <div className="mx-auto max-w-4xl px-3 pb-8 pt-[max(env(safe-area-inset-top),12px)] sm:px-6">
-        <header className="mb-4 flex items-center gap-3">
-          <Link to="/" className={neutral} aria-label="返回桌面"><ArrowLeft className="h-4 w-4" /></Link>
-          <Cloud className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
-          <h1 className="min-w-0 flex-1 text-xl font-semibold">{readonly ? '分享文件' : '云盘'}</h1>
-          {session && !readonly && <a href={'https://github.com/' + encodeURIComponent(session.owner) + '/' + CLOUD_DRIVE_REPO}
-            className={neutral} target="_blank" rel="noreferrer" aria-label="打开 GitHub 仓库"><ExternalLink className="h-4 w-4" /></a>}
-        </header>
-
-        {!token && <div className={block + ' space-y-3 p-4'}>
-          <p>登录云同步后即可使用云盘。</p>
-          <Link to="/?panel=sync" className={primary}>去云同步登录</Link>
-        </div>}
-        {connecting && <p role="status" className="flex items-center gap-2 px-2 py-4"><Loader2 className="h-4 w-4 animate-spin" />正在连接 GitHub 云盘…</p>}
-        {notice && <p role="alert" className="mb-3 break-words rounded-xl bg-red-500/10 p-3 text-sm text-red-500">{notice}</p>}
-        {token && !session && !connecting && notice && <button type="button" className={neutral} onClick={() => setConnection((current) => current + 1)}>重试连接</button>}
-
-        {session && listing && <div className="space-y-3">
-          {!readonly && <nav aria-label="当前目录" className="flex flex-wrap items-center gap-1.5 text-sm">
-            <button type="button" className={neutral} onClick={() => goTo(null)} disabled={!!work}>全部文件</button>
-            {chain.map((folder) => <span key={folder.id} className="flex min-w-0 items-center gap-1.5">
-              <span aria-hidden>/</span><button type="button" className={neutral + ' max-w-48 truncate'} onClick={() => goTo(folder.id)} disabled={!!work}>{folder.name}</button>
-            </span>)}
-          </nav>}
-          <div className="flex flex-wrap items-center gap-2">
-            {!readonly && <>
-              <button type="button" className={primary} disabled={!!work} onClick={() => inputRef.current?.click()}>
-                <Upload className="h-4 w-4" />上传到当前目录
-              </button>
-              <button type="button" className={neutral} disabled={!!work} onClick={() => showAction({ kind: 'create' })}>
-                <FolderPlus className="h-4 w-4" />新建文件夹
-              </button>
-              <input ref={inputRef} type="file" multiple className="hidden" aria-label="选择上传文件" onChange={(event) => {
-                const selected = Array.from(event.target.files ?? []);
-                event.target.value = '';
-                void upload(selected);
-              }} />
-            </>}
-            <button type="button" className={neutral} aria-label="刷新云盘" disabled={!!work} onClick={() => {
-              void run('正在刷新', false, async () => { setListing(await listCloudDrive(session)); });
-            }}><RefreshCw className="h-4 w-4" /></button>
-            <div className="ml-auto flex min-h-10 items-center gap-2 px-1 text-sm">
-              <span id="drive-acceleration-label">代理加速</span>
-              <button type="button" role="switch" aria-labelledby="drive-acceleration-label" aria-checked={accelerate}
-                disabled={!!work} onClick={toggleAcceleration}
-                className={'relative h-6 w-11 rounded-full transition-colors ' + (accelerate ? 'bg-indigo-600' : 'bg-slate-500/60')}>
-                <span className={'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ' + (accelerate ? 'translate-x-5' : '')} />
-              </button>
-            </div>
+    <main className="drive-page" data-theme={isNeu ? 'light' : 'dark'}>
+      <header className="drive-header">
+        <div className="drive-shell drive-header-inner">
+          <Link to="/" className={iconButton + ' drive-back'} aria-label="返回桌面" title="返回桌面">
+            <ArrowLeft className="size-[18px]" aria-hidden />
+            <span className="hidden sm:inline">桌面</span>
+          </Link>
+          <div className="flex min-w-0 items-center justify-center gap-2.5">
+            <span className="drive-brand" aria-hidden>
+              <Cloud className="size-5" />
+            </span>
+            <h1 className="truncate text-lg font-semibold tracking-tight">{readonly ? '分享文件' : '云盘'}</h1>
           </div>
-          {work && <div className={block + ' flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm'} role="status">
-            <span className="min-w-0 flex-1 break-words">{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</span>
-            {work.cancel && <button type="button" className={neutral} onClick={() => transferRef.current?.abort()}>取消传输</button>}
-            {!!work.total && <progress className="h-2 w-full accent-indigo-600" max={work.total} value={work.completed ?? 0} />}
-          </div>}
-          {activeFolders.length + activeFiles.length === 0 && (
-            <p className={block + ' p-6 text-center text-sm ' + t.textMuted}>{readonly ? '分享文件已删除或不可访问' : '此目录为空'}</p>
+          {session && (
+            <button type="button" className={neutral + ' drive-settings-button'} aria-label="云盘设置"
+              title="云盘设置" disabled={!!work} onClick={() => showAction({ kind: 'preferences' })}>
+              <Settings2 className="size-[18px]" aria-hidden />
+              <span className="hidden sm:inline">设置</span>
+            </button>
           )}
-          <ul className="space-y-2">
-            {[...activeFolders, ...activeFiles].map((entry) => {
-              const file = isFile(entry) ? entry : null;
-              const Icon = file ? FileIcon : Folder;
-              return <li key={entry.id} className={block + ' flex flex-wrap items-center gap-1.5 px-3 py-2'}>
-                {file ? <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <Icon className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm" title={entry.name}>{entry.name}</span>
-                    <span className={'block text-xs ' + t.textMuted}>{formatBytes(file.size)}</span>
-                  </span>
-                </div> : <button type="button" disabled={!!work} onClick={() => goTo(entry.id)} className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left text-sm">
-                  <Icon className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
-                  <span className="truncate">{entry.name}</span>
-                </button>}
-                {file && <button type="button" disabled={!!work} className={neutral} aria-label={'下载 ' + entry.name} onClick={() => void download(file)}><Download className="h-4 w-4" /></button>}
-                {!readonly && file && <button type="button" disabled={!!work} className={neutral} aria-label={'分享 ' + entry.name} onClick={() => showAction({ kind: 'share', entry: file })}><Share2 className="h-4 w-4" /></button>}
-                {!readonly && <button type="button" disabled={!!work} className={neutral} aria-label={'管理 ' + entry.name} onClick={() => showAction({ kind: 'edit', entry })}><Edit3 className="h-4 w-4" /></button>}
-              </li>;
-            })}
-          </ul>
-        </div>}
+        </div>
+      </header>
+
+      <div className="drive-shell drive-content">
+        {!action && alert}
+
+        {!token && (
+          <section className="drive-panel drive-state drive-login" aria-labelledby="drive-login-title">
+            <span className="drive-state-icon" aria-hidden><Cloud className="size-8" strokeWidth={1.65} /></span>
+            <h2 id="drive-login-title" className="text-xl font-semibold tracking-tight">登录后{readonly ? '查看分享' : '使用云盘'}</h2>
+            <p className="drive-muted text-sm">使用现有的云同步登录访问文件。</p>
+            <Link to="/?panel=sync" className={primary + ' mt-2'}>去云同步登录 <ChevronRight className="size-4" aria-hidden /></Link>
+          </section>
+        )}
+        {connecting && (
+          <div className="drive-panel drive-state drive-muted" role="status">
+            <Loader2 className="size-6 animate-spin" aria-hidden />
+            <span className="text-sm">正在连接云盘…</span>
+          </div>
+        )}
+        {token && !session && !connecting && notice && (
+          <button type="button" className={neutral} onClick={() => setConnection((current) => current + 1)}>
+            <RefreshCw className="size-4" aria-hidden />重试连接
+          </button>
+        )}
+
+        {session && listing && (
+          <section className="drive-panel" aria-label={readonly ? '文件分享' : '文件列表'}>
+            <div className="drive-toolbar">
+              {readonly ? <span className="text-sm font-semibold">共享内容</span> : (
+                <nav aria-label="当前目录" className="drive-path">
+                  <button type="button" className={control + ' drive-crumb'} onClick={() => goTo(null)} disabled={!!work}
+                    aria-current={!chain.length ? 'location' : undefined}>
+                    <HardDrive className="size-4 shrink-0" aria-hidden /><span className="truncate">全部文件</span>
+                  </button>
+                  {chain.map((folder) => (
+                    <span key={folder.id} className="flex min-w-0 items-center gap-0.5">
+                      <ChevronRight className="drive-muted size-3.5 shrink-0" aria-hidden />
+                      <button type="button" className={control + ' drive-crumb'} title={folder.name} onClick={() => goTo(folder.id)}
+                        disabled={!!work} aria-current={folder.id === currentFolderId ? 'location' : undefined}>
+                        <span className="truncate">{folder.name}</span>
+                      </button>
+                    </span>
+                  ))}
+                </nav>
+              )}
+              <div className="drive-toolbar-actions">
+                {!readonly && <>
+                  <button type="button" className={primary} disabled={!!work} onClick={() => inputRef.current?.click()}>
+                    <Upload className="size-4" aria-hidden />上传文件
+                  </button>
+                  <button type="button" className={neutral} disabled={!!work} onClick={() => showAction({ kind: 'create' })}>
+                    <FolderPlus className="size-4" aria-hidden />新建文件夹
+                  </button>
+                  <input ref={inputRef} type="file" multiple className="hidden" aria-label="选择上传文件" onChange={(event) => {
+                    const selected = Array.from(event.target.files ?? []);
+                    event.target.value = '';
+                    void upload(selected);
+                  }} />
+                </>}
+                <button type="button" className={neutral + ' drive-icon-button'} aria-label="刷新云盘" title="刷新云盘"
+                  disabled={!!work} onClick={() => {
+                    void run('正在刷新', false, async () => { setListing(await listCloudDrive(session)); });
+                  }}>
+                  <RefreshCw className="size-4" aria-hidden />
+                </button>
+              </div>
+            </div>
+            {work && !action && (
+              <div className="drive-transfer" role="status">
+                <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                <span className="min-w-0 flex-1 break-words">{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</span>
+                {work.cancel && <button type="button" className={neutral} onClick={() => transferRef.current?.abort()}>取消传输</button>}
+                {!!work.total && <progress aria-label="传输进度" max={work.total} value={work.completed ?? 0} />}
+              </div>
+            )}
+            {entries.length ? <>
+              <div className="drive-list-heading" aria-hidden><span>名称</span><span>{entries.length} 项</span></div>
+              <ul className="drive-list">
+                {entries.map((entry) => {
+                  const file = isFile(entry) ? entry : null;
+                  return (
+                    <li key={entry.id} className="drive-row">
+                      {file ? (
+                        <div className="drive-entry">
+                          <span className="drive-entry-icon" aria-hidden><FileText className="size-[19px]" /></span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium" title={file.name}>{file.name}</span>
+                            <span className="drive-muted mt-0.5 block text-xs">{formatBytes(file.size)}</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <button type="button" className="drive-entry drive-folder" disabled={!!work} onClick={() => goTo(entry.id)}>
+                          <span className="drive-entry-icon drive-folder-icon" aria-hidden><Folder className="size-[19px]" /></span>
+                          <span className="min-w-0 truncate text-sm font-medium" title={entry.name}>{entry.name}</span>
+                          <ChevronRight className="drive-muted ml-0.5 size-4 shrink-0" aria-hidden />
+                        </button>
+                      )}
+                      <div className="flex shrink-0 items-center">
+                        {file && (
+                          <button type="button" disabled={!!work} className={iconButton} aria-label={'下载 ' + entry.name} title="下载"
+                            onClick={() => void download(file)}>
+                            <Download className="size-[18px]" aria-hidden />
+                          </button>
+                        )}
+                        {!readonly && (
+                          <button type="button" disabled={!!work} className={iconButton} aria-label={'更多操作 ' + entry.name} title="更多操作"
+                            onClick={() => showAction({ kind: 'menu', entry })}>
+                            <MoreHorizontal className="size-5" aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </> : (
+              <div className="drive-state">
+                <span className="drive-state-icon" aria-hidden><FolderOpen className="size-7" strokeWidth={1.65} /></span>
+                <p className="text-sm font-medium">{readonly ? '分享文件已删除或不可访问' : '此文件夹为空'}</p>
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       <SystemSheet open={!!action} isNeu={isNeu} title={actionTitle} onClose={clearAction} bodyClassName="overflow-y-auto p-4">
+        {action?.kind === 'preferences' && (
+          <div className="drive-sheet-list">
+            <button type="button" role="switch" aria-checked={accelerate} disabled={!!work}
+              onClick={toggleAcceleration} className="drive-sheet-option">
+              <span className="font-medium">下载代理加速</span>
+              <span className="drive-switch" aria-hidden><span /></span>
+            </button>
+            {!readonly && repoUrl && (
+              <a href={repoUrl} className="drive-sheet-option" target="_blank" rel="noreferrer">
+                <span>打开 GitHub 仓库</span><ExternalLink className="size-4" aria-hidden />
+              </a>
+            )}
+          </div>
+        )}
+        {action?.kind === 'menu' && (
+          <div className="drive-sheet-list">
+            <p className="drive-muted truncate px-2 pb-1 text-sm" title={action.entry.name}>{action.entry.name}</p>
+            {menuFile && (
+              <button type="button" className="drive-sheet-option" onClick={() => showAction({ kind: 'share', entry: menuFile })}>
+                <span className="flex items-center gap-3"><Share2 className="size-4" aria-hidden />分享文件</span>
+                <ChevronRight className="size-4" aria-hidden />
+              </button>
+            )}
+            <button type="button" className="drive-sheet-option" onClick={() => showAction({ kind: 'edit', entry: action.entry })}>
+              <span className="flex items-center gap-3"><Pencil className="size-4" aria-hidden />重命名或移动</span>
+              <ChevronRight className="size-4" aria-hidden />
+            </button>
+            <button type="button" className="drive-sheet-option drive-danger-text" onClick={() => showAction({ kind: 'remove', entry: action.entry })}>
+              <span className="flex items-center gap-3"><Trash2 className="size-4" aria-hidden />删除</span>
+            </button>
+          </div>
+        )}
         {(action?.kind === 'create' || action?.kind === 'edit') && (
-          <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void saveAction(); }}>
-            <label className="block space-y-1.5"><span>名称</span>
+          <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void saveAction(); }}>
+            <label className="block space-y-1.5 text-sm"><span className={t.textPrimary}>名称</span>
               <input className={t.inputCls} value={name} onChange={(event) => setName(event.target.value)} maxLength={255} required autoFocus />
             </label>
-            {action.kind === 'edit' && <label className="block space-y-1.5"><span>所在目录</span>
+            {action.kind === 'edit' && <label className="block space-y-1.5 text-sm"><span className={t.textPrimary}>所在目录</span>
               <select className={t.inputCls} value={destination} onChange={(event) => setDestination(event.target.value)}>
                 <option value="">根目录</option>
                 {folders.filter((folder) => !excluded.has(folder.id)).map((folder) => (
@@ -386,26 +506,26 @@ export default function CloudDriveView() {
                 ))}
               </select>
             </label>}
-            {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+            {alert}
             <div className="flex justify-end gap-2">
-              {action.kind === 'edit' && <button type="button" className={neutral + ' mr-auto text-red-500'} disabled={!!work}
-                onClick={() => showAction({ kind: 'remove', entry: action.entry })}><Trash2 className="h-4 w-4" />删除</button>}
-              <button type="submit" className={primary} disabled={!!work || !name.trim()}>保存</button>
+              <button type="button" className={neutral} disabled={!!work} onClick={clearAction}>取消</button>
+              <button type="submit" className={primary} disabled={!!work || !name.trim()}>{work ? '正在保存…' : '保存'}</button>
             </div>
           </form>
         )}
         {action?.kind === 'remove' && <div className="space-y-3">
-          <p className={t.textPrimary}>删除「{action.entry.name}」{isFile(action.entry) ? '？' : '及其全部内容？'}</p>
-          <p className={'text-sm ' + t.textMuted}>旧版本仍保留在 Git 历史中。</p>
-          {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+          <p className="break-words">删除「{action.entry.name}」{isFile(action.entry) ? '？' : '及其全部内容？'}</p>
+          <p className="drive-muted text-sm">旧版本仍保留在 Git 历史中。</p>
+          {alert}
           <div className="flex justify-end gap-2">
             <button type="button" className={neutral} disabled={!!work} onClick={clearAction}>取消</button>
-            <button type="button" className={button + ' bg-red-600 text-white'} disabled={!!work} onClick={() => void saveAction()}>确认删除</button>
+            <button type="button" className={control + ' bg-red-600 text-white hover:bg-red-700'} disabled={!!work}
+              onClick={() => void saveAction()}>{work ? '正在删除…' : '确认删除'}</button>
           </div>
         </div>}
         {action?.kind === 'share' && <div className="space-y-3">
-          <p className={'truncate text-sm ' + t.textPrimary}>{action.entry.name}</p>
-          <p className={'text-sm ' + t.textMuted}>私有链接仅供有此 GitHub 仓库读取权限的用户使用。</p>
+          <p className="truncate text-sm font-medium" title={action.entry.name}>{action.entry.name}</p>
+          <p className="drive-muted text-sm">私有链接仅供有此 GitHub 仓库读取权限的用户使用。</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={neutral} disabled={!!work} onClick={() => void copyLink(action.entry)}>复制私有链接</button>
             <button type="button" className={primary} disabled={!!work} onClick={() => {
@@ -414,8 +534,8 @@ export default function CloudDriveView() {
             }}>{prepared ? '发送文件' : '准备文件分享'}</button>
             {work?.cancel && <button type="button" className={neutral} onClick={() => transferRef.current?.abort()}>取消传输</button>}
           </div>
-          {work && <p role="status" className={'text-xs ' + t.textMuted}>{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</p>}
-          {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+          {work && <p role="status" className="drive-muted break-words text-xs">{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</p>}
+          {alert}
         </div>}
       </SystemSheet>
     </main>

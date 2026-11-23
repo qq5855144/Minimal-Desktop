@@ -1,7 +1,24 @@
 import { z } from 'zod';
-import type { DesktopBackup, DesktopData, DesktopSettings } from '@/types';
+import type { DesktopBackup, DesktopData, DesktopItem, DesktopSettings } from '@/types';
 
 export const CURRENT_DESKTOP_VERSION = 6;
+
+// 旧版预置图标使用固定 ID，用户自行添加的应用使用独立 ID。
+const retiredSiteIds = new Set([
+  'site-translate', 'site-maps', 'site-rail', 'site-encyclopedia', 'site-github', 'site-mdn',
+]);
+
+function removeRetiredSites(items: DesktopItem[]): DesktopItem[] {
+  return items.filter((item) => item.type !== 'app' || !retiredSiteIds.has(item.id)).map((item) => (
+    item.children ? { ...item, children: removeRetiredSites(item.children) } : item
+  ));
+}
+
+function migrateRetiredSites<T extends DesktopData>(data: T): T {
+  data.pages = data.pages.map(removeRetiredSites);
+  if (data.privacyItems) data.privacyItems = removeRetiredSites(data.privacyItems);
+  return data;
+}
 
 const httpUrl = z.string().max(4096).refine((value) => {
   try {
@@ -199,7 +216,7 @@ export type DesktopDataParseResult =
 
 export function parseDesktopData(input: unknown): DesktopDataParseResult {
   const result = desktopDataSchema.safeParse(input);
-  if (result.success) return { ok: true, data: result.data };
+  if (result.success) return { ok: true, data: migrateRetiredSites(result.data) };
   const first = result.error.issues[0];
   const path = first?.path.length ? first.path.join('.') : 'root';
   return { ok: false, message: `备份数据校验失败（${path}）：${first?.message ?? '未知错误'}` };
@@ -211,7 +228,7 @@ export type DesktopBackupParseResult =
 
 export function parseDesktopBackup(input: unknown): DesktopBackupParseResult {
   const result = desktopBackupSchema.safeParse(input);
-  if (result.success) return { ok: true, data: result.data };
+  if (result.success) return { ok: true, data: migrateRetiredSites(result.data) };
   const first = result.error.issues[0];
   const path = first?.path.length ? first.path.join('.') : 'root';
   return { ok: false, message: `备份数据校验失败（${path}）：${first?.message ?? '未知错误'}` };

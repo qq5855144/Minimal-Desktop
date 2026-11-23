@@ -217,7 +217,7 @@ describe('bookmark entry migration', () => {
   });
 });
 
-describe('built-in desktop websites', () => {
+describe('default desktop', () => {
   it('keeps legacy desktops within the page limit when the drive icon has no available slot', () => {
     vi.stubGlobal('localStorage', memoryStorage());
     try {
@@ -235,15 +235,32 @@ describe('built-in desktop websites', () => {
     }
   });
 
-  it('seeds removable shortcuts only on a new desktop and does not recreate deleted ones', () => {
+  it('starts a new desktop with system entries and no website shortcuts', () => {
     vi.stubGlobal('localStorage', memoryStorage());
     try {
       const desktop = loadDesktopData();
-      expect(desktop.pages[0].filter((item) => item.type === 'app')).toHaveLength(6);
+      expect(desktop.pages[0].filter((item) => item.type === 'app')).toHaveLength(0);
       expect(desktop.pages[0].find((item) => item.id === 'sys-drive')).toMatchObject({ type: 'system' });
-      desktop.pages[0] = desktop.pages[0].filter((item) => item.id !== 'site-maps');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('removes retired shortcuts from old desktops without moving custom shortcuts', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    try {
+      const desktop = loadDesktopData();
+      const preset = { id: 'site-maps', type: 'app' as const, name: '高德地图', url: 'https://www.amap.com/', color: 'green' as const, page: 0, row: 5, col: 0 };
+      const custom = { ...preset, id: 'custom-map', row: 6, col: 2 };
+      const folder = {
+        id: 'my-folder', type: 'folder' as const, name: '出行', color: 'blue' as const, page: 0, row: 5, col: 1,
+        children: [{ ...preset, id: 'site-rail' }, { ...custom, id: 'custom-map-in-folder' }],
+      };
+      desktop.pages[0].push(preset, custom, folder);
       localStorage.setItem('ios_desktop_data', JSON.stringify(desktop));
-      expect(loadDesktopData().pages.flat().some((item) => item.id === 'site-maps')).toBe(false);
+      expect(loadDesktopData().pages[0]).toEqual([
+        ...desktop.pages[0].slice(0, -3), custom, { ...folder, children: [folder.children[1]] },
+      ]);
     } finally {
       vi.unstubAllGlobals();
     }
