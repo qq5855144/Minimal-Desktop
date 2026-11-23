@@ -5,6 +5,8 @@
 <p align="center">
   <img src="docs/preview.webp" alt="Minimal Desktop 桌面预览" width="720" />
 </p>
+> **在线体验**：
+> - Cloudflare Pages ：<https://mdsk.pages.dev/>
 
 ## 基础操作
 
