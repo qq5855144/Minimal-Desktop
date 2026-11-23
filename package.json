@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:cloudflare": "vite build --mode cloudflare",
     "build:ext": "vite build --config vite.config.extension.ts",
     "pack:crx": "node scripts/crx3.mjs pack",
     "verify:crx": "node scripts/crx3.mjs verify",

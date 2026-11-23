@@ -1,11 +1,15 @@
-import { z } from 'zod';
 import {
   base64ToBytes, bytesToBase64, ensureRepo, errorMessage, getBranchHead, ghFetch,
   readRepoFileAtRef, verifyToken,
 } from './github';
+import {
+  CLOUD_DRIVE_CHUNK_BYTES, type CloudDriveFile, type CloudDriveFolder, type CloudDriveIndex,
+  driveEntryName, driveFileParts, driveFileSchema, driveFolderSubtree, parseCloudDriveIndex,
+} from './cloudDriveModel';
+
+export type { CloudDriveFile, CloudDriveFolder } from './cloudDriveModel';
 
 export const CLOUD_DRIVE_REPO = 'minimal-desktop-drive';
-export const CLOUD_DRIVE_MAX_BYTES = 25 * 1024 * 1024;
 const INDEX_PATH = 'drive/index.bin';
 const KEY_TAG = 'minimal-desktop-drive-key-v1';
 const KEY_PREFIX = 'minimal-desktop-drive-key-v1:';
@@ -14,15 +18,6 @@ const SEALED_OVERHEAD = NONCE_BYTES + 16;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const driveFileSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(1).max(255),
-  size: z.number().int().min(0).max(CLOUD_DRIVE_MAX_BYTES),
-  uploadedAt: z.string().datetime(),
-});
-const driveIndexSchema = z.array(driveFileSchema);
-export type CloudDriveFile = z.infer<typeof driveFileSchema>;
-
 export interface CloudDriveSession {
   owner: string;
   branch: string;
@@ -30,13 +25,18 @@ export interface CloudDriveSession {
   key: CryptoKey;
 }
 
-export interface CloudDriveListing {
+export interface CloudDriveListing extends CloudDriveIndex {
   revision: string;
-  files: CloudDriveFile[];
 }
 
-function filePath(id: string): string {
-  return `drive/files/${id}.bin`;
+export interface CloudDriveTransfer {
+  signal?: AbortSignal;
+  onProgress?: (completed: number, total: number) => void;
+}
+
+interface FileChange {
+  path: string;
+  sha: string | null;
 }
 
 function repoPath(owner: string): string {
@@ -109,6 +109,17 @@ export async function connectCloudDrive(token: string): Promise<CloudDriveSessio
   return { owner: user.login, branch, token, key: await ensureKey(user.login, branch, token) };
 }
 
+export async function openSharedCloudDrive(token: string, owner: string): Promise<CloudDriveSession> {
+  if (!/^[\da-z](?:[\da-z-]{0,38})$/i.test(owner)) throw new Error('云盘分享链接无效');
+  const attributes = await checkedJson<{ default_branch: string; private: boolean }>(
+    await ghFetch(token, repoPath(owner), { cache: 'no-store', redirect: 'error' }), '无法访问分享文件',
+  );
+  if (attributes.private !== true) throw new Error('分享链接需要访问原私有云盘的权限');
+  const key = await readKey(owner, token);
+  if (!key) throw new Error('无法读取分享文件');
+  return { owner, branch: attributes.default_branch || 'main', token, key };
+}
+
 async function seal(key: CryptoKey, plain: ArrayBuffer, path: string): Promise<Uint8Array<ArrayBuffer>> {
   const iv = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
   const cipher = await crypto.subtle.encrypt(
@@ -148,66 +159,68 @@ async function getSnapshot(session: CloudDriveSession) {
   const index = folder && (await readTree(folder.sha)).tree.find(
     (entry) => entry.path === 'index.bin' && entry.type === 'blob',
   );
-  if (!index) return { revision, tree, files: [] as CloudDriveFile[] };
+  if (!index) return { revision, tree, files: [] as CloudDriveFile[], folders: [] as CloudDriveFolder[] };
 
   const blob = await checkedJson<{ content: string; encoding: string }>(
     await ghFetch(token, `${repo}/git/blobs/${index.sha}`), '读取云盘索引失败',
   );
   if (blob.encoding !== 'base64') throw new Error('云盘索引格式无效');
   const contents = await unseal(key, new Uint8Array(base64ToBytes(blob.content)), INDEX_PATH);
-  const parsed = driveIndexSchema.safeParse(JSON.parse(decoder.decode(contents)));
-  if (!parsed.success || new Set(parsed.data.map((file) => file.id)).size !== parsed.data.length) {
-    throw new Error('云盘索引格式无效');
-  }
-  return { revision, tree, files: parsed.data };
+  const parsed = parseCloudDriveIndex(JSON.parse(decoder.decode(contents)));
+  return { revision, tree, ...parsed };
 }
 
 export async function listCloudDrive(session: CloudDriveSession): Promise<CloudDriveListing> {
-  const { revision, files } = await getSnapshot(session);
-  return { revision, files };
+  const { revision, files, folders } = await getSnapshot(session);
+  return { revision, files, folders };
 }
 
-async function createBlob(session: CloudDriveSession, bytes: Uint8Array): Promise<string> {
+async function createBlob(session: CloudDriveSession, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   const { sha } = await checkedJson<{ sha: string }>(
-    await ghFetch(session.token, `${repoPath(session.owner)}/git/blobs`, postJson({
-      encoding: 'base64', content: bytesToBase64(bytes),
-    })), '上传文件内容失败',
+    await ghFetch(session.token, `${repoPath(session.owner)}/git/blobs`, {
+      ...postJson({ encoding: 'base64', content: bytesToBase64(bytes) }), signal,
+    }), '上传文件内容失败',
   );
   return sha;
 }
 
 async function updateIndex(
   session: CloudDriveSession,
-  file: CloudDriveFile,
-  fileSha: string | null,
+  message: string,
+  edit: (index: CloudDriveIndex) => { index: CloudDriveIndex; entries?: FileChange[] } | null,
+  signal?: AbortSignal,
 ): Promise<CloudDriveListing> {
   const { owner, branch, token, key } = session;
   const repo = repoPath(owner);
   for (let attempt = 0; attempt < 3; attempt++) {
+    signal?.throwIfAborted();
     const current = await getSnapshot(session);
-    const exists = current.files.some((entry) => entry.id === file.id);
-    if (exists === Boolean(fileSha)) return current;
-    const files = fileSha ? [file, ...current.files] : current.files.filter((entry) => entry.id !== file.id);
-    const indexSha = await createBlob(session, await seal(key, encoder.encode(JSON.stringify(files)).buffer, INDEX_PATH));
+    const change = edit(current);
+    if (!change) return current;
+    const { index, entries = [] } = change;
+    const sealed = await seal(key, encoder.encode(JSON.stringify(index)).buffer, INDEX_PATH);
+    const indexSha = await createBlob(session, sealed, signal);
     const tree = await checkedJson<{ sha: string }>(
-      await ghFetch(token, `${repo}/git/trees`, postJson({
-        base_tree: current.tree,
-        tree: [
-          { path: INDEX_PATH, mode: '100644', type: 'blob', sha: indexSha },
-          { path: filePath(file.id), mode: '100644', type: 'blob', sha: fileSha },
-        ],
-      })), '更新云盘目录失败',
+      await ghFetch(token, repo + '/git/trees', {
+        ...postJson({
+          base_tree: current.tree,
+          tree: [{ path: INDEX_PATH, sha: indexSha }, ...entries].map((entry) => (
+            { ...entry, mode: '100644', type: 'blob' }
+          )),
+        }),
+        signal,
+      }), '更新云盘目录失败',
     );
     const commit = await checkedJson<{ sha: string }>(
-      await ghFetch(token, `${repo}/git/commits`, postJson({
-        message: fileSha ? 'Add cloud drive file' : 'Remove cloud drive file',
-        tree: tree.sha, parents: [current.revision],
-      })), '创建云盘版本失败',
+      await ghFetch(token, repo + '/git/commits', {
+        ...postJson({ message, tree: tree.sha, parents: [current.revision] }), signal,
+      }), '创建云盘版本失败',
     );
-    const response = await ghFetch(token, `${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
+    signal?.throwIfAborted();
+    const response = await ghFetch(token, repo + '/git/refs/heads/' + encodeURIComponent(branch), {
       method: 'PATCH', body: JSON.stringify({ sha: commit.sha, force: false }), redirect: 'error',
     });
-    if (response.ok) return { revision: commit.sha, files };
+    if (response.ok) return { revision: commit.sha, ...index };
     if (response.status === 409 || response.status === 422) {
       const head = await getBranchHead(token, owner, CLOUD_DRIVE_REPO, branch);
       if (head && head !== current.revision) continue;
@@ -225,19 +238,112 @@ async function checkRepositoryPrivacy(session: CloudDriveSession): Promise<void>
   if (attributes.private !== true) throw new Error('云盘需要私有仓库，请在 GitHub 检查仓库可见性');
 }
 
-export async function uploadCloudDriveFile(session: CloudDriveSession, file: File): Promise<CloudDriveListing> {
-  if (file.size > CLOUD_DRIVE_MAX_BYTES) throw new Error('单文件最多 25 MiB');
+function checkFolder(index: CloudDriveIndex, folderId: string | null): void {
+  if (folderId && !index.folders.some((folder) => folder.id === folderId)) {
+    throw new Error('目标文件夹不存在，请刷新云盘');
+  }
+}
+
+function checkFolderName(index: CloudDriveIndex, name: string, folderId: string | null, skipId?: string): void {
+  if (index.folders.some((folder) => (
+    folder.id !== skipId && (folder.folderId ?? null) === folderId && folder.name === name
+  ))) throw new Error('该目录已有同名文件夹');
+}
+
+export async function uploadCloudDriveFile(
+  session: CloudDriveSession, file: File, folderId: string | null = null, transfer: CloudDriveTransfer = {},
+): Promise<CloudDriveListing> {
+  const { signal, onProgress } = transfer;
+  signal?.throwIfAborted();
   await checkRepositoryPrivacy(session);
+  if (folderId) checkFolder(await getSnapshot(session), folderId);
   const entry = driveFileSchema.parse({
-    id: crypto.randomUUID(), name: file.name, size: file.size, uploadedAt: new Date().toISOString(),
+    id: crypto.randomUUID(), name: driveEntryName(file.name), size: file.size, uploadedAt: new Date().toISOString(),
+    folderId, mime: file.type || undefined,
+    chunkSize: file.size > CLOUD_DRIVE_CHUNK_BYTES ? CLOUD_DRIVE_CHUNK_BYTES : undefined,
   });
-  const sha = await createBlob(session, await seal(session.key, await file.arrayBuffer(), filePath(entry.id)));
-  return updateIndex(session, entry, sha);
+  const entries: FileChange[] = [];
+  for (const { path, offset, size } of driveFileParts(entry)) {
+    signal?.throwIfAborted();
+    const bytes = await file.slice(offset, offset + size).arrayBuffer();
+    const sha = await createBlob(session, await seal(session.key, bytes, path), signal);
+    entries.push({ path, sha });
+    onProgress?.(offset + size, file.size);
+  }
+  return updateIndex(session, 'Add cloud drive file', (index) => {
+    checkFolder(index, folderId);
+    return { index: { files: [entry, ...index.files], folders: index.folders }, entries };
+  }, signal);
+}
+
+export async function createCloudDriveFolder(
+  session: CloudDriveSession, input: string, folderId: string | null,
+): Promise<CloudDriveListing> {
+  const name = driveEntryName(input);
+  const folder = { id: crypto.randomUUID(), name, folderId };
+  await checkRepositoryPrivacy(session);
+  return updateIndex(session, 'Create cloud drive folder', (index) => {
+    checkFolder(index, folderId);
+    checkFolderName(index, name, folderId);
+    return { index: { files: index.files, folders: [...index.folders, folder] } };
+  });
+}
+
+export async function editCloudDriveEntry(
+  session: CloudDriveSession, entryId: string, input: string, folderId: string | null,
+): Promise<CloudDriveListing> {
+  const name = driveEntryName(input);
+  await checkRepositoryPrivacy(session);
+  return updateIndex(session, 'Edit cloud drive entry', (index) => {
+    checkFolder(index, folderId);
+    const folder = index.folders.find((entry) => entry.id === entryId);
+    const file = index.files.find((entry) => entry.id === entryId);
+    const entry = folder ?? file;
+    if (!entry) throw new Error('该项目已不存在');
+    if (entry.name === name && (entry.folderId ?? null) === folderId) return null;
+    if (folder) {
+      if (folderId && driveFolderSubtree(index.folders, folder.id).has(folderId)) {
+        throw new Error('不能移动到自身或子文件夹');
+      }
+      checkFolderName(index, name, folderId, folder.id);
+      return { index: {
+        files: index.files, folders: index.folders.map((item) => item.id === entryId ? { ...item, name, folderId } : item),
+      } };
+    }
+    return { index: {
+      folders: index.folders, files: index.files.map((item) => item.id === entryId ? { ...item, name, folderId } : item),
+    } };
+  });
 }
 
 export async function removeCloudDriveFile(session: CloudDriveSession, file: CloudDriveFile): Promise<CloudDriveListing> {
   await checkRepositoryPrivacy(session);
-  return updateIndex(session, file, null);
+  return updateIndex(session, 'Remove cloud drive file', (index) => {
+    const current = index.files.find((entry) => entry.id === file.id);
+    if (!current) return null;
+    return {
+      index: { folders: index.folders, files: index.files.filter((entry) => entry.id !== file.id) },
+      entries: [...driveFileParts(current)].map((part) => ({ path: part.path, sha: null })),
+    };
+  });
+}
+
+export async function removeCloudDriveFolder(session: CloudDriveSession, folderId: string): Promise<CloudDriveListing> {
+  await checkRepositoryPrivacy(session);
+  return updateIndex(session, 'Remove cloud drive folder', (index) => {
+    if (!index.folders.some((folder) => folder.id === folderId)) return null;
+    const ids = driveFolderSubtree(index.folders, folderId);
+    const included = (file: CloudDriveFile) => file.folderId ? ids.has(file.folderId) : false;
+    return {
+      index: {
+        folders: index.folders.filter((folder) => !ids.has(folder.id)),
+        files: index.files.filter((file) => !included(file)),
+      },
+      entries: index.files.filter(included).flatMap((file) => (
+        [...driveFileParts(file)].map((part) => ({ path: part.path, sha: null }))
+      )),
+    };
+  });
 }
 
 const PROXIES = [
@@ -289,9 +395,12 @@ async function readTransfer(response: Response, size: number, prefix: boolean): 
 
 async function requestRoute(
   session: CloudDriveSession, path: string, revision: string,
-  route: { origin: string }, size: number, probe: boolean,
+  route: { origin: string }, size: number, probe: boolean, signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array<ArrayBuffer>; bytesPerSecond: number }> {
+  signal?.throwIfAborted();
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), probe ? 2500 : 120_000);
   try {
     const raw = await getRawLink(session, path, revision, controller.signal);
@@ -306,41 +415,107 @@ async function requestRoute(
     return { bytes, bytesPerSecond: size * 1000 / Math.max(1, performance.now() - started) };
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
-export async function downloadCloudDriveFile(
-  session: CloudDriveSession,
-  file: CloudDriveFile,
-  revision: string,
-  accelerate: boolean,
-): Promise<{ contents: Blob; route: string }> {
-  const path = filePath(file.id);
-  const sealedSize = file.size + SEALED_OVERHEAD;
-  const decrypt = async (bytes: Uint8Array<ArrayBuffer>, route: string) => {
+type DownloadRoute = { name: string; origin: string };
+
+async function downloadPart(
+  session: CloudDriveSession, path: string, size: number, revision: string,
+  preferred: DownloadRoute | null | undefined, signal?: AbortSignal,
+): Promise<{ bytes: ArrayBuffer; route: DownloadRoute | null }> {
+  const sealedSize = size + SEALED_OVERHEAD;
+  const decrypt = async (bytes: Uint8Array<ArrayBuffer>, route: DownloadRoute | null) => {
     if (bytes.length !== sealedSize) throw new Error('云端文件大小不匹配');
-    return { contents: new Blob([await unseal(session.key, bytes, path)]), route };
+    return { bytes: await unseal(session.key, bytes, path), route };
   };
 
-  if (accelerate) {
+  if (preferred) {
+    try {
+      const { bytes } = await requestRoute(session, path, revision, preferred, sealedSize, false, signal);
+      return await decrypt(bytes, preferred);
+    } catch {
+      signal?.throwIfAborted();
+    }
+  }
+  if (preferred !== null) {
     const sampleSize = Math.min(SAMPLE_BYTES, sealedSize);
     const routes = [DIRECT_ROUTE, ...PROXIES];
     const probes = await Promise.allSettled(routes.map(async (route) => {
-      const probe = await requestRoute(session, path, revision, route, sampleSize, true);
+      const probe = await requestRoute(session, path, revision, route, sampleSize, true, signal);
       return { route, speed: probe.bytesPerSecond, sample: probe.bytes };
     }));
+    signal?.throwIfAborted();
     const ranked = probes.flatMap((probe) => probe.status === 'fulfilled' ? [probe.value] : [])
       .sort((left, right) => right.speed - left.speed);
     for (const { route, sample } of ranked) {
       try {
-        if (sampleSize === sealedSize) return await decrypt(sample, route.name);
-        const { bytes } = await requestRoute(session, path, revision, route, sealedSize, false);
-        return await decrypt(bytes, route.name);
-      } catch { /* Continue with the next measured route. */ }
+        if (sampleSize === sealedSize) return await decrypt(sample, route);
+        const { bytes } = await requestRoute(session, path, revision, route, sealedSize, false, signal);
+        return await decrypt(bytes, route);
+      } catch {
+        signal?.throwIfAborted();
+      }
     }
   }
 
-  const fileResult = await readRepoFileAtRef(session.token, session.owner, CLOUD_DRIVE_REPO, path, revision);
-  if (!fileResult.ok || !fileResult.bytes) throw new Error(fileResult.message);
-  return decrypt(new Uint8Array(fileResult.bytes), DIRECT_ROUTE.name);
+  const result = await readRepoFileAtRef(session.token, session.owner, CLOUD_DRIVE_REPO, path, revision, signal);
+  if (!result.ok || !result.bytes) throw new Error(result.message);
+  return decrypt(new Uint8Array(result.bytes), null);
+}
+
+export interface CloudDriveDownload {
+  contents: Blob;
+  route: string;
+  release?: () => Promise<void>;
+}
+
+async function openTemporaryFile() {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return null;
+  const name = crypto.randomUUID();
+  let folder: FileSystemDirectoryHandle | undefined;
+  try {
+    const root = await navigator.storage.getDirectory();
+    folder = await root.getDirectoryHandle('minimal-desktop-drive-downloads', { create: true });
+    const file = await folder.getFileHandle(name, { create: true });
+    const writer = await file.createWritable();
+    const directory = folder;
+    return { file, writer, release: () => directory.removeEntry(name).catch(() => undefined) };
+  } catch {
+    await folder?.removeEntry(name).catch(() => undefined);
+    return null;
+  }
+}
+
+export async function downloadCloudDriveFile(
+  session: CloudDriveSession, file: CloudDriveFile, revision: string,
+  accelerate: boolean, transfer: CloudDriveTransfer = {},
+): Promise<CloudDriveDownload> {
+  const { signal, onProgress } = transfer;
+  signal?.throwIfAborted();
+  const temporary = file.chunkSize ? await openTemporaryFile() : null;
+  const fragments: ArrayBuffer[] = [];
+  const mime = file.mime || 'application/octet-stream';
+  let preferred: DownloadRoute | null | undefined = accelerate ? undefined : null;
+  try {
+    for (const { path, size, offset } of driveFileParts(file)) {
+      signal?.throwIfAborted();
+      const part = await downloadPart(session, path, size, revision, preferred, signal);
+      signal?.throwIfAborted();
+      if (temporary) await temporary.writer.write(part.bytes);
+      else fragments.push(part.bytes);
+      preferred = part.route;
+      onProgress?.(offset + size, file.size);
+    }
+    const route = preferred?.name ?? DIRECT_ROUTE.name;
+    if (!temporary) return { contents: new Blob(fragments, { type: mime }), route };
+    await temporary.writer.close();
+    const contents = (await temporary.file.getFile()).slice(0, file.size, mime);
+    return { contents, route, release: temporary.release };
+  } catch (error) {
+    await temporary?.writer.abort().catch(() => undefined);
+    await temporary?.release();
+    throw error;
+  }
 }

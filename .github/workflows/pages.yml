@@ -3,6 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
   cancel-in-progress: true
 
 jobs:
@@ -52,6 +54,12 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Verify Cloudflare build
+        run: |
+          pnpm build:cloudflare
+          test ! -e dist/404.html
+          ! grep -q '/Minimal-Desktop/assets/' dist/index.html
+
       - name: Build web
         run: pnpm build
 
@@ -59,14 +67,17 @@ jobs:
         run: pnpm build:ext
 
       - name: Setup Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

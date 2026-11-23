@@ -1,236 +1,423 @@
-import { Cloud, Download, ExternalLink, File, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Cloud, Download, Edit3, ExternalLink, File as FileIcon, Folder, FolderPlus, Loader2, RefreshCw, Share2, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import SystemSheet from '@/components/SystemSheet';
 import { useDesktop } from '@/contexts/DesktopContext';
 import {
-  CLOUD_DRIVE_MAX_BYTES, CLOUD_DRIVE_REPO, type CloudDriveFile, type CloudDriveListing, type CloudDriveSession,
-  connectCloudDrive, downloadCloudDriveFile, listCloudDrive, removeCloudDriveFile, uploadCloudDriveFile,
+  CLOUD_DRIVE_REPO, type CloudDriveDownload, type CloudDriveFile, type CloudDriveFolder,
+  type CloudDriveListing, type CloudDriveSession, type CloudDriveTransfer,
+  connectCloudDrive, createCloudDriveFolder, downloadCloudDriveFile, editCloudDriveEntry,
+  listCloudDrive, openSharedCloudDrive, removeCloudDriveFile, removeCloudDriveFolder, uploadCloudDriveFile,
 } from '@/lib/cloudDrive';
+import { driveFolderSubtree } from '@/lib/cloudDriveModel';
 import { getPanelTheme } from '@/lib/panelTheme';
-import { loadSyncConfig } from '@/lib/storage';
+import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT } from '@/lib/storage';
 
 const ACCELERATION_KEY = 'minimal_desktop_drive_acceleration';
 
-function isAccelerationEnabled(): boolean {
+type Entry = CloudDriveFile | CloudDriveFolder;
+type Action = { kind: 'create' } | { kind: 'edit' | 'remove'; entry: Entry } | { kind: 'share'; entry: CloudDriveFile };
+type Work = { label: string; cancel: boolean; completed?: number; total?: number };
+
+function isFile(entry: Entry): entry is CloudDriveFile {
+  return 'size' in entry;
+}
+
+function syncToken(): string {
+  return loadSyncConfig()?.token ?? '';
+}
+
+function storedAcceleration(): boolean {
   try { return localStorage.getItem(ACCELERATION_KEY) === 'true'; } catch { return false; }
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return (unit ? value.toFixed(1) : String(value)) + ' ' + units[unit];
 }
 
-function getMessage(error: unknown): string {
+function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : '操作失败，请重试';
 }
 
-function saveDownload(name: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob);
+function pathTo(folders: CloudDriveFolder[], id: string | null): CloudDriveFolder[] {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const chain: CloudDriveFolder[] = [];
+  let current = id ? byId.get(id) : undefined;
+  while (current) {
+    chain.unshift(current);
+    current = current.folderId ? byId.get(current.folderId) : undefined;
+  }
+  return chain;
+}
+
+function saveDownload(name: string, result: CloudDriveDownload): void {
+  const url = URL.createObjectURL(result.contents);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+    void result.release?.();
+  }, 300_000);
 }
 
-export default function CloudDriveView({ onClose }: { onClose: () => void }) {
+function sharedUrl(owner: string, file: CloudDriveFile): string {
+  const isExtension = import.meta.env.VITE_IS_EXTENSION === 'true';
+  const root = isExtension ? 'https://qq5855144.github.io/Minimal-Desktop/' : new URL(import.meta.env.BASE_URL, location.origin);
+  const url = new URL('drive', root);
+  url.searchParams.set('owner', owner);
+  url.searchParams.set('file', file.id);
+  return url.href;
+}
+
+export default function CloudDriveView() {
   const { settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
-  const [syncToken] = useState(() => loadSyncConfig()?.token ?? '');
-  const [tokenInput, setTokenInput] = useState('');
+  const [params, setParams] = useSearchParams();
+  const folderId = params.get('folder');
+  const sharedOwner = params.get('owner');
+  const sharedId = params.get('file');
+  const readonly = !!(sharedOwner || sharedId);
+  const [token, setToken] = useState(syncToken);
   const [session, setSession] = useState<CloudDriveSession | null>(null);
   const [listing, setListing] = useState<CloudDriveListing | null>(null);
-  const [accelerate, setAccelerate] = useState(isAccelerationEnabled);
-  const [working, setWorking] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ error?: boolean; text: string } | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<CloudDriveFile | null>(null);
+  const [connection, setConnection] = useState(0);
+  const [connecting, setConnecting] = useState(false);
+  const [accelerate, setAccelerate] = useState(storedAcceleration);
+  const [work, setWork] = useState<Work | null>(null);
+  const [notice, setNotice] = useState('');
+  const [action, setAction] = useState<Action | null>(null);
+  const [name, setName] = useState('');
+  const [destination, setDestination] = useState('');
+  const [prepared, setPrepared] = useState<CloudDriveDownload | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const mounted = useRef(false);
-  const busy = useRef(false);
+  const transferRef = useRef<AbortController | null>(null);
+  const preparedRef = useRef<CloudDriveDownload | null>(null);
+  const running = useRef(false);
 
   useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
+    const update = () => setToken(syncToken());
+    window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, update);
+    window.addEventListener('storage', update);
+    return () => {
+      window.removeEventListener(SYNC_CONFIG_CHANGED_EVENT, update);
+      window.removeEventListener('storage', update);
+      transferRef.current?.abort();
+      void preparedRef.current?.release?.();
+    };
   }, []);
 
-  async function run(label: string, task: () => Promise<void>) {
-    if (busy.current) return;
-    busy.current = true;
-    setMessage(null);
-    setWorking(label);
+  useEffect(() => {
+    let active = true;
+    setNotice('');
+    setSession(null);
+    setListing(null);
+    setConnecting(!!token);
+    if (token) {
+      if (readonly && (!sharedOwner || !sharedId)) {
+        setNotice('云盘分享链接无效');
+        setConnecting(false);
+        return () => { active = false; };
+      }
+      const pending = sharedOwner ? openSharedCloudDrive(token, sharedOwner) : connectCloudDrive(token);
+      void pending.then(async (ready) => {
+        const files = await listCloudDrive(ready);
+        if (!active) return;
+        setSession(ready);
+        setListing(files);
+      }).catch((error: unknown) => { if (active) setNotice(messageOf(error)); }).finally(() => {
+        if (active) setConnecting(false);
+      });
+    }
+    return () => { active = false; transferRef.current?.abort(); };
+  }, [connection, readonly, sharedId, sharedOwner, token]);
+
+  const folders = listing?.folders ?? [];
+  const files = listing?.files ?? [];
+  const chain = pathTo(folders, folderId);
+  const currentFolderId = chain[chain.length - 1]?.id ?? null;
+  const activeFiles = readonly ? files.filter((file) => file.id === sharedId) : files
+    .filter((file) => (file.folderId ?? null) === currentFolderId).sort((a, b) => a.name.localeCompare(b.name));
+  const activeFolders = readonly ? [] : folders
+    .filter((folder) => (folder.folderId ?? null) === currentFolderId).sort((a, b) => a.name.localeCompare(b.name));
+
+  async function run(label: string, cancel: boolean, task: (transfer: CloudDriveTransfer) => Promise<void>) {
+    if (running.current) return;
+    running.current = true;
+    setNotice('');
+    const controller = new AbortController();
+    transferRef.current = controller;
+    setWork({ label, cancel });
     try {
-      await task();
+      await task({
+        signal: controller.signal,
+        onProgress: (completed, total) => setWork((current) => current ? { ...current, completed, total } : current),
+      });
     } catch (error) {
-      if (mounted.current) setMessage({ error: true, text: getMessage(error) });
+      setNotice(controller.signal.aborted ? '传输已取消' : messageOf(error));
     } finally {
-      busy.current = false;
-      if (mounted.current) setWorking(null);
+      transferRef.current = null;
+      running.current = false;
+      setWork(null);
     }
   }
 
-  async function connect() {
-    const token = tokenInput.trim() || syncToken;
-    if (!token) {
-      setMessage({ error: true, text: '请输入 GitHub Token' });
-      return;
-    }
-    await run('正在连接…', async () => {
-      const connected = await connectCloudDrive(token);
-      const files = await listCloudDrive(connected);
-      if (!mounted.current) return;
-      setTokenInput('');
-      setSession(connected);
-      setListing(files);
-    });
+  function goTo(id: string | null) {
+    setParams(id ? { folder: id } : {});
   }
 
   function toggleAcceleration() {
     const next = !accelerate;
-    try { localStorage.setItem(ACCELERATION_KEY, String(next)); } catch { /* session-only setting */ }
+    try { localStorage.setItem(ACCELERATION_KEY, String(next)); } catch { /* session-only preference */ }
     setAccelerate(next);
   }
 
-  async function upload(files: File[]) {
-    if (!session || !files.length) return;
-    await run('正在上传…', async () => {
-      const failures: string[] = [];
-      let uploaded = 0;
-      for (const file of files) {
-        if (!mounted.current) break;
+  async function upload(selected: File[]) {
+    if (!session || !selected.length) return;
+    await run('上传中', true, async (transfer) => {
+      const errors: string[] = [];
+      for (const [index, file] of selected.entries()) {
+        transfer.signal?.throwIfAborted();
+        setWork({ label: '上传 ' + (index + 1) + '/' + selected.length + ' · ' + file.name, cancel: true });
         try {
-          setWorking(`正在上传 ${uploaded + failures.length + 1}/${files.length}`);
-          setListing(await uploadCloudDriveFile(session, file));
-          uploaded++;
+          const next = await uploadCloudDriveFile(session, file, currentFolderId, transfer);
+          setListing(next);
         } catch (error) {
-          failures.push(`${file.name}：${getMessage(error)}`);
+          transfer.signal?.throwIfAborted();
+          errors.push(file.name + '：' + messageOf(error));
         }
       }
-      if (!mounted.current) return;
-      if (failures.length) {
-        setMessage({ error: true, text: [uploaded ? `已上传 ${uploaded} 个文件` : '', ...failures].filter(Boolean).join('。') });
+      if (errors.length) setNotice(errors.join('。'));
+      else toast.success('上传完成', { position: 'top-center' });
+    });
+  }
+
+  async function download(file: CloudDriveFile, share = false) {
+    if (!session || !listing) return;
+    await run(share ? '准备分享文件' : '下载中', true, async (transfer) => {
+      const result = await downloadCloudDriveFile(session, file, listing.revision, accelerate, transfer);
+      if (transfer.signal?.aborted) {
+        await result.release?.();
+        transfer.signal.throwIfAborted();
+      }
+      if (share) {
+        preparedRef.current = result;
+        setPrepared(result);
       } else {
-        toast.success(`已上传 ${uploaded} 个文件`, { position: 'top-center' });
+        saveDownload(file.name, result);
+        toast.success('已下载 · ' + result.route, { position: 'top-center' });
       }
     });
   }
 
-  async function download(file: CloudDriveFile) {
-    if (!session || !listing) return;
-    await run(accelerate ? '正在测速并下载…' : '正在下载…', async () => {
-      const result = await downloadCloudDriveFile(session, file, listing.revision, accelerate);
-      if (!mounted.current) return;
-      saveDownload(file.name, result.contents);
-      toast.success(`文件已下载 · ${result.route}`, { position: 'top-center' });
+  function clearAction() {
+    if (running.current) return;
+    void preparedRef.current?.release?.();
+    preparedRef.current = null;
+    setPrepared(null);
+    setAction(null);
+  }
+
+  function showAction(next: Action) {
+    setName(next.kind === 'create' ? '' : next.entry.name);
+    setDestination(next.kind === 'create' ? '' : (next.entry.folderId ?? ''));
+    setAction(next);
+  }
+
+  async function saveAction() {
+    if (!session || !action || action.kind === 'share') return;
+    await run('正在保存', false, async () => {
+      let next: CloudDriveListing;
+      if (action.kind === 'create') next = await createCloudDriveFolder(session, name, currentFolderId);
+      else if (action.kind === 'edit') next = await editCloudDriveEntry(session, action.entry.id, name, destination || null);
+      else if (isFile(action.entry)) next = await removeCloudDriveFile(session, action.entry);
+      else next = await removeCloudDriveFolder(session, action.entry.id);
+      setListing(next);
+      setAction(null);
+      toast.success(action.kind === 'remove' ? '已删除' : '已保存', { position: 'top-center' });
     });
   }
 
-  async function remove(file: CloudDriveFile) {
+  async function sendPrepared(file: CloudDriveFile) {
+    if (!prepared) return;
+    const shareFile = new File([prepared.contents], file.name, { type: file.mime || prepared.contents.type });
+    if (!navigator.share || !navigator.canShare?.({ files: [shareFile] })) {
+      saveDownload(file.name, prepared);
+      preparedRef.current = null;
+      setPrepared(null);
+      setAction(null);
+      toast.info('文件已保存，可在其他应用中分享');
+      return;
+    }
+    try {
+      await navigator.share({ files: [shareFile], title: file.name });
+      clearAction();
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) toast.error(messageOf(error));
+    }
+  }
+
+  async function copyLink(file: CloudDriveFile) {
     if (!session) return;
-    await run('正在删除…', async () => {
-      const files = await removeCloudDriveFile(session, file);
-      if (!mounted.current) return;
-      setListing(files);
-      setPendingDelete(null);
-      toast.success('已从云盘移除', { position: 'top-center' });
-    });
+    const url = sharedUrl(session.owner, file);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('已复制私有链接', { position: 'top-center' });
+    } catch {
+      window.prompt('复制私有链接', url);
+    }
   }
 
-  const button = `inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors disabled:opacity-40`;
-  const neutral = `${button} border ${t.itemBg} ${t.itemBorder} ${t.itemBgHover} ${t.textPrimary}`;
-  const primary = `${button} bg-indigo-600 text-white hover:bg-indigo-500`;
+  const block = 'rounded-2xl border ' + t.itemBg + ' ' + t.itemBorder;
+  const button = 'inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors disabled:opacity-40';
+  const neutral = button + ' border ' + t.itemBorder + ' ' + t.itemBgHover + ' ' + t.textPrimary;
+  const primary = button + ' bg-indigo-600 text-white hover:bg-indigo-500';
+  const main = isNeu ? 'bg-slate-100 text-slate-800' : 'bg-slate-950 text-slate-50';
+  const actionTitle = action?.kind === 'create' ? '新建文件夹'
+    : action?.kind === 'edit' ? '重命名或移动'
+    : action?.kind === 'remove' ? '删除' : '分享文件';
+  const excluded = action?.kind === 'edit' && !isFile(action.entry)
+    ? driveFolderSubtree(folders, action.entry.id) : new Set<string>();
 
   return (
-    <SystemSheet open isNeu={isNeu} title="云盘" onClose={onClose} bodyClassName="overflow-y-auto px-4 py-3">
-      <div className="space-y-3">
-        {message && <p role={message.error ? 'alert' : 'status'} className={`break-words rounded-xl px-3 py-2 text-sm ${message.error ? 'bg-red-500/10 text-red-500' : t.textPrimary}`}>{message.text}</p>}
-        {!session ? (
-          <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void connect(); }}>
-            <label className="block space-y-1.5">
-              <span className={t.labelCls}>GitHub 个人访问令牌</span>
-              <input
-                type="password" autoComplete="off" value={tokenInput}
-                onChange={(event) => setTokenInput(event.target.value)}
-                placeholder={syncToken ? '留空使用云同步的登录令牌' : '输入有仓库创建和读写权限的 Token'}
-                className={t.inputCls}
-              />
-            </label>
-            <p className={`text-xs ${t.textDim}`}>首次连接将创建独立的 GitHub 私有仓库。</p>
-            <button type="submit" className={`${primary} w-full`} disabled={!!working}>
-              {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-              {working ?? '连接 GitHub 云盘'}
-            </button>
-          </form>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <a href={`https://github.com/${encodeURIComponent(session.owner)}/${CLOUD_DRIVE_REPO}`} target="_blank" rel="noreferrer"
-                className={`flex min-w-0 flex-1 items-center gap-1.5 text-xs ${t.textMuted}`}>
-                <span className="truncate">{session.owner}/{CLOUD_DRIVE_REPO}</span>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              </a>
-              <button type="button" className={neutral} aria-label="刷新云盘" disabled={!!working} onClick={() => {
-                void run('正在刷新…', async () => { setListing(await listCloudDrive(session)); });
-              }}><RefreshCw className="h-4 w-4" /></button>
-              <button type="button" className={primary} disabled={!!working} onClick={() => inputRef.current?.click()}>
-                <Upload className="h-4 w-4" /> 上传
+    <main className={'h-[100dvh] overflow-y-auto ' + main}>
+      <div className="mx-auto max-w-4xl px-3 pb-8 pt-[max(env(safe-area-inset-top),12px)] sm:px-6">
+        <header className="mb-4 flex items-center gap-3">
+          <Link to="/" className={neutral} aria-label="返回桌面"><ArrowLeft className="h-4 w-4" /></Link>
+          <Cloud className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
+          <h1 className="min-w-0 flex-1 text-xl font-semibold">{readonly ? '分享文件' : '云盘'}</h1>
+          {session && !readonly && <a href={'https://github.com/' + encodeURIComponent(session.owner) + '/' + CLOUD_DRIVE_REPO}
+            className={neutral} target="_blank" rel="noreferrer" aria-label="打开 GitHub 仓库"><ExternalLink className="h-4 w-4" /></a>}
+        </header>
+
+        {!token && <div className={block + ' space-y-3 p-4'}>
+          <p>登录云同步后即可使用云盘。</p>
+          <Link to="/?panel=sync" className={primary}>去云同步登录</Link>
+        </div>}
+        {connecting && <p role="status" className="flex items-center gap-2 px-2 py-4"><Loader2 className="h-4 w-4 animate-spin" />正在连接 GitHub 云盘…</p>}
+        {notice && <p role="alert" className="mb-3 break-words rounded-xl bg-red-500/10 p-3 text-sm text-red-500">{notice}</p>}
+        {token && !session && !connecting && notice && <button type="button" className={neutral} onClick={() => setConnection((current) => current + 1)}>重试连接</button>}
+
+        {session && listing && <div className="space-y-3">
+          {!readonly && <nav aria-label="当前目录" className="flex flex-wrap items-center gap-1.5 text-sm">
+            <button type="button" className={neutral} onClick={() => goTo(null)} disabled={!!work}>全部文件</button>
+            {chain.map((folder) => <span key={folder.id} className="flex min-w-0 items-center gap-1.5">
+              <span aria-hidden>/</span><button type="button" className={neutral + ' max-w-48 truncate'} onClick={() => goTo(folder.id)} disabled={!!work}>{folder.name}</button>
+            </span>)}
+          </nav>}
+          <div className="flex flex-wrap items-center gap-2">
+            {!readonly && <>
+              <button type="button" className={primary} disabled={!!work} onClick={() => inputRef.current?.click()}>
+                <Upload className="h-4 w-4" />上传到当前目录
               </button>
-              <input ref={inputRef} type="file" multiple aria-label="选择上传文件" className="hidden" onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
+              <button type="button" className={neutral} disabled={!!work} onClick={() => showAction({ kind: 'create' })}>
+                <FolderPlus className="h-4 w-4" />新建文件夹
+              </button>
+              <input ref={inputRef} type="file" multiple className="hidden" aria-label="选择上传文件" onChange={(event) => {
+                const selected = Array.from(event.target.files ?? []);
                 event.target.value = '';
-                void upload(files);
+                void upload(selected);
               }} />
-            </div>
-            <div className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${t.itemBg} ${t.itemBorder}`}>
-              <div className="min-w-0">
-                <p id="drive-acceleration-label" className={`text-sm font-medium ${t.textPrimary}`}>代理加速</p>
-                <p className={`text-xs ${t.textDim}`}>测量直连和两条代理线路，自动选择最快线路。</p>
-              </div>
-              <button
-                type="button" role="switch" aria-labelledby="drive-acceleration-label" aria-checked={accelerate}
-                onClick={toggleAcceleration} disabled={!!working}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${accelerate ? 'bg-indigo-600' : 'bg-slate-500/60'}`}
-              >
-                <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${accelerate ? 'translate-x-5' : ''}`} />
+            </>}
+            <button type="button" className={neutral} aria-label="刷新云盘" disabled={!!work} onClick={() => {
+              void run('正在刷新', false, async () => { setListing(await listCloudDrive(session)); });
+            }}><RefreshCw className="h-4 w-4" /></button>
+            <div className="ml-auto flex min-h-10 items-center gap-2 px-1 text-sm">
+              <span id="drive-acceleration-label">代理加速</span>
+              <button type="button" role="switch" aria-labelledby="drive-acceleration-label" aria-checked={accelerate}
+                disabled={!!work} onClick={toggleAcceleration}
+                className={'relative h-6 w-11 rounded-full transition-colors ' + (accelerate ? 'bg-indigo-600' : 'bg-slate-500/60')}>
+                <span className={'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ' + (accelerate ? 'translate-x-5' : '')} />
               </button>
             </div>
-            <div className={`flex items-center justify-between gap-2 text-xs ${t.textDim}`}>
-              <span role="status">{working ?? `${listing?.files.length ?? 0} 个文件`}</span>
-              <span>单文件 ≤ {formatBytes(CLOUD_DRIVE_MAX_BYTES)}</span>
-            </div>
-            {listing?.files.length ? (
-              <ul className="space-y-2">
-                {listing.files.map((file) => (
-                  <li key={file.id} className={`rounded-xl border px-3 py-2 ${t.itemBg} ${t.itemBorder}`}>
-                    <div className="flex items-center gap-2">
-                      <File className={`h-5 w-5 shrink-0 ${t.textMuted}`} aria-hidden />
-                      <div className="min-w-0 flex-1">
-                        <p className={`truncate text-sm ${t.textPrimary}`} title={file.name}>{file.name}</p>
-                        <p className={`text-xs ${t.textDim}`}>{formatBytes(file.size)}</p>
-                      </div>
-                      <button type="button" className={neutral} aria-label={`下载 ${file.name}`} disabled={!!working} onClick={() => void download(file)}><Download className="h-4 w-4" /></button>
-                      <button type="button" className={neutral} aria-label={`删除 ${file.name}`} disabled={!!working} onClick={() => setPendingDelete(file)}><Trash2 className="h-4 w-4" /></button>
-                    </div>
-                    {pendingDelete?.id === file.id && (
-                      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-                        <span className={`mr-auto text-xs ${t.textDim}`}>从云盘移除？Git 历史会保留此文件。</span>
-                        <button type="button" className={neutral} disabled={!!working} onClick={() => setPendingDelete(null)}>取消</button>
-                        <button type="button" className={`${button} bg-red-600 text-white`} disabled={!!working} onClick={() => void remove(file)}>确认删除</button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className={`rounded-xl border px-3 py-5 text-center text-sm ${t.itemBorder} ${t.textDim}`}>云盘为空</p>
-            )}
-          </>
-        )}
+          </div>
+          {work && <div className={block + ' flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm'} role="status">
+            <span className="min-w-0 flex-1 break-words">{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</span>
+            {work.cancel && <button type="button" className={neutral} onClick={() => transferRef.current?.abort()}>取消传输</button>}
+            {!!work.total && <progress className="h-2 w-full accent-indigo-600" max={work.total} value={work.completed ?? 0} />}
+          </div>}
+          {activeFolders.length + activeFiles.length === 0 && (
+            <p className={block + ' p-6 text-center text-sm ' + t.textMuted}>{readonly ? '分享文件已删除或不可访问' : '此目录为空'}</p>
+          )}
+          <ul className="space-y-2">
+            {[...activeFolders, ...activeFiles].map((entry) => {
+              const file = isFile(entry) ? entry : null;
+              const Icon = file ? FileIcon : Folder;
+              return <li key={entry.id} className={block + ' flex flex-wrap items-center gap-1.5 px-3 py-2'}>
+                {file ? <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Icon className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm" title={entry.name}>{entry.name}</span>
+                    <span className={'block text-xs ' + t.textMuted}>{formatBytes(file.size)}</span>
+                  </span>
+                </div> : <button type="button" disabled={!!work} onClick={() => goTo(entry.id)} className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left text-sm">
+                  <Icon className="h-5 w-5 shrink-0 text-indigo-500" aria-hidden />
+                  <span className="truncate">{entry.name}</span>
+                </button>}
+                {file && <button type="button" disabled={!!work} className={neutral} aria-label={'下载 ' + entry.name} onClick={() => void download(file)}><Download className="h-4 w-4" /></button>}
+                {!readonly && file && <button type="button" disabled={!!work} className={neutral} aria-label={'分享 ' + entry.name} onClick={() => showAction({ kind: 'share', entry: file })}><Share2 className="h-4 w-4" /></button>}
+                {!readonly && <button type="button" disabled={!!work} className={neutral} aria-label={'管理 ' + entry.name} onClick={() => showAction({ kind: 'edit', entry })}><Edit3 className="h-4 w-4" /></button>}
+              </li>;
+            })}
+          </ul>
+        </div>}
       </div>
-    </SystemSheet>
+
+      <SystemSheet open={!!action} isNeu={isNeu} title={actionTitle} onClose={clearAction} bodyClassName="overflow-y-auto p-4">
+        {(action?.kind === 'create' || action?.kind === 'edit') && (
+          <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void saveAction(); }}>
+            <label className="block space-y-1.5"><span>名称</span>
+              <input className={t.inputCls} value={name} onChange={(event) => setName(event.target.value)} maxLength={255} required autoFocus />
+            </label>
+            {action.kind === 'edit' && <label className="block space-y-1.5"><span>所在目录</span>
+              <select className={t.inputCls} value={destination} onChange={(event) => setDestination(event.target.value)}>
+                <option value="">根目录</option>
+                {folders.filter((folder) => !excluded.has(folder.id)).map((folder) => (
+                  <option key={folder.id} value={folder.id}>{pathTo(folders, folder.id).map((part) => part.name).join(' / ')}</option>
+                ))}
+              </select>
+            </label>}
+            {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+            <div className="flex justify-end gap-2">
+              {action.kind === 'edit' && <button type="button" className={neutral + ' mr-auto text-red-500'} disabled={!!work}
+                onClick={() => showAction({ kind: 'remove', entry: action.entry })}><Trash2 className="h-4 w-4" />删除</button>}
+              <button type="submit" className={primary} disabled={!!work || !name.trim()}>保存</button>
+            </div>
+          </form>
+        )}
+        {action?.kind === 'remove' && <div className="space-y-3">
+          <p className={t.textPrimary}>删除「{action.entry.name}」{isFile(action.entry) ? '？' : '及其全部内容？'}</p>
+          <p className={'text-sm ' + t.textMuted}>旧版本仍保留在 Git 历史中。</p>
+          {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" className={neutral} disabled={!!work} onClick={clearAction}>取消</button>
+            <button type="button" className={button + ' bg-red-600 text-white'} disabled={!!work} onClick={() => void saveAction()}>确认删除</button>
+          </div>
+        </div>}
+        {action?.kind === 'share' && <div className="space-y-3">
+          <p className={'truncate text-sm ' + t.textPrimary}>{action.entry.name}</p>
+          <p className={'text-sm ' + t.textMuted}>私有链接仅供有此 GitHub 仓库读取权限的用户使用。</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={neutral} disabled={!!work} onClick={() => void copyLink(action.entry)}>复制私有链接</button>
+            <button type="button" className={primary} disabled={!!work} onClick={() => {
+              if (prepared) void sendPrepared(action.entry);
+              else void download(action.entry, true);
+            }}>{prepared ? '发送文件' : '准备文件分享'}</button>
+            {work?.cancel && <button type="button" className={neutral} onClick={() => transferRef.current?.abort()}>取消传输</button>}
+          </div>
+          {work && <p role="status" className={'text-xs ' + t.textMuted}>{work.label}{work.total ? ' · ' + formatBytes(work.completed ?? 0) + ' / ' + formatBytes(work.total) : '…'}</p>}
+          {notice && <p role="alert" className="text-sm text-red-500">{notice}</p>}
+        </div>}
+      </SystemSheet>
+    </main>
   );
 }

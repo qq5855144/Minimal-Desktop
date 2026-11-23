@@ -1,3 +1,4 @@
+import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeHttpUrl } from '@/lib/urlSafety';
 import { parseWebClipHash } from '@/lib/webClip';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -51,7 +52,6 @@ import WidgetGridCell from './WidgetGridCell';
 import { isFullWidthWidget } from '@/lib/widgetConfig';
 import { getWidgetComponent } from './widgetRenderer';
 
-const CloudDriveView = React.lazy(() => import('./CloudDriveView'));
 const BookmarksView = React.lazy(() => import('./BookmarksView'));
 const FolderView = React.lazy(() => import('./FolderView'));
 const AddEditDialog = React.lazy(() => import('./AddEditDialog'));
@@ -138,7 +138,11 @@ const Desktop: React.FC = () => {
   const [openBookmarks, setOpenBookmarks] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
   const [openSync, setOpenSync] = useState(false);
-  const [openDrive, setOpenDrive] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('panel') === 'sync') setOpenSync(true);
+  }, [location.search]);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
   // 剪藏预填数据（扩展工具栏点击后传入）
@@ -426,7 +430,7 @@ const Desktop: React.FC = () => {
   // 桌面操作历史快捷键：⌘/Ctrl+Z 撤销，⌘/Ctrl+Shift+Z 或 Ctrl+Y 重做。
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (currentPage < 0 || openFolderId || openSync || openDrive || addDialogOpen || editingItem || contextMenu || isDragging) return;
+      if (currentPage < 0 || openFolderId || openSync || addDialogOpen || editingItem || contextMenu || isDragging) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (!event.metaKey && !event.ctrlKey) return;
@@ -442,7 +446,7 @@ const Desktop: React.FC = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openDrive, openSync, redo, undo]);
+  }, [addDialogOpen, contextMenu, currentPage, editingItem, isDragging, openFolderId, openSync, redo, undo]);
 
   const navigateToPage = useCallback((page: number) => {
     currentPageRef.current = page;
@@ -1057,9 +1061,9 @@ const Desktop: React.FC = () => {
     if (item.id === 'sys-bookmarks') setOpenBookmarks(true);
     else if (item.id === 'sys-settings') setOpenSettings(true);
     else if (item.id === 'sys-sync') setOpenSync(true);
-    else if (item.id === 'sys-drive') setOpenDrive(true);
+    else if (item.id === 'sys-drive') navigate('/drive');
     else if (item.id === 'sys-add') setAddDialogOpen(true);
-  }, []);
+  }, [navigate]);
 
   const handleFolderClick = useCallback((folder: DesktopItem) => {
     setOpenFolderId(folder.id);
@@ -1793,12 +1797,10 @@ const Desktop: React.FC = () => {
           <SettingsView
             open
             onClose={() => setOpenSettings(false)}
-            onOpenDrive={() => { setOpenSettings(false); setOpenDrive(true); }}
+            onOpenDrive={() => { setOpenSettings(false); navigate('/drive'); }}
           />
         </React.Suspense>
       )}
-      {openDrive && <React.Suspense fallback={null}><CloudDriveView onClose={() => setOpenDrive(false)} /></React.Suspense>}
-
       {openSync && (
         <React.Suspense fallback={null}>
           <SyncView open onClose={() => setOpenSync(false)} />

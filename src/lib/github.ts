@@ -195,10 +195,12 @@ export async function readRepoFileAtRef(
   repo: string,
   filePath: string,
   ref: string,
+  signal?: AbortSignal,
 ): Promise<RepoFileResult> {
   const res = await ghFetch(
     token,
     `/repos/${owner}/${repo}/contents/${encodedRepoPath(filePath)}?ref=${encodeURIComponent(ref)}`,
+    { signal },
   );
   if (!res.ok) return { ok: false, message: await errorMessage(res, `下载失败 (${res.status})`) };
   const file = await res.json() as { content?: string; encoding?: string; sha?: string };
@@ -207,7 +209,7 @@ export async function readRepoFileAtRef(
   }
   if (!file.sha) return { ok: false, message: '远端文件内容为空' };
 
-  const blobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs/${file.sha}`);
+  const blobRes = await ghFetch(token, `/repos/${owner}/${repo}/git/blobs/${file.sha}`, { signal });
   if (!blobRes.ok) return { ok: false, message: await errorMessage(blobRes, '下载大文件失败') };
   const blob = await blobRes.json() as { content?: string; encoding?: string };
   if (!blob.content || blob.encoding !== 'base64') {
