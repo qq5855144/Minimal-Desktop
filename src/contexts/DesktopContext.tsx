@@ -234,11 +234,11 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [loading, setLoading] = useState(true);
   const gridCols = isLandscape ? getLandscapeColumns(settings) : settings.cols;
   const data = useMemo(() => isLandscape
-    ? projectLandscape(savedData, gridCols, settings.rows)
-    : savedData, [gridCols, isLandscape, savedData, settings.rows]);
+    ? projectLandscape(savedData, settings.cols, gridCols, settings.rows)
+    : savedData, [gridCols, isLandscape, savedData, settings.cols, settings.rows]);
   const privacyPageItems = useMemo(() => isLandscape
-    ? projectLandscapeItems(savedPrivacyItems, gridCols, settings.rows, true)
-    : savedPrivacyItems, [gridCols, isLandscape, savedPrivacyItems, settings.rows]);
+    ? projectLandscapeItems(savedPrivacyItems, settings.cols, gridCols, settings.rows, true)
+    : savedPrivacyItems, [gridCols, isLandscape, savedPrivacyItems, settings.cols, settings.rows]);
   // 解锁状态：会话内保持，刷新或手动锁定后为 false。
   const [privacyUnlocked, setPrivacyUnlocked] = useState(false);
   // 解锁后的 AES-256-GCM 密钥（内存态，刷新自动清除）
@@ -300,7 +300,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const applySavedData = useCallback((next: DesktopData, nextSettings = settingsRef.current) => {
     savedDataRef.current = next;
     dataRef.current = isLandscapeRef.current
-      ? projectLandscape(next, getLandscapeColumns(nextSettings), nextSettings.rows)
+      ? projectLandscape(next, nextSettings.cols, getLandscapeColumns(nextSettings), nextSettings.rows)
       : next;
     setSavedData(next);
   }, []);
@@ -308,7 +308,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const applySavedPrivacyItems = useCallback((next: DesktopItem[], nextSettings = settingsRef.current) => {
     savedPrivacyItemsRef.current = next;
     privacyPageItemsRef.current = isLandscapeRef.current
-      ? projectLandscapeItems(next, getLandscapeColumns(nextSettings), nextSettings.rows, true)
+      ? projectLandscapeItems(next, nextSettings.cols, getLandscapeColumns(nextSettings), nextSettings.rows, true)
       : next;
     setSavedPrivacyItems(next);
   }, []);
@@ -330,13 +330,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const privacy = nextPrivacy && compactPrivacyPages(nextPrivacy);
     const landscape = isLandscapeRef.current;
     const { cols, rows } = nextSettings;
+    const landscapeCols = getLandscapeColumns(nextSettings);
     const savedDesktop = desktop && (landscape
-      ? saveLandscape(savedDataRef.current, desktop.data, cols, rows)
+      ? saveLandscape(savedDataRef.current, desktop.data, cols, landscapeCols, rows)
       : groupDesktopPositions(desktop.data, savePortraitItems(
         savedDataRef.current.pages.flat(), desktop.data.pages.flat(),
       )));
     const savedPrivacy = privacy && (landscape
-      ? saveLandscapeItems(savedPrivacyItemsRef.current, privacy.items, cols, rows, true)
+      ? saveLandscapeItems(savedPrivacyItemsRef.current, privacy.items, cols, landscapeCols, rows, true)
       : savePortraitItems(savedPrivacyItemsRef.current, privacy.items));
     // Validate both workspaces before committing a move across the privacy boundary.
     if ((desktop && !savedDesktop) || (privacy && !savedPrivacy)) return false;
@@ -1198,9 +1199,9 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (portraitGridChanged || landscapeGridChanged) {
       const landscape = isLandscapeRef.current;
       const landscapeCols = getLandscapeColumns(nextSettings);
-      const desktop = landscape ? projectLandscape(savedDataRef.current, landscapeCols, rows) : savedDataRef.current;
+      const desktop = landscape ? projectLandscape(savedDataRef.current, cols, landscapeCols, rows) : savedDataRef.current;
       const privacy = landscape
-        ? projectLandscapeItems(savedPrivacyItemsRef.current, landscapeCols, rows, true)
+        ? projectLandscapeItems(savedPrivacyItemsRef.current, cols, landscapeCols, rows, true)
         : savedPrivacyItemsRef.current;
       setCurrentPage((page) => clampPageForGridChange(
         page, desktop.pages.length, getPrivacyPageCount(privacy),

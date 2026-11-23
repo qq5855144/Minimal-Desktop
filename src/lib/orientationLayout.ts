@@ -2,6 +2,7 @@ import type { DesktopData, DesktopItem, DesktopPosition, DesktopSettings } from 
 import {
   canPlaceItem,
   findFirstAvailableSlot,
+  findItemCoveringCell,
   getItemGridSpan,
   LAYOUT_LIMITS,
   normalizeDesktopColumnCount,
@@ -90,27 +91,88 @@ export function groupDesktopPositions(data: DesktopData, items: DesktopItem[]): 
   return { ...data, pages };
 }
 
+/** Fill wider rows within each block of icons. Empty portrait rows separate blocks. */
+function arrangeLandscapePage(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
+  const fixed: DesktopItem[] = [];
+  const iconsByRow = new Map<number, DesktopItem[]>();
+  for (const item of items) {
+    const span = getItemGridSpan(item, cols);
+    if (span.rowSpan !== 1 || span.colSpan !== 1) {
+      fixed.push(item);
+      continue;
+    }
+    const icons = iconsByRow.get(item.row) ?? [];
+    icons.push(item);
+    iconsByRow.set(item.row, icons);
+  }
+
+  const arranged = [...fixed];
+  const columns = Array.from({ length: cols }, (_, col) => col);
+  let row = 0;
+  while (row < rows) {
+    if (!iconsByRow.has(row)) {
+      row++;
+      continue;
+    }
+    const firstRow = row;
+    const block: DesktopItem[] = [];
+    while (iconsByRow.has(row)) {
+      block.push(...iconsByRow.get(row)!.sort((a, b) => a.col - b.col));
+      row++;
+    }
+    let next = 0;
+    for (let targetRow = firstRow; targetRow < row && next < block.length; targetRow++) {
+      const available = columns.filter((col) => !findItemCoveringCell(fixed, targetRow, col, cols));
+      const count = Math.min(available.length, block.length - next);
+      const start = Math.floor((available.length - count) / 2);
+      for (const col of available.slice(start, start + count)) {
+        const item = block[next++];
+        arranged.push(place(item, { page: item.page, row: targetRow, col }));
+      }
+    }
+  }
+  return arranged.length === items.length ? arranged : items;
+}
+
+function automaticLandscapeItems(
+  items: DesktopItem[],
+  portraitCols: number,
+  cols: number,
+  rows: number,
+): DesktopItem[] {
+  if (cols <= portraitCols) return items;
+  const pages = new Map<number, DesktopItem[]>();
+  for (const item of items) {
+    const page = pages.get(item.page) ?? [];
+    page.push(item);
+    pages.set(item.page, page);
+  }
+  return Array.from(pages.values()).flatMap((page) => arrangeLandscapePage(page, cols, rows));
+}
+
 export function projectLandscapeItems(
   items: DesktopItem[],
+  portraitCols: number,
   cols: number,
   rows: number,
   privacy = false,
 ): DesktopItem[] {
+  const automatic = automaticLandscapeItems(items, portraitCols, cols, rows);
+  if (!items.some((item) => item.landscapePosition)) return automatic;
   const positioned: DesktopItem[] = [];
   const inherited: DesktopItem[] = [];
-  for (const item of items) {
+  for (const item of automatic) {
     const { landscapePosition, ...shared } = item;
     if (landscapePosition) positioned.push(place(shared, landscapePosition));
     else inherited.push(item);
   }
-  if (positioned.length === 0) return items;
   return fitDesktopPositions([...positioned, ...inherited], cols, rows, privacy)
-    ?? items.map(({ landscapePosition: _position, ...item }) => item);
+    ?? automatic.map(withoutLandscapePosition);
 }
 
-export function projectLandscape(data: DesktopData, cols: number, rows: number): DesktopData {
+export function projectLandscape(data: DesktopData, portraitCols: number, cols: number, rows: number): DesktopData {
   const items = data.pages.flat();
-  const projected = projectLandscapeItems(items, cols, rows);
+  const projected = projectLandscapeItems(items, portraitCols, cols, rows);
   return projected === items ? data : groupDesktopPositions(data, projected);
 }
 
@@ -136,6 +198,7 @@ export function saveLandscapeItems(
   previous: DesktopItem[],
   edited: DesktopItem[],
   portraitCols: number,
+  landscapeCols: number,
   rows: number,
   privacy = false,
 ): DesktopItem[] | null {
@@ -154,23 +217,30 @@ export function saveLandscapeItems(
     else changed.push(anchored);
   }
   const portrait = fitDesktopPositions([...fixed, ...changed], portraitCols, rows, privacy);
-  return portrait?.map((item) => {
+  if (!portrait) return null;
+
+  const automatic = new Map(automaticLandscapeItems(portrait, portraitCols, landscapeCols, rows)
+    .map((item) => [item.id, item]));
+  return portrait.map((item) => {
     const shared = withoutLandscapePosition(item);
     const actual = editedById.get(item.id)!;
-    return samePosition(item, actual)
+    const saved = portraitById.get(item.id)?.landscapePosition;
+    if (saved && samePosition(saved, actual)) return { ...shared, landscapePosition: saved };
+    return samePosition(automatic.get(item.id)!, actual)
       ? shared
       : { ...shared, landscapePosition: { page: actual.page, row: actual.row, col: actual.col } };
-  }) ?? null;
+  });
 }
 
 export function saveLandscape(
   previous: DesktopData,
   edited: DesktopData,
   portraitCols: number,
+  landscapeCols: number,
   rows: number,
 ): DesktopData | null {
   if (previous.pages === edited.pages) return edited;
-  const items = saveLandscapeItems(previous.pages.flat(), edited.pages.flat(), portraitCols, rows);
+  const items = saveLandscapeItems(previous.pages.flat(), edited.pages.flat(), portraitCols, landscapeCols, rows);
   return items ? groupDesktopPositions(edited, items) : null;
 }
 
