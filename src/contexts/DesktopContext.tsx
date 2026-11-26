@@ -1,6 +1,6 @@
 import { changeBookmarks, emptyBookmarks, type BookmarkAction } from '@/lib/bookmarks';
 import { toast } from 'sonner';
-import { persistDesktopChanges, readDesktopStorage, shareUnchangedPages } from '@/lib/desktopPersistence';
+import { persistDesktopChanges, readDesktopStorage, shareUnchangedPages, withDesktopSaveLock } from '@/lib/desktopPersistence';
 // @refresh reset
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
@@ -507,8 +507,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return true;
     };
-    if (!navigator.locks) return persist();
-    return navigator.locks.request('minimal-desktop-local-save', persist).catch(persist);
+    return withDesktopSaveLock(persist);
   }, [applySavedData, setCurrentPage]);
 
   useEffect(() => {

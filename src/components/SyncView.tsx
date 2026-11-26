@@ -314,7 +314,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         if (!savePrivacyVault(pendingRestore.data.privacyVault)) {
           throw new Error('隐私桌面保存失败，请释放存储空间后重试');
         }
-      } else clearPrivacyVault();
+      } else if (!clearPrivacyVault()) {
+        throw new Error('隐私桌面清除失败，请稍后重试');
+      }
       const next = updateSyncConfig({
         lastSyncAt: new Date().toISOString(),
         lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,

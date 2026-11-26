@@ -34,8 +34,13 @@ export function savePrivacyVault(vault: PrivacyVault): boolean {
 }
 
 /** 清除 vault（重置密码时调用，旧数据永久丢失） */
-export function clearPrivacyVault(): void {
-  try { localStorage.removeItem(PRIVACY_VAULT_KEY); } catch { /* ignore */ }
+export function clearPrivacyVault(): boolean {
+  try {
+    localStorage.removeItem(PRIVACY_VAULT_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface LockoutState { failCount: number; lockedUntil: number; }

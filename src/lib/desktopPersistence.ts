@@ -90,3 +90,34 @@ export function persistDesktopChanges(
     return { status: 'unavailable' };
   }
 }
+
+const WORKSPACE_LOCK = 'minimal-desktop-local-save';
+let database: Promise<IDBDatabase | null> | undefined;
+
+function openLockDatabase(): Promise<IDBDatabase | null> {
+  return database ??= new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') { resolve(null); return; }
+    try {
+      const request = indexedDB.open(WORKSPACE_LOCK, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('workspace');
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+      request.onsuccess = () => resolve(request.result);
+    } catch { resolve(null); }
+  });
+}
+
+export async function withDesktopSaveLock<T>(save: () => T): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    try { return await navigator.locks.request(WORKSPACE_LOCK, () => save()); } catch { /* use IndexedDB */ }
+  }
+  const db = await openLockDatabase();
+  if (!db) return save();
+  // readwrite transactions serialize across tabs, including browsers without Web Locks.
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction('workspace', 'readwrite');
+    const request = transaction.objectStore('workspace').get(WORKSPACE_LOCK);
+    request.onsuccess = () => resolve(save());
+    transaction.onabort = () => reject(transaction.error);
+  }).catch(save);
+}
