@@ -222,6 +222,18 @@ describe('GitHub cloud drive', () => {
     expect(new Uint8Array(await result.contents.slice(-2).arrayBuffer())).toEqual(expected.slice(-2));
   }, 20_000);
 
+  it('refuses an unbounded in-memory download before making file requests', async () => {
+    const fixture = gitFixture(true);
+    const session = await connectCloudDrive(TOKEN);
+    vi.stubGlobal('navigator', {});
+    const count = fixture.requests.length;
+    await expect(downloadCloudDriveFile(session, {
+      id: crypto.randomUUID(), name: 'large.bin', size: 128 * 1024 * 1024,
+      uploadedAt: new Date().toISOString(), chunkSize: 8 * 1024 * 1024,
+    }, 'test-revision', false)).rejects.toThrow('64 MiB');
+    expect(fixture.requests).toHaveLength(count);
+  });
+
   it('manages nested directories without moving encrypted file objects', async () => {
     gitFixture(true);
     const session = await connectCloudDrive(TOKEN);

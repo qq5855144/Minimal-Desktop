@@ -1,26 +1,36 @@
 /**
  * 图标本地缓存模块
  * - 将远程图标 URL fetch 转为 base64 DataURL 存入 localStorage
- * - key: btoa(url) 截断，避免特殊字符
+ * - 使用完整图标 URL 作为键
  * - 删除应用时调用 evictIconCache 清理孤儿缓存
  * - 存储上限 100 条，超出时 LRU 淘汰最旧条目
  */
 
-const CACHE_NS = 'icon_c:';
-const META_KEY = 'icon_c_meta'; // JSON: { [cacheKey]: timestamp }
+const CACHE_NS = 'icon_v2:';
+const META_KEY = 'icon_v2_meta'; // JSON: { [cacheKey]: timestamp }
 const MAX_ENTRIES = 100;
 const inflightFetches = new Map<string, Promise<string | null>>();
 
+let oldCacheRemoved = false;
+
 function toCacheKey(url: string): string {
-  // btoa 不支持多字节字符，先 encodeURIComponent 再 btoa
+  return CACHE_NS + url;
+}
+
+function removeOldCache(): void {
+  if (oldCacheRemoved) return;
   try {
-    return CACHE_NS + btoa(encodeURIComponent(url)).slice(0, 60);
-  } catch {
-    return CACHE_NS + url.slice(0, 60).replace(/[^a-zA-Z0-9]/g, '_');
-  }
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key?.startsWith('icon_c:')) localStorage.removeItem(key);
+    }
+    localStorage.removeItem('icon_c_meta');
+    oldCacheRemoved = true;
+  } catch { /* Storage access is optional. */ }
 }
 
 function readMeta(): Record<string, number> {
+  removeOldCache();
   try {
     return JSON.parse(localStorage.getItem(META_KEY) || '{}');
   } catch {
@@ -37,6 +47,7 @@ function saveMeta(meta: Record<string, number>): void {
 /** 从缓存读取图标 DataURL，未命中返回 null */
 export function getIconCache(url: string): string | null {
   if (!url || url.startsWith('data:') || url.startsWith('blob:')) return null;
+  removeOldCache();
   try {
     return localStorage.getItem(toCacheKey(url));
   } catch {

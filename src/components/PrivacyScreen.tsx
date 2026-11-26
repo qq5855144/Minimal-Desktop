@@ -132,7 +132,11 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           const salt = randomBytes(16);
           const key = await deriveKey(pin, salt);
           const newVault = await encryptItems([], key, salt);
-          savePrivacyVault(newVault);
+          if (!savePrivacyVault(newVault)) {
+            setError('隐私桌面保存失败，请释放存储空间后重试');
+            setPin('');
+            return;
+          }
           clearLockout();
           onUnlock([], key);
           return;
@@ -198,7 +202,11 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           const salt = randomBytes(16);
           const key = await deriveKey(pin, salt);
           const newVault = await encryptItems(pendingItemsRef.current, key, salt);
-          savePrivacyVault(newVault);
+          if (!savePrivacyVault(newVault)) {
+            setError('隐私桌面保存失败，请释放存储空间后重试');
+            setPin('');
+            return;
+          }
           clearLockout();
           onUnlock(pendingItemsRef.current, key);
         }
@@ -310,7 +318,11 @@ const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ onUnlock, onClose }) => {
           <button type="button"
             onClick={() => {
               if (window.confirm('重置密码将永久清除隐私桌面所有内容，无法恢复。确认重置？')) {
-                clearPrivacyVault(); clearLockout();
+                if (!clearPrivacyVault()) {
+                  setError('隐私桌面清除失败，请稍后重试');
+                  return;
+                }
+                clearLockout();
                 setMode('setup'); setPin(''); setIsConfirming(false);
                 setFirstPin(''); setError(''); setLockoutLeft(0);
               }

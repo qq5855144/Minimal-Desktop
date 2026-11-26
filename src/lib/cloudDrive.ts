@@ -471,17 +471,49 @@ export interface CloudDriveDownload {
   release?: () => Promise<void>;
 }
 
+const DOWNLOADS_DIRECTORY = 'minimal-desktop-drive-downloads';
+const MAX_IN_MEMORY_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+const TEMPORARY_FILE_TTL_MS = 24 * 60 * 60 * 1000;
+const activeTemporaryFiles = new Set<string>();
+
+export async function cleanExpiredCloudDriveDownloads(): Promise<void> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return;
+  try {
+    const root = await navigator.storage.getDirectory();
+    const directory = await root.getDirectoryHandle(DOWNLOADS_DIRECTORY) as FileSystemDirectoryHandle & {
+      values?: () => AsyncIterable<FileSystemHandle>;
+    };
+    if (!directory.values) return;
+    const cutoff = Date.now() - TEMPORARY_FILE_TTL_MS;
+    for await (const { name, kind } of directory.values()) {
+      if (kind !== 'file' || activeTemporaryFiles.has(name)) continue;
+      const file = await directory.getFileHandle(name).then((entry) => entry.getFile()).catch(() => null);
+      if (file && file.lastModified < cutoff && !activeTemporaryFiles.has(name)) {
+        await directory.removeEntry(name).catch(() => undefined);
+      }
+    }
+  } catch { /* The temporary directory may not exist or storage may be unavailable. */ }
+}
+
 async function openTemporaryFile() {
   if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return null;
   const name = crypto.randomUUID();
   let folder: FileSystemDirectoryHandle | undefined;
   try {
     const root = await navigator.storage.getDirectory();
-    folder = await root.getDirectoryHandle('minimal-desktop-drive-downloads', { create: true });
+    folder = await root.getDirectoryHandle(DOWNLOADS_DIRECTORY, { create: true });
     const file = await folder.getFileHandle(name, { create: true });
     const writer = await file.createWritable();
     const directory = folder;
-    return { file, writer, release: () => directory.removeEntry(name).catch(() => undefined) };
+    activeTemporaryFiles.add(name);
+    return {
+      file,
+      writer,
+      release: async () => {
+        await directory.removeEntry(name).catch(() => undefined);
+        activeTemporaryFiles.delete(name);
+      },
+    };
   } catch {
     await folder?.removeEntry(name).catch(() => undefined);
     return null;
@@ -495,6 +527,9 @@ export async function downloadCloudDriveFile(
   const { signal, onProgress } = transfer;
   signal?.throwIfAborted();
   const temporary = file.chunkSize ? await openTemporaryFile() : null;
+  if (!temporary && file.size > MAX_IN_MEMORY_DOWNLOAD_BYTES) {
+    throw new Error('当前浏览器无法使用本地临时存储，无法安全下载超过 64 MiB 的文件');
+  }
   const fragments: ArrayBuffer[] = [];
   const mime = file.mime || 'application/octet-stream';
   let preferred: DownloadRoute | null | undefined = accelerate ? undefined : null;

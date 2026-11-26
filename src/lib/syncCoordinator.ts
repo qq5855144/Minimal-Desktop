@@ -7,6 +7,7 @@ export type SyncUploadSource = 'auto' | 'manual';
 
 export interface CoordinatedUploadOptions {
   source?: SyncUploadSource;
+  confirmedRemoteBackupSha?: string;
 }
 
 export interface CoordinatedUploadResult extends UploadResult {
@@ -14,6 +15,29 @@ export interface CoordinatedUploadResult extends UploadResult {
 }
 
 let uploadQueue: Promise<void> = Promise.resolve();
+
+function baselineStorageKey(config: SyncConfig): string {
+  return `minimal-desktop:sync-base:${syncTargetKey(config)}`;
+}
+
+export function rememberWorkspaceSyncBase(config: SyncConfig): void {
+  try { sessionStorage.setItem(baselineStorageKey(config), config.lastBackupBlobSha ?? ''); } catch { /* optional storage */ }
+}
+
+export function initializeWorkspaceSyncBase(config: SyncConfig): void {
+  try {
+    if (sessionStorage.getItem(baselineStorageKey(config)) === null) rememberWorkspaceSyncBase(config);
+  } catch { /* optional storage */ }
+}
+
+function workspaceSyncBase(config: SyncConfig): string | undefined {
+  try {
+    const stored = sessionStorage.getItem(baselineStorageKey(config));
+    return stored === null ? config.lastBackupBlobSha : stored || undefined;
+  } catch {
+    return config.lastBackupBlobSha;
+  }
+}
 
 /**
  * 只从最新配置中吸收同步运行态，保留调用方当前的 Token 与交互设置。
@@ -56,12 +80,25 @@ async function performCoordinatedUpload(
   snapshot: SyncSnapshot,
   options: CoordinatedUploadOptions,
 ): Promise<CoordinatedUploadResult> {
-  const current = mergeLatestSyncRuntime(config, loadSyncConfig());
+  const latest = loadSyncConfig();
+  if (!latest?.token || !isSameSyncTarget(config, latest) || config.token !== latest.token
+    || (options.source === 'auto' && !latest.autoSync)) {
+    return { ok: false, message: '同步目标或登录已变更，请重试', config: latest ?? config };
+  }
+  const current = mergeLatestSyncRuntime(config, latest);
   const active = persistRuntimePatch(current, {
     syncStatus: 'syncing',
     lastSyncError: undefined,
   });
-  const result = await uploadToGithub(active, snapshot);
+  const backupBase = workspaceSyncBase(config);
+  const verified = {
+    ...active,
+    lastBackupBlobSha: backupBase,
+    lastRemoteHead: backupBase === active.lastBackupBlobSha ? active.lastRemoteHead : undefined,
+  };
+  const result = options.source === 'manual' && options.confirmedRemoteBackupSha
+    ? await uploadToGithub(verified, snapshot, options.confirmedRemoteBackupSha)
+    : await uploadToGithub(verified, snapshot);
   if (result.ok) {
     const next = persistRuntimePatch(active, {
       lastSyncAt: new Date().toISOString(),
@@ -72,11 +109,12 @@ async function performCoordinatedUpload(
       syncStatus: 'synced',
       lastSyncError: undefined,
     });
+    rememberWorkspaceSyncBase({ ...active, lastBackupBlobSha: result.backupBlobSha });
     return { ...result, config: next };
   }
 
   const next = persistRuntimePatch(active, {
-    syncStatus: options.source === 'auto' ? 'retrying' : 'error',
+    syncStatus: options.source === 'auto' && !result.conflictingBackupSha ? 'retrying' : 'error',
     lastSyncError: result.message,
   });
   return { ...result, config: next };
@@ -100,6 +138,7 @@ export function uploadSyncSnapshot(
   snapshot: SyncSnapshot,
   options: CoordinatedUploadOptions = {},
 ): Promise<CoordinatedUploadResult> {
+  initializeWorkspaceSyncBase(config);
   const run = () => withCrossContextLock(
     config,
     () => performCoordinatedUpload(config, snapshot, options),

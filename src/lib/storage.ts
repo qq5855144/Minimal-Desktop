@@ -5,7 +5,7 @@ import { findFirstAvailableSlot, LAYOUT_LIMITS, normalizeDesktopColumnCount } fr
 import { normalizeOrientationSettings } from './orientationLayout';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
 
-const DESKTOP_KEY = 'ios_desktop_data';
+export const DESKTOP_DATA_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
 const SYNC_TOKEN_SESSION_KEY = 'ios_sync_token_session';
 const SYNC_TOKEN_KEY = 'ios_sync_token';
@@ -24,13 +24,23 @@ export function loadPrivacyVault(): PrivacyVault | null {
 }
 
 /** 保存加密 vault */
-export function savePrivacyVault(vault: PrivacyVault): void {
-  try { localStorage.setItem(PRIVACY_VAULT_KEY, JSON.stringify(vault)); } catch { /* ignore */ }
+export function savePrivacyVault(vault: PrivacyVault): boolean {
+  try {
+    localStorage.setItem(PRIVACY_VAULT_KEY, JSON.stringify(vault));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** 清除 vault（重置密码时调用，旧数据永久丢失） */
-export function clearPrivacyVault(): void {
-  try { localStorage.removeItem(PRIVACY_VAULT_KEY); } catch { /* ignore */ }
+export function clearPrivacyVault(): boolean {
+  try {
+    localStorage.removeItem(PRIVACY_VAULT_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface LockoutState { failCount: number; lockedUntil: number; }
@@ -92,7 +102,7 @@ function containsItemId(items: import('@/types').DesktopItem[], id: string): boo
 
 export function loadDesktopData(): DesktopData {
   try {
-    const raw = localStorage.getItem(DESKTOP_KEY);
+    const raw = localStorage.getItem(DESKTOP_DATA_KEY);
     if (raw) {
       const validated = parseDesktopData(JSON.parse(raw));
       if (validated.ok) {
@@ -163,12 +173,15 @@ export function loadDesktopData(): DesktopData {
   return JSON.parse(JSON.stringify(defaultDesktopData));
 }
 
-export function saveDesktopData(data: DesktopData): boolean {
-  // 隐私字段不进入普通桌面 localStorage：vault 单独存储，旧明文/哈希字段不再持久化。
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function serializeDesktopData(data: DesktopData): string {
+  // 隐私字段不进入普通桌面 localStorage：vault 单独存储。
   const { privacyVault: _v, privacyItems: _legacyItems, pinHash: _legacyPin, ...rest } = data;
+  return JSON.stringify(rest);
+}
+
+export function saveDesktopData(data: DesktopData): boolean {
   try {
-    localStorage.setItem(DESKTOP_KEY, JSON.stringify(rest));
+    localStorage.setItem(DESKTOP_DATA_KEY, serializeDesktopData(data));
     return true;
   } catch {
     return false;

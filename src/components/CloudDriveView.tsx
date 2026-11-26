@@ -10,7 +10,7 @@ import { useDesktop } from '@/contexts/DesktopContext';
 import {
   CLOUD_DRIVE_REPO, type CloudDriveDownload, type CloudDriveFile, type CloudDriveFolder,
   type CloudDriveListing, type CloudDriveSession, type CloudDriveTransfer,
-  connectCloudDrive, createCloudDriveFolder, downloadCloudDriveFile, editCloudDriveEntry,
+  cleanExpiredCloudDriveDownloads, connectCloudDrive, createCloudDriveFolder, downloadCloudDriveFile, editCloudDriveEntry,
   listCloudDrive, openSharedCloudDrive, removeCloudDriveFile, removeCloudDriveFolder, uploadCloudDriveFile,
 } from '@/lib/cloudDrive';
 import { driveFolderSubtree } from '@/lib/cloudDriveModel';
@@ -115,6 +115,7 @@ export default function CloudDriveView() {
   const running = useRef(false);
 
   useEffect(() => {
+    void cleanExpiredCloudDriveDownloads();
     const update = () => setToken(syncToken());
     window.addEventListener(SYNC_CONFIG_CHANGED_EVENT, update);
     window.addEventListener('storage', update);

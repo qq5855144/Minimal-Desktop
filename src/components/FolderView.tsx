@@ -28,7 +28,7 @@ const FolderView: React.FC<FolderViewProps> = ({
   folder, onClose, onLongPress, onItemClick, triggerRenameId, onRenameDone,
   onDragIntentStart, onDragOutBegin,
 }) => {
-  const { loading, renameFolder, reorderFolderChildren, settings } = useDesktop();
+  const { renameFolder, reorderFolderChildren, settings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(folder.name);
@@ -270,50 +270,42 @@ const FolderView: React.FC<FolderViewProps> = ({
             ref={gridRef}
             className={`${isNeu ? 'neu-raised' : 'glass'} rounded-3xl p-4`}
           >
-            {loading ? (
-              <div className="grid grid-cols-3 gap-3">
-                {Array.from({ length: 9 }).map((_, i) => (
-                  <SkeletonIcon key={`fv-sk-${i}`} size="small" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-3">
-                {Array.from({ length: TOTAL_SLOTS }).map((_, slotIdx) => {
-                  const child = folder.children?.[slotIdx] ?? null;
-                  const isSource = dragIdx === slotIdx && child !== null;
-                  const isTarget = dragOverIdx === slotIdx && dragIdx !== slotIdx;
+            <div className="grid grid-cols-3 gap-3">
+              {Array.from({ length: TOTAL_SLOTS }).map((_, slotIdx) => {
+                const child = folder.children?.[slotIdx] ?? null;
+                const isSource = dragIdx === slotIdx && child !== null;
+                const isTarget = dragOverIdx === slotIdx && dragIdx !== slotIdx;
 
-                  return (
-                    <div
-                      key={`slot-${slotIdx}`}
-                      data-child-idx={slotIdx}
-                      className={`
-                        flex flex-col items-center gap-1 transition-all duration-150 touch-none
-                        ${isTarget ? 'scale-110' : ''}
-                      `}
-                    >
-                      {child ? (
-                        /* ─ 已填充槽：正常 AppIcon，拖动时半透明 ─ */
-                        <div className={`transition-opacity duration-150 ${isSource ? 'opacity-20' : 'opacity-100'}`}>
-                          <AppIcon
-                            item={child}
-                            size="small"
-                            onClick={onItemClick}
-                            onLongPress={onLongPress}
-                            onDragBegin={(_, x, y, pointerId) => {
-                              handleChildDragBegin(slotIdx, x, y, pointerId);
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        /* ─ 空槽：复用与 AppIcon 同步的占位尺寸 ─ */
-                        <SkeletonIcon size="small" variant="empty" active={isTarget} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                return (
+                  <div
+                    key={`slot-${slotIdx}`}
+                    data-child-idx={slotIdx}
+                    className={`
+                      flex flex-col items-center gap-1 transition-all duration-150 touch-none
+                      ${isTarget ? 'scale-110' : ''}
+                    `}
+                  >
+                    {child ? (
+                      /* ─ 已填充槽：正常 AppIcon，拖动时半透明 ─ */
+                      <div className={`transition-opacity duration-150 ${isSource ? 'opacity-20' : 'opacity-100'}`}>
+                        <AppIcon
+                          item={child}
+                          size="small"
+                          onClick={onItemClick}
+                          onLongPress={onLongPress}
+                          onDragBegin={(_, x, y, pointerId) => {
+                            handleChildDragBegin(slotIdx, x, y, pointerId);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      /* ─ 空槽：复用与 AppIcon 同步的占位尺寸 ─ */
+                      <SkeletonIcon size="small" variant="empty" active={isTarget} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* 关闭按钮 */}

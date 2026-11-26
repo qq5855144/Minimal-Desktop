@@ -8,6 +8,7 @@ export interface UploadResult {
   message: string;
   remoteHead?: string;
   unchanged?: boolean;
+  conflictingBackupSha?: string;
   backupBlobSha?: string;
   backgroundSha256?: string;
   backgroundBlobSha?: string;
@@ -238,14 +239,13 @@ export async function readRepoFileAtRef(
 export async function uploadToGithub(
   config: SyncConfig,
   snapshot: SyncSnapshot,
+  confirmedRemoteBackupSha?: string,
 ): Promise<UploadResult> {
-  // 引用竞态后放弃未挂到分支上的 commit，并以最新 HEAD 为父提交重新构建。
-  // 本地修改始终保存为一个新的 fast-forward 版本；GitHub 历史完整保留，因此
-  // 远端先行更新不再把自动同步锁死，也不需要用户反复确认“本次覆盖”。
+  // HEAD 推进时重试，但每次都核对备份文件的指纹。
   let lastResult: UploadAttemptResult | undefined;
 
   for (let attempt = 0; attempt < MAX_UPLOAD_ATTEMPTS; attempt += 1) {
-    const result = await doUploadViaGitApi(config, snapshot);
+    const result = await doUploadViaGitApi(config, snapshot, confirmedRemoteBackupSha);
     if (result.ok || !result.retryableRefRace) {
       const { retryableRefRace: _retryable, ...uploadResult } = result;
       return uploadResult;
@@ -264,6 +264,7 @@ export async function uploadToGithub(
 async function doUploadViaGitApi(
   config: SyncConfig,
   snapshot: SyncSnapshot,
+  confirmedRemoteBackupSha?: string,
 ): Promise<UploadAttemptResult> {
   const { token, owner, repo, branch = 'main' } = config;
   const filePath = config.path || 'desktop_backup.json';
@@ -317,8 +318,10 @@ async function doUploadViaGitApi(
     return { ok: false, message: await errorMessage(currentTreeRes, '读取远端文件树失败') };
   }
   const currentTree = await currentTreeRes.json() as {
+    truncated?: boolean;
     tree?: { path?: string; type?: string; sha?: string }[];
   };
+  if (currentTree.truncated) return { ok: false, message: '远端文件树不完整，无法核对已有备份' };
   const currentBackup = currentTree.tree?.find((entry) => (
     entry.path === filePath && entry.type === 'blob'
   ));
@@ -338,6 +341,16 @@ async function doUploadViaGitApi(
       backupBlobSha: expectedBackupBlobSha,
       backgroundSha256: background?.sha256,
       backgroundBlobSha: background ? currentBackground?.sha : undefined,
+    };
+  }
+
+  if (currentBackup?.sha && currentBackup.sha !== config.lastBackupBlobSha
+    && currentBackup.sha !== confirmedRemoteBackupSha) {
+    return {
+      ok: false,
+      message: '云端已有不同版本。本机改动已保留，请查看云端差异或确认使用本机版本。',
+      remoteHead: latestCommitSha,
+      conflictingBackupSha: currentBackup.sha,
     };
   }
 

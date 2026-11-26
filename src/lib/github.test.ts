@@ -44,7 +44,7 @@ function successfulUploadResponses(
 describe('GitHub automatic sync', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('saves local changes on top of the latest remote version without a conflict prompt', async () => {
+  it('preserves the remote version when another device updates the backup', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'new-head' } }));
     successfulUploadResponses(fetchMock, [{
@@ -59,17 +59,14 @@ describe('GitHub automatic sync', () => {
     }, snapshot);
 
     expect(result).toMatchObject({
-      ok: true,
-      remoteHead: 'new-commit',
-      backupBlobSha: 'backup-blob',
+      ok: false,
+      remoteHead: 'new-head',
+      conflictingBackupSha: 'other-device-blob',
     });
-    expect(result).not.toHaveProperty('conflict');
-    const commitRequest = JSON.parse(fetchMock.mock.calls[5][1]?.body as string);
-    expect(commitRequest.parents).toEqual(['new-head']);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/contents/'))).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('creates or replaces the cloud snapshot even when this installation has no baseline yet', async () => {
+  it('preserves an existing backup on a device that has no baseline', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }));
     successfulUploadResponses(fetchMock, [{
@@ -83,7 +80,21 @@ describe('GitHub automatic sync', () => {
       lastBackupBlobSha: undefined,
     }, snapshot);
 
-    expect(result).toMatchObject({ ok: true, remoteHead: 'new-commit' });
+    expect(result).toMatchObject({ ok: false, conflictingBackupSha: 'existing-backup' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('allows a manual confirmation for the exact backup version shown to the user', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ object: { sha: 'remote-head' } }));
+    successfulUploadResponses(fetchMock, [{
+      path: config.path, type: 'blob', sha: 'existing-backup',
+    }]);
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await uploadToGithub(config, snapshot, 'existing-backup')).toMatchObject({
+      ok: true,
+      remoteHead: 'new-commit',
+    });
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
@@ -138,9 +149,7 @@ describe('GitHub automatic sync', () => {
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
       .mockResolvedValueOnce(jsonResponse({ object: { sha: 'latest-head' } }))
       .mockResolvedValueOnce(jsonResponse({ tree: { sha: 'latest-base-tree' } }))
-      .mockResolvedValueOnce(jsonResponse({ tree: [{
-        path: config.path, type: 'blob', sha: 'other-device-blob',
-      }] }))
+      .mockResolvedValueOnce(jsonResponse({ tree: [] }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-backup-blob' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-tree' }))
       .mockResolvedValueOnce(jsonResponse({ sha: 'second-commit' }))
