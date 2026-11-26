@@ -35,7 +35,7 @@ import {
   shouldCommitPageSwipe,
 } from '@/lib/pageNavigation';
 import { loadSyncConfig, SYNC_CONFIG_CHANGED_EVENT, updateSyncConfig } from '@/lib/storage';
-import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
+import { initializeWorkspaceSyncBase, uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot } from '@/lib/syncSnapshot';
 import { IDB_VIDEO_MARKER } from '@/lib/videoStorage';
 import { getRenderableWallpaperSource } from '@/lib/wallpaperStorage';
@@ -91,14 +91,13 @@ interface GhostState {
 const Desktop: React.FC = () => {
   const {
     data,
-    savedData,
+    persistedData,
     viewport,
     gridCols,
     currentPage,
     setCurrentPage,
     editMode,
     setEditMode,
-    loading,
     settings,
     updateSettings,
     addItem,
@@ -147,7 +146,6 @@ const Desktop: React.FC = () => {
   const [editingItem, setEditingItem] = useState<DesktopItem | null>(null);
   // 剪藏预填数据（扩展工具栏点击后传入）
   const [clipPrefill, setClipPrefill] = useState<{ name: string; url: string; iconUrl?: string } | null>(null);
-  const [dragOverItem, setDragOverItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
   const bgImageSource = getRenderableWallpaperSource(settings.bgImage);
@@ -175,8 +173,6 @@ const Desktop: React.FC = () => {
   const [ghost, setGhost] = useState<GhostState | null>(null);
   const cancelDragRef = useRef<(() => void) | null>(null);
   const ghostRef = useRef<GhostState | null>(null);
-  // 同步跟踪当前悬停的目标图标 ID（onMove 实时写入，onUp 最先读取后清零）
-  const dragOverItemRef = useRef<string | null>(null);
   // 拖到最后一页右边缘时只渲染临时落点页；成功放置才由数据层原子创建。
   const [trailingDropPage, setTrailingDropPage] = useState(false);
   const trailingDropPageRef = useRef(false);
@@ -310,10 +306,9 @@ const Desktop: React.FC = () => {
     void task.catch(() => toast.error('剪藏失败，请重试')).finally(() => { consumingClip.current = false; });
   }, [addItem, updateBookmarks, currentPage]);
 
-  // 自动同步：5 秒静默期合并编辑，远端抢先更新时由 GitHub 层自动基于最新 HEAD 重试。
-  // 临时失败保留 dirty 状态后台重试，不再用“冲突锁”永久暂停队列。
-  const autoSyncLatestRef = useRef({ data: savedData, settings });
-  autoSyncLatestRef.current = { data: savedData, settings };
+  // 自动同步只读取已落盘的数据，避免发布未解决的本地保存冲突。
+  const autoSyncLatestRef = useRef({ data: persistedData, settings });
+  autoSyncLatestRef.current = { data: persistedData, settings };
   const autoSyncSchedulerRef = useRef<AutoSyncScheduler | null>(null);
   const isFirstAutoSyncRenderRef = useRef(true);
 
@@ -333,8 +328,9 @@ const Desktop: React.FC = () => {
 
         try {
           const latest = autoSyncLatestRef.current;
+          if (!latest.data) return 'paused';
           const snapshot = await buildSyncSnapshot(latest.data, latest.settings);
-          if (isSuperseded()) return 'complete';
+          if (isSuperseded() || latest.data !== autoSyncLatestRef.current.data) return 'complete';
 
           // 构建壁纸快照可能耗时，上传前再次读取配置，避免使用已切换或已暂停的目标。
           const currentConfig = loadSyncConfig();
@@ -352,7 +348,7 @@ const Desktop: React.FC = () => {
             snapshot,
             { source: 'auto' },
           );
-          return result.ok ? 'complete' : 'retry';
+          return result.ok ? 'complete' : result.conflictingBackupSha ? 'paused' : 'retry';
         } catch (error) {
           const message = error instanceof Error ? error.message : '网络连接异常';
           updateSyncConfig({
@@ -370,6 +366,7 @@ const Desktop: React.FC = () => {
     window.addEventListener('storage', handleConfigChange);
     window.addEventListener(AUTO_SYNC_REQUEST_EVENT, handleSyncRequest);
     const initialConfig = loadSyncConfig();
+    if (initialConfig) initializeWorkspaceSyncBase(initialConfig);
     if (
       initialConfig?.autoSync
       && ['pending', 'retrying', 'syncing'].includes(initialConfig.syncStatus ?? '')
@@ -394,14 +391,15 @@ const Desktop: React.FC = () => {
       return;
     }
     if (
-      !syncConfig?.autoSync
+      !persistedData
+      || !syncConfig?.autoSync
       || !syncConfig.token
       || !syncConfig.owner
       || !syncConfig.repo
     ) return;
     updateSyncConfig({ syncStatus: 'pending', lastSyncError: undefined });
     autoSyncSchedulerRef.current?.request();
-  }, [savedData, privacyRevision, settings]);
+  }, [persistedData, privacyRevision, settings]);
 
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
 
@@ -574,6 +572,14 @@ const Desktop: React.FC = () => {
 
   // 全局 pointer 监听
   useEffect(() => {
+    let highlightedCell: HTMLElement | null = null;
+    const highlight = (cell: HTMLElement | null) => {
+      if (highlightedCell === cell) return;
+      highlightedCell?.classList.remove('brightness-105', 'z-10');
+      highlightedCell = cell;
+      cell?.classList.add('brightness-105');
+      if (cell?.dataset.itemType) cell.classList.add('z-10');
+    };
     const processMove = (e: PointerEvent) => {
       const g = ghostRef.current;
       if (!g || g.pointerId !== e.pointerId) return;
@@ -610,11 +616,7 @@ const Desktop: React.FC = () => {
 
       // 文件夹拖出时不高亮 widget（无法合并/放置），避免误导用户以为可放入组件
       const isFolderDrag = g.source.type === 'folder';
-      const effectiveHoverId = (isFolderDrag && isHoverWidget) ? null : (hoverId ?? null);
-      if (effectiveHoverId !== dragOverItemRef.current) {
-        setDragOverItem(effectiveHoverId);
-        dragOverItemRef.current = effectiveHoverId;
-      }
+      highlight(hoverItem && hoverItem.type !== 'folder' && !(isFolderDrag && isHoverWidget) ? hoverCell : null);
 
       // 应用与普通桌面的系统入口可参与文件夹合并；widget 和文件夹本身不能作为来源。
       const isWorkspaceDrag = g.source.type === 'desktop'
@@ -677,11 +679,10 @@ const Desktop: React.FC = () => {
       let committedToTrailingPage = false;
       let committedToLeadingPrivacyPage = false;
       try {
-      dragOverItemRef.current = null;
+      highlight(null);
       ghostRef.current = null;
       setGhost(null);
       setIsDragging(false);
-      setDragOverItem(null);
       clearEdgeTimer();
       clearMergeTimer(); // 未进入预备状态时仍按普通落位/交换处理
 
@@ -939,10 +940,9 @@ const Desktop: React.FC = () => {
       const active = ghostRef.current;
       if (!active) return;
       ghostRef.current = null;
-      dragOverItemRef.current = null;
+      highlight(null);
       setGhost(null);
       setIsDragging(false);
-      setDragOverItem(null);
       clearEdgeTimer();
       clearMergeTimer();
       if (trailingDropPageRef.current) {
@@ -970,6 +970,7 @@ const Desktop: React.FC = () => {
     cancelDragRef.current = cancelDrag;
     document.addEventListener('pointercancel', onCancel);
     return () => {
+      highlight(null);
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
@@ -1265,7 +1266,7 @@ const Desktop: React.FC = () => {
    */
   /**
    * 渲染单页网格（pageIndex + items 参数化）
-   * 所有页同时挂载在横向滑轨中，保证 AppIcon 不随翻页卸载，避免图标重新加载。
+   * 保留当前页与相邻页的内容，拖拽时只在当前页绘制空格提示。
    */
   const renderPageGrid = (pageIndex: number, items: DesktopItem[]) => {
     const cells: React.ReactNode[] = [];
@@ -1316,7 +1317,7 @@ const Desktop: React.FC = () => {
                   gridRow: `${r + 1} / span ${rowSpan}`,
                   justifySelf: 'stretch',
                 }}
-                className={`w-full drag-grid-item ${dragOverItem === item.id ? 'brightness-105' : ''}`}
+                className="w-full drag-grid-item"
               >
                 <WidgetGridCell
                   item={item}
@@ -1355,7 +1356,7 @@ const Desktop: React.FC = () => {
                 alignItems: spansMultipleCells ? 'flex-end' : undefined,
                 justifyContent: spansMultipleCells ? 'center' : undefined,
               }}
-              className={`relative min-w-0 drag-grid-item ${dragOverItem === item.id && item.type !== 'folder' ? 'brightness-105 z-10' : ''}`}
+              className="relative min-w-0 drag-grid-item"
             >
               <div
                 className="merge-target-preview"
@@ -1528,111 +1529,84 @@ const Desktop: React.FC = () => {
           className="flex flex-1 flex-col overflow-x-hidden overflow-y-auto min-h-0"
           style={{ touchAction: 'pan-y' }}
         >
-          {loading ? (
-            /* 加载骨架屏：只在初次加载时显示 */
-            <div
-              className={`${pagePaddingClass} flex shrink-0 justify-center`}
-              style={pageVerticalPaddingStyle}
-            >
-              <div className="w-full" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
-                <div
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-                    gridTemplateRows: `repeat(${gridRows}, ${desktopGridMetrics.rowHeightPx}px)`,
-                    columnGap: gridColumnGapPx,
-                    rowGap: gridRowGapPx,
-                    alignItems: 'end',
-                    justifyItems: 'center',
-                  }}
-                >
-                  {Array.from({ length: gridCols * gridRows }).map((_, i) => (
-                    <SkeletonIcon key={`sk-${i}`} iconPx={desktopIconMetrics.iconPx} />
-                  ))}
+          {/* 远页保留原宽度，避免跟手翻页和拖拽跨页时改变滑轨坐标。 */}
+          <div
+            ref={pageTrackRef}
+            className="flex shrink-0 items-start will-change-transform"
+            style={{
+              transform: `translateX(${-getPageTrackIndex(
+                currentPage,
+                privacyPageCount,
+                leadingPrivacyDropPage,
+              ) * 100}%)`,
+            }}
+          >
+            {leadingPrivacyDropPage && (
+              <div
+                key="page-layer-leading-privacy-drop"
+                aria-hidden={currentPage !== -(privacyPageCount + 1)}
+                {...(currentPage === -(privacyPageCount + 1) ? {} : { inert: '' })}
+                className={`w-full shrink-0 ${pagePaddingClass}`}
+                style={pageVerticalPaddingStyle}
+              >
+                <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                  <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
+                    settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
+                  }`}>
+                    松开放置并创建隐私页 {-(privacyPageCount + 1)}
+                  </div>
+                  {renderPageGrid(-(privacyPageCount + 1), [])}
                 </div>
               </div>
-            </div>
-          ) : (
-            /* 横向滑轨：所有页（含隐私页）并排常驻，AppIcon 不卸载；
-               transform 由页面切换 effect / 跟手手势直接驱动（不走 React 渲染，保证流畅） */
-            <div
-              ref={pageTrackRef}
-              className="flex shrink-0 items-start will-change-transform"
-              style={{
-                transform: `translateX(${-getPageTrackIndex(
-                  currentPage,
-                  privacyPageCount,
-                  leadingPrivacyDropPage,
-                ) * 100}%)`,
-              }}
-            >
-              {leadingPrivacyDropPage && (
-                <div
-                  key="page-layer-leading-privacy-drop"
-                  aria-hidden={currentPage !== -(privacyPageCount + 1)}
-                  {...(currentPage === -(privacyPageCount + 1) ? {} : { inert: '' })}
-                  className={`w-full shrink-0 ${pagePaddingClass}`}
-                  style={pageVerticalPaddingStyle}
-                >
-                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
-                    <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
-                      settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
-                    }`}>
-                      松开放置并创建隐私页 {-(privacyPageCount + 1)}
-                    </div>
-                    {renderPageGrid(-(privacyPageCount + 1), [])}
-                  </div>
+            )}
+            {privacyPageNumbers.map((privacyPage) => (
+              <div
+                key={`privacy-page-layer-${privacyPage}`}
+                aria-hidden={currentPage !== privacyPage}
+                {...(currentPage === privacyPage ? {} : { inert: '' })}
+                className={`w-full shrink-0 ${pagePaddingClass}`}
+                style={pageVerticalPaddingStyle}
+              >
+                <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                  {Math.abs(privacyPage - currentPage) <= 1 && renderPageGrid(
+                    privacyPage,
+                    privacyPageItems.filter((item) => item.page === privacyPage),
+                  )}
                 </div>
-              )}
-              {privacyPageNumbers.map((privacyPage) => (
-                <div
-                  key={`privacy-page-layer-${privacyPage}`}
-                  aria-hidden={currentPage !== privacyPage}
-                  {...(currentPage === privacyPage ? {} : { inert: '' })}
-                  className={`w-full shrink-0 ${pagePaddingClass}`}
-                  style={pageVerticalPaddingStyle}
-                >
-                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
-                    {renderPageGrid(
-                      privacyPage,
-                      privacyPageItems.filter((item) => item.page === privacyPage),
-                    )}
-                  </div>
+              </div>
+            ))}
+            {data.pages.map((pageData, i) => (
+              <div
+                key={`page-layer-${i}`}
+                aria-hidden={currentPage !== i}
+                {...(currentPage === i ? {} : { inert: '' })}
+                className={`w-full shrink-0 ${pagePaddingClass}`}
+                style={pageVerticalPaddingStyle}
+              >
+                <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                  {Math.abs(i - currentPage) <= 1 && renderPageGrid(i, pageData)}
                 </div>
-              ))}
-              {data.pages.map((pageData, i) => (
-                <div
-                  key={`page-layer-${i}`}
-                  aria-hidden={currentPage !== i}
-                  {...(currentPage === i ? {} : { inert: '' })}
-                  className={`w-full shrink-0 ${pagePaddingClass}`}
-                  style={pageVerticalPaddingStyle}
-                >
-                  <div className="w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
-                    {renderPageGrid(i, pageData)}
+              </div>
+            ))}
+            {trailingDropPage && (
+              <div
+                key="page-layer-trailing-drop"
+                aria-hidden={currentPage !== data.pages.length}
+                {...(currentPage === data.pages.length ? {} : { inert: '' })}
+                className={`w-full shrink-0 ${pagePaddingClass}`}
+                style={pageVerticalPaddingStyle}
+              >
+                <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
+                  <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
+                    settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
+                  }`}>
+                    松开放置并创建新桌面页
                   </div>
+                  {renderPageGrid(data.pages.length, [])}
                 </div>
-              ))}
-              {trailingDropPage && (
-                <div
-                  key="page-layer-trailing-drop"
-                  aria-hidden={currentPage !== data.pages.length}
-                  {...(currentPage === data.pages.length ? {} : { inert: '' })}
-                  className={`w-full shrink-0 ${pagePaddingClass}`}
-                  style={pageVerticalPaddingStyle}
-                >
-                  <div className="relative w-full mx-auto" style={{ maxWidth: desktopGridMetrics.contentWidthPx }}>
-                    <div className={`pointer-events-none absolute inset-x-0 top-2 z-10 text-center text-xs ${
-                      settings.style === 'neumorphism' ? 'text-slate-500' : 'text-white/70'
-                    }`}>
-                      松开放置并创建新桌面页
-                    </div>
-                    {renderPageGrid(data.pages.length, [])}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
           {/* 短网格用剩余空间将指示器推至视口底部；长网格则让它自然排在网格末尾。 */}
           <div
             data-page-indicator-flow="true"

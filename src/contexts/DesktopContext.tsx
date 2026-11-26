@@ -1,4 +1,6 @@
 import { changeBookmarks, emptyBookmarks, type BookmarkAction } from '@/lib/bookmarks';
+import { toast } from 'sonner';
+import { persistDesktopChanges, readDesktopStorage, shareUnchangedPages } from '@/lib/desktopPersistence';
 // @refresh reset
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useViewportGeometry } from '@/hooks/use-viewport-geometry';
@@ -53,7 +55,7 @@ import {
   mergePrivacyItemsToFolder,
   movePrivacyFolderChild,
 } from '@/lib/privacyWorkspace';
-import { loadDesktopData, loadPrivacyVault, loadSettings, saveDesktopData, savePrivacyVault, saveSettings } from '@/lib/storage';
+import { loadDesktopData, loadPrivacyVault, loadSettings, savePrivacyVault, saveSettings } from '@/lib/storage';
 import { deepClone } from '@/lib/utils/deepClone';
 import { IDB_VIDEO_MARKER, loadVideoDB } from '@/lib/videoStorage';
 import { IDB_WALLPAPER_MARKER, loadWallpaperDB } from '@/lib/wallpaperStorage';
@@ -76,13 +78,14 @@ const MAX_FOLDER_APPS = LAYOUT_LIMITS.maxFolderApps;
 interface DesktopContextType {
   data: DesktopData;
   savedData: DesktopData;
+  persistedData: DesktopData | null;
+  flushDesktopSave: () => Promise<boolean>;
   viewport: ReturnType<typeof useViewportGeometry>;
   gridCols: DesktopColumnCount;
   currentPage: number;
   setCurrentPage: (p: number) => void;
   editMode: boolean;
   setEditMode: (v: boolean) => void;
-  loading: boolean;
   // 外观设置
   settings: DesktopSettings;
   updateSettings: (patch: Partial<DesktopSettings>) => void;
@@ -171,7 +174,7 @@ function dataForHistory(data: DesktopData): DesktopData {
     privacyItems: _privacyItems,
     pinHash: _pinHash,
     ...desktop
-  } = deepClone(data);
+  } = data;
   return desktop;
 }
 
@@ -227,12 +230,17 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const viewport = useViewportGeometry();
   const isLandscape = viewport.isLandscape;
   const [settings, setSettings] = useState(() => normalizeOrientationSettings(loadSettings()));
-  const [savedData, setSavedData] = useState<DesktopData>(() => compactDesktopPages(loadDesktopData()).data);
+  const lastDesktopStorageRef = useRef<string | null>(null);
+  const [savedData, setSavedData] = useState<DesktopData>(() => {
+    lastDesktopStorageRef.current = readDesktopStorage();
+    return compactDesktopPages(loadDesktopData()).data;
+  });
+  const [persistedData, setPersistedData] = useState<DesktopData | null>(savedData);
+  const [saveAttempt, retrySave] = useState(0);
   const [savedPrivacyItems, setSavedPrivacyItems] = useState<DesktopItem[]>([]);
   const [pages, setPages] = useState<{ portrait: number; landscape?: number }>({ portrait: 0 });
   const currentPage = isLandscape ? pages.landscape ?? pages.portrait : pages.portrait;
   const [editMode, setEditMode] = useState(false);
-  const [loading, setLoading] = useState(true);
   const gridCols = isLandscape ? getLandscapeColumns(settings) : settings.cols;
   const data = useMemo(() => isLandscape
     ? projectLandscape(savedData, settings.cols, gridCols, settings.rows)
@@ -299,11 +307,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }), []);
 
   const applySavedData = useCallback((next: DesktopData, nextSettings = settingsRef.current) => {
-    savedDataRef.current = next;
+    const shared = shareUnchangedPages(savedDataRef.current, next);
+    savedDataRef.current = shared;
     dataRef.current = isLandscapeRef.current
-      ? projectLandscape(next, nextSettings.cols, getLandscapeColumns(nextSettings), nextSettings.rows)
-      : next;
-    setSavedData(next);
+      ? projectLandscape(shared, nextSettings.cols, getLandscapeColumns(nextSettings), nextSettings.rows)
+      : shared;
+    setSavedData(shared);
+    setPersistedData(null);
+    return shared;
   }, []);
 
   const applySavedPrivacyItems = useCallback((next: DesktopItem[], nextSettings = settingsRef.current) => {
@@ -377,32 +388,43 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [applySavedData, captureHistoryState]);
 
   const applyHistoryState = useCallback((state: DesktopHistoryState) => {
-    const nextData = compactDesktopPages(dataForHistory(state.data)).data;
+    const { cols: previousCols, rows: previousRows } = settingsRef.current;
+    const nextData = compactDesktopPages(state.data).data;
     const nextSettings: DesktopSettings = {
       ...settingsRef.current,
       cols: state.cols,
       landscapeCols: state.landscapeCols,
       rows: state.rows,
     };
+    const privacy = fitDesktopPositions(savedPrivacyItemsRef.current, nextSettings.cols, nextSettings.rows, true);
+    if (!privacy) return false;
     applySettings(nextSettings);
     applySavedData(nextData, nextSettings);
+    if (privacyUnlocked && (state.cols !== previousCols || state.rows !== previousRows)) {
+      applySavedPrivacyItems(privacy, nextSettings);
+    }
     setCurrentPage((page) => clampPageForGridChange(
       page, dataRef.current.pages.length, getPrivacyPageCount(privacyPageItemsRef.current),
     ));
-  }, [applySavedData, applySettings, setCurrentPage]);
+    return true;
+  }, [applySavedData, applySavedPrivacyItems, applySettings, privacyUnlocked, setCurrentPage]);
 
   const undo = useCallback(() => {
     const previous = historyRef.current.undo(captureHistoryState());
     if (!previous) return false;
-    applyHistoryState(previous);
-    return true;
+    if (applyHistoryState(previous)) return true;
+    historyRef.current.redo(previous);
+    toast.error('空间不足');
+    return false;
   }, [applyHistoryState, captureHistoryState]);
 
   const redo = useCallback(() => {
     const next = historyRef.current.redo(captureHistoryState());
     if (!next) return false;
-    applyHistoryState(next);
-    return true;
+    if (applyHistoryState(next)) return true;
+    historyRef.current.undo(next);
+    toast.error('空间不足');
+    return false;
   }, [applyHistoryState, captureHistoryState]);
 
   useLayoutEffect(() => {
@@ -455,12 +477,54 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  // data 变更时持久化（跳过首次挂载）
+  const flushDesktopSave = useCallback(async (): Promise<boolean> => {
+    const persist = () => {
+      const draft = savedDataRef.current;
+      if (lastSavedDataRef.current === draft) return true;
+      const result = persistDesktopChanges(
+        lastSavedDataRef.current, lastDesktopStorageRef.current, draft, settingsRef.current,
+      );
+      if (result.status !== 'saved') {
+        toast.error(result.status === 'conflict'
+          ? '另一个标签页已修改同一数据，本机改动仍保留在此页'
+          : '桌面保存失败，本机改动仍保留在此页', {
+          id: 'desktop-save-error',
+          duration: Infinity,
+          action: { label: '重试保存', onClick: () => retrySave((attempt) => attempt + 1) },
+        });
+        return false;
+      }
+      toast.dismiss('desktop-save-error');
+      lastDesktopStorageRef.current = result.raw;
+      const committed = result.data === draft ? draft : applySavedData(result.data);
+      lastSavedDataRef.current = committed;
+      setPersistedData(committed);
+      if (committed !== draft) {
+        historyRef.current.clear();
+        setCurrentPage((page) => clampPageForGridChange(
+          page, dataRef.current.pages.length, getPrivacyPageCount(privacyPageItemsRef.current),
+        ));
+      }
+      return true;
+    };
+    if (!navigator.locks) return persist();
+    return navigator.locks.request('minimal-desktop-local-save', persist).catch(persist);
+  }, [applySavedData, setCurrentPage]);
+
   useEffect(() => {
-    if (lastSavedDataRef.current === savedData) return;
-    saveDesktopData(savedData);
-    lastSavedDataRef.current = savedData;
-  }, [savedData]);
+    void flushDesktopSave();
+  }, [flushDesktopSave, saveAttempt, savedData]);
+
+  useEffect(() => {
+    if (persistedData) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (lastSavedDataRef.current === savedDataRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [persistedData]);
 
   // 隐私页持久化（加密保存，仅在密钥可用时执行）
   // 同时依赖 privacyCryptoKey state，确保密钥清空后立即停止写入，不存在竞态
@@ -472,16 +536,12 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     encryptItems(snapshot, key, salt, iterations).then((vault) => {
       // 慢的旧加密任务完成时不得覆盖更新的数据。
       if (writeSeq !== privacyWriteSeqRef.current) return;
-      savePrivacyVault(vault);
+      if (!savePrivacyVault(vault)) throw new Error('隐私桌面保存失败');
       setPrivacyRevision((revision) => revision + 1);
-    }).catch(() => {/* 静默失败 */});
+    }).catch(() => {
+      if (writeSeq === privacyWriteSeqRef.current) toast.error('隐私桌面保存失败，请释放存储空间后重试');
+    });
   }, [savedPrivacyItems, privacyCryptoKey]);
-
-  // 模拟骨架屏加载
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 800);
-    return () => clearTimeout(t);
-  }, []);
 
   const addItem = useCallback((
     item: Omit<DesktopItem, 'id' | 'page' | 'row' | 'col'>,
@@ -1100,7 +1160,7 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
         // 云端恢复/reset 或新的解锁会推进 epoch；旧锁定任务不得覆盖它们。
         if (epoch !== privacyEpochRef.current || privacyCryptoKeyRef.current !== cryptoState) return;
-        savePrivacyVault(vault);
+        if (!savePrivacyVault(vault)) throw new Error('隐私桌面保存失败');
         setPrivacyRevision((revision) => revision + 1);
         privacyWriteSeqRef.current += 1;
         privacyCryptoKeyRef.current = null;
@@ -1216,13 +1276,14 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
       value={{
         data,
         savedData,
+        persistedData,
+        flushDesktopSave,
         viewport,
         gridCols,
         currentPage,
         setCurrentPage,
         editMode,
         setEditMode,
-        loading,
         settings,
         updateSettings,
         addItem,

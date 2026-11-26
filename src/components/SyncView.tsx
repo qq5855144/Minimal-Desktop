@@ -27,7 +27,7 @@ import {
   saveSyncConfig,
   updateSyncConfig,
 } from '@/lib/storage';
-import { uploadSyncSnapshot } from '@/lib/syncCoordinator';
+import { rememberWorkspaceSyncBase, uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnapshot';
 import { preserveSyncStateForReconnect } from '@/lib/syncTarget';
 import { clearVideoDB, saveVideoDB } from '@/lib/videoStorage';
@@ -61,7 +61,7 @@ interface PendingRestore {
 }
 
 const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
-  const { savedData, importData, resetPrivacyLock, settings, updateSettings } = useDesktop();
+  const { savedData, persistedData, flushDesktopSave, importData, resetPrivacyLock, settings, updateSettings } = useDesktop();
   const isNeu = settings.style === 'neumorphism';
   const t = getPanelTheme(isNeu);
 
@@ -73,6 +73,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
   const [loggedIn, setLoggedIn] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
+  const [conflictingBackupSha, setConflictingBackupSha] = useState<string>();
 
   useEffect(() => {
     if (open) {
@@ -91,6 +92,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       }
       setStatusMsg(null);
       setPendingRestore(null);
+      setConflictingBackupSha(undefined);
     }
   }, [open]);
 
@@ -172,20 +174,25 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     if (next.autoSync) window.dispatchEvent(new Event(AUTO_SYNC_REQUEST_EVENT));
   }, [config]);
 
-  const performUpload = useCallback(async () => {
+  const performUpload = useCallback(async (confirmedRemoteBackupSha?: string) => {
     if (!config.token) {
       setStatusMsg({ type: 'error', msg: '登录已过期，请重新连接' });
       toast.error('登录已过期，请重新连接');
       return;
     }
+    if (!persistedData) {
+      toast.error('请先保存本机桌面，再同步到云端', { position: 'top-center' });
+      return;
+    }
     setSyncing('upload'); setStatusMsg(null);
     try {
       const syncCfg = { ...config, path: DEFAULT_FILE };
-      const uploadData = await buildSyncSnapshot(savedData, settings);
+      const uploadData = await buildSyncSnapshot(persistedData, settings);
       const result = await uploadSyncSnapshot(syncCfg, uploadData, {
-        source: 'manual',
+        source: 'manual', confirmedRemoteBackupSha,
       });
       setConfig(result.config);
+      setConflictingBackupSha(result.conflictingBackupSha);
       setStatusMsg({ type: result.ok ? 'success' : 'error', msg: result.message });
       if (result.ok) {
         const included = [
@@ -201,7 +208,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       toast.error(message);
     }
     finally { setSyncing(null); }
-  }, [config, savedData, settings]);
+  }, [config, persistedData, settings]);
 
   const handleUpload = useCallback(() => performUpload(), [performUpload]);
 
@@ -282,6 +289,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         return;
       }
 
+      if (!await flushDesktopSave()) throw new Error('恢复的数据暂未保存，请检查本地保存提示');
+
       let backgroundSaved = true;
       if (background && pendingRestore.backgroundFile) {
         try {
@@ -301,8 +310,11 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         await Promise.all([clearWallpaperDB(), clearVideoDB()]);
       }
 
-      if (pendingRestore.data.privacyVault) savePrivacyVault(pendingRestore.data.privacyVault);
-      else clearPrivacyVault();
+      if (pendingRestore.data.privacyVault) {
+        if (!savePrivacyVault(pendingRestore.data.privacyVault)) {
+          throw new Error('隐私桌面保存失败，请释放存储空间后重试');
+        }
+      } else clearPrivacyVault();
       const next = updateSyncConfig({
         lastSyncAt: new Date().toISOString(),
         lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
@@ -321,7 +333,9 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         syncStatus: 'synced',
         lastSyncError: undefined,
       };
+      rememberWorkspaceSyncBase(next);
       setConfig(next);
+      setConflictingBackupSha(undefined);
       const oldBackgroundUrls = [settings.bgImage, settings.bgVideo].filter(
         (source): source is string => Boolean(source?.startsWith('blob:')),
       );
@@ -344,7 +358,7 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     } finally {
       setSyncing(null);
     }
-  }, [config, importData, pendingRestore, resetPrivacyLock, settings.bgImage, settings.bgVideo, updateSettings]);
+  }, [config, flushDesktopSave, importData, pendingRestore, resetPrivacyLock, settings.bgImage, settings.bgVideo, updateSettings]);
 
   const handleLogout = useCallback(() => {
     clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput(''); setRemember(false);
@@ -555,6 +569,19 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
                 </div>
               )}
 
+              {conflictingBackupSha && !pendingRestore && (
+                <button
+                  type="button" disabled={!!syncing}
+                  className="rounded-xl border border-amber-500/30 px-3 py-2.5 text-sm text-amber-600 disabled:opacity-40"
+                  onClick={() => {
+                    if (window.confirm('将本机版本设为最新云端备份？当前云端版本仍会保留在 Git 历史中。')) {
+                      void performUpload(conflictingBackupSha);
+                    }
+                  }}
+                >
+                  确认使用本机版本
+                </button>
+              )}
               <div className={`h-px ${t.divider}`} />
 
               {/* 操作按钮 */}

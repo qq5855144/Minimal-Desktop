@@ -82,7 +82,7 @@ describe('sync upload coordinator', () => {
     });
   });
 
-  it('refreshes the baseline after acquiring the cross-tab upload lock', async () => {
+  it('keeps this tab’s baseline when another tab uploads while waiting for the lock', async () => {
     const lockRequest = vi.fn(async (_name: string, callback: () => Promise<unknown>) => {
       saveSyncConfig({
         ...config,
@@ -107,8 +107,8 @@ describe('sync upload coordinator', () => {
     expect(lockRequest.mock.calls[0][0]).not.toContain(config.token);
     expect(uploadMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        lastRemoteHead: 'other-tab-head',
-        lastBackupBlobSha: 'other-tab-blob',
+        lastRemoteHead: undefined,
+        lastBackupBlobSha: 'old-blob',
       }),
       snapshot,
     );
