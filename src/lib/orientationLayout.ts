@@ -90,18 +90,18 @@ export function groupDesktopPositions(data: DesktopData, items: DesktopItem[]): 
   return { ...data, pages };
 }
 
-function packLandscapePage(
+function packPage(
   widgets: DesktopItem[],
   ordered: DesktopItem[],
   cols: number,
   rows: number,
-  reservePortraitSlots = false,
+  reserveOriginalSlots = false,
 ): DesktopItem[] | null {
   const arranged = [...widgets];
   let cursor = 0;
   for (const [index, item] of ordered.entries()) {
-    const occupied = reservePortraitSlots ? arranged.concat(ordered.slice(index + 1)) : arranged;
-    const lastCell = reservePortraitSlots ? item.row * cols + item.col : cols * rows - 1;
+    const occupied = reserveOriginalSlots ? arranged.concat(ordered.slice(index + 1)) : arranged;
+    const lastCell = reserveOriginalSlots ? item.row * cols + item.col : cols * rows - 1;
     while (cursor <= lastCell
       && !canPlaceItem(occupied, item, Math.floor(cursor / cols), cursor % cols, cols, rows)) {
       cursor++;
@@ -113,31 +113,29 @@ function packLandscapePage(
   return arranged;
 }
 
-/** 排序以竖屏左上角为准，文件夹占满矩形区域后才继续放置下一个项目。 */
-function arrangeLandscapePage(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
+/** 按原先从左到右、从上到下的顺序放置图标，文件夹占满矩形区域。 */
+function arrangePage(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
   const widgets = items.filter((item) => item.type === 'widget');
   const ordered = items.filter((item) => item.type !== 'widget')
     .sort((a, b) => a.row - b.row || a.col - b.col);
-  // 紧凑排布可能堵住后续文件夹的落点。重试时保留尚未放置项目的竖屏格位。
-  return packLandscapePage(widgets, ordered, cols, rows)
-    ?? packLandscapePage(widgets, ordered, cols, rows, true)
+  // 紧凑排布可能堵住后续文件夹的落点。重试时保留尚未放置项目的原格位。
+  return packPage(widgets, ordered, cols, rows)
+    ?? packPage(widgets, ordered, cols, rows, true)
     ?? items;
 }
 
-function automaticLandscapeItems(
-  items: DesktopItem[],
-  portraitCols: number,
-  cols: number,
-  rows: number,
-): DesktopItem[] {
-  if (cols <= portraitCols) return items;
+function arrangePages(items: DesktopItem[], cols: number, rows: number): DesktopItem[] {
   const pages = new Map<number, DesktopItem[]>();
   for (const item of items) {
     const page = pages.get(item.page) ?? [];
     page.push(item);
     pages.set(item.page, page);
   }
-  return Array.from(pages.values()).flatMap((page) => arrangeLandscapePage(page, cols, rows));
+  return Array.from(pages.values()).flatMap((page) => arrangePage(page, cols, rows));
+}
+
+function automaticLandscapeItems(items: DesktopItem[], portraitCols: number, cols: number, rows: number): DesktopItem[] {
+  return cols > portraitCols ? arrangePages(items, cols, rows) : items;
 }
 
 export function projectLandscapeItems(
@@ -240,4 +238,23 @@ export function normalizePortraitData(data: DesktopData, cols: number, rows: num
   )));
   const items = fitDesktopPositions(source, cols, rows);
   return items ? groupDesktopPositions(data, items) : null;
+}
+
+export function resizeDesktopGrid(data: DesktopData, previous: DesktopSettings, next: DesktopSettings): DesktopData | null {
+  const { cols, rows } = next;
+  if (cols !== previous.cols || rows !== previous.rows) {
+    const normalized = normalizePortraitData(data, cols, rows);
+    if (!normalized || cols <= previous.cols) return normalized;
+    return groupDesktopPositions(normalized, arrangePages(normalized.pages.flat(), cols, rows));
+  }
+
+  const oldLandscapeCols = getLandscapeColumns(previous);
+  const landscapeCols = getLandscapeColumns(next);
+  if (landscapeCols <= oldLandscapeCols || !data.pages.some((page) => page.some((item) => item.landscapePosition))) {
+    return data;
+  }
+  // 使用当前横屏的顺序处理手动拖动过的图标，再写回横屏坐标。
+  const landscape = projectLandscape(data, cols, oldLandscapeCols, rows);
+  const resized = groupDesktopPositions(landscape, arrangePages(landscape.pages.flat(), landscapeCols, rows));
+  return saveLandscape(data, resized, cols, landscapeCols, rows);
 }

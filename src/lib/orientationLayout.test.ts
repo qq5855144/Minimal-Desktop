@@ -8,6 +8,7 @@ import {
   normalizePortraitData,
   projectLandscape,
   projectLandscapeItems,
+  resizeDesktopGrid,
   saveLandscape,
   saveLandscapeItems,
   savePortraitItems,
@@ -24,6 +25,63 @@ function data(...pages: DesktopItem[][]): DesktopData {
 const defaults: DesktopSettings = {
   cols: 4, rows: 8, iconSize: 46, iconRadiusPct: 25, style: 'glassmorphism',
 };
+
+describe('increasing the configured grid width', () => {
+  it('fills the new portrait column in reading order and keeps widgets and page boundaries', () => {
+    const clock: DesktopItem = { ...app('clock', 0, 0, 0), type: 'widget', widgetType: 'clock' };
+    const apps = Array.from({ length: 8 }, (_, index) => app(
+      `app-${index + 1}`, 0, 2 + Math.floor(index / 4), index % 4,
+    ));
+    const original = data([clock, ...apps.toReversed()], [app('second-page', 1, 0, 0)]);
+    const updated = resizeDesktopGrid(original, defaults, { ...defaults, cols: 5 })!;
+
+    expect(updated.pages).toEqual([
+      [clock, ...apps.map((item, index) => ({ ...item, row: 2 + Math.floor(index / 5), col: index % 5 }))],
+      original.pages[1],
+    ]);
+    expect(validateDesktopLayout(updated, { cols: 5, rows: 8 })).toEqual([]);
+    expect(original.pages[0].find((item) => item.id === 'app-5')).toMatchObject({ row: 3, col: 0 });
+  });
+
+  it('reserves both rows of an enlarged folder when filling the new column', () => {
+    const folder = {
+      ...app('folder', 0, 1, 0), type: 'folder', folderLayout: '2x2',
+      children: [app('child', 0, 1, 0)],
+    } satisfies DesktopItem;
+    const before = data([
+      ...Array.from({ length: 4 }, (_, col) => app(`app-${col}`, 0, 0, col)),
+      folder, app('a', 0, 1, 2), app('b', 0, 1, 3), app('c', 0, 2, 2), app('d', 0, 2, 3),
+    ]);
+    const updated = resizeDesktopGrid(before, defaults, { ...defaults, cols: 6 })!;
+
+    expect(updated.pages[0].slice(4)).toEqual([
+      { ...folder, row: 0, col: 4, children: [app('child', 0, 0, 4)] },
+      app('a', 0, 1, 0), app('b', 0, 1, 1), app('c', 0, 1, 2), app('d', 0, 1, 3),
+    ]);
+    expect(validateDesktopLayout(updated, { cols: 6, rows: 8 })).toEqual([]);
+  });
+
+  it('reflows the visible landscape order and keeps the saved portrait anchors', () => {
+    const apps = Array.from({ length: 8 }, (_, index) => ({
+      ...app(`app-${index + 1}`, 0, Math.floor(index / 4), index % 4),
+      landscapePosition: { page: 0, row: Math.floor((7 - index) / 4), col: (7 - index) % 4 },
+    }));
+    const portrait = data(apps);
+    const updated = resizeDesktopGrid(portrait, defaults, { ...defaults, landscapeCols: 7 })!;
+    const landscape = projectLandscape(updated, 4, 7, 8);
+
+    const readingOrder = landscape.pages[0].toSorted((a, b) => a.row - b.row || a.col - b.col);
+    expect(readingOrder.map(({ id, row, col }) => ({ id, row, col }))).toEqual(
+      apps.toReversed().map(({ id }, index) => ({ id, row: Math.floor(index / 7), col: index % 7 })),
+    );
+    for (const item of apps) {
+      expect(updated.pages[0].find((candidate) => candidate.id === item.id)).toMatchObject({
+        page: item.page, row: item.row, col: item.col,
+      });
+    }
+    expect(validateDesktopLayout(landscape, { cols: 7, rows: 8 })).toEqual([]);
+  });
+});
 
 describe('orientation layout', () => {
   it('keeps page boundaries and widget anchors without changing portrait coordinates', () => {

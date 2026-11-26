@@ -42,6 +42,7 @@ import {
   normalizePortraitData,
   projectLandscape,
   projectLandscapeItems,
+  resizeDesktopGrid,
   saveLandscape,
   saveLandscapeItems,
   savePortraitItems,
@@ -1186,15 +1187,15 @@ export const DesktopProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const nextSettings: DesktopSettings = { ...requested, cols, rows };
     const portraitGridChanged = cols !== previous.cols || rows !== previous.rows;
     const landscapeGridChanged = getLandscapeColumns(nextSettings) !== getLandscapeColumns(previous);
-    if (portraitGridChanged) {
-      const next = normalizePortraitData(savedDataRef.current, cols, rows);
-      const privacy = fitDesktopPositions(savedPrivacyItemsRef.current, cols, rows, true);
+    if (portraitGridChanged || landscapeGridChanged) {
+      const next = resizeDesktopGrid(savedDataRef.current, previous, nextSettings);
+      const privacy = portraitGridChanged && privacyUnlocked
+        ? fitDesktopPositions(savedPrivacyItemsRef.current, cols, rows, true)
+        : savedPrivacyItemsRef.current;
       if (!next || !privacy) return;
       historyRef.current.record(captureHistoryState());
-      applySavedData(next, nextSettings);
-      if (privacyUnlocked) applySavedPrivacyItems(privacy, nextSettings);
-    } else if (landscapeGridChanged) {
-      historyRef.current.record(captureHistoryState());
+      if (next !== savedDataRef.current) applySavedData(next, nextSettings);
+      if (privacy !== savedPrivacyItemsRef.current) applySavedPrivacyItems(privacy, nextSettings);
     }
     applySettings(nextSettings);
     if (portraitGridChanged || landscapeGridChanged) {
