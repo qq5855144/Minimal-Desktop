@@ -4,6 +4,7 @@ import { CURRENT_DESKTOP_VERSION, parseDesktopData, privacyVaultSchema } from '.
 import { findFirstAvailableSlot, LAYOUT_LIMITS, normalizeDesktopColumnCount } from './layoutEngine';
 import { normalizeOrientationSettings } from './orientationLayout';
 import { createWidgetItem, getWidgetConfig } from './widgetConfig';
+import { BUILTIN_DESKTOP_PAGES, BUILTIN_DESKTOP_SETTINGS } from './builtinDesktopData';
 
 export const DESKTOP_DATA_KEY = 'ios_desktop_data';
 const SYNC_KEY = 'ios_sync_config';
@@ -91,8 +92,15 @@ export const SYSTEM_APPS: import('@/types').DesktopItem[] = (() => {
   ] as import('@/types').DesktopItem[];
 })();
 
+/**
+ * 默认桌面 = 内置桌面快照（作者桌面备份中的普通桌面数据）。
+ * - 已剔除隐私桌面（privacyVault）与书签（bookmarks / 书签内容），不随内置数据下发；
+ * - 快照内的网站快捷方式、文件夹、组件均为普通条目，用户删除后不会被迁移逻辑补回；
+ * - 其中 sys-* 为应用核心功能项（添加应用 / 设置 / 书签入口 / 云盘 / 同步），
+ *   沿用原有迁移逻辑：缺失时自动补回，避免核心入口被误删后无法找回。
+ */
 export const defaultDesktopData: DesktopData = {
-  pages: [[...WIDGET_ITEMS, ...SYSTEM_APPS]],
+  pages: BUILTIN_DESKTOP_PAGES,
   version: CURRENT_DESKTOP_VERSION,
 };
 
@@ -306,6 +314,17 @@ const DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
   deletedSearchEngineIds: [],
 };
 
+/**
+ * 首次启动使用的默认外观：沿用内置桌面快照的设置，保证图标尺寸 / 行数与快照布局一致。
+ * 背景仍使用内置默认壁纸，避免依赖快照中的 __default_wallpaper__ 占位符。
+ */
+const BUILTIN_DEFAULT_SETTINGS: import('@/types').DesktopSettings = {
+  ...DEFAULT_SETTINGS,
+  ...BUILTIN_DESKTOP_SETTINGS,
+  bgType: 'image',
+  bgImage: DEFAULT_BG_IMAGE,
+};
+
 export function loadSettings(): import('@/types').DesktopSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -324,7 +343,7 @@ export function loadSettings(): import('@/types').DesktopSettings {
       return settings;
     }
   } catch { /* ignore */ }
-  return { ...DEFAULT_SETTINGS };
+  return { ...BUILTIN_DEFAULT_SETTINGS };
 }
 
 export function saveSettings(s: import('@/types').DesktopSettings): boolean {

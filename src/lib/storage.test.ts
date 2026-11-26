@@ -235,12 +235,23 @@ describe('default desktop', () => {
     }
   });
 
-  it('starts a new desktop with system entries and no website shortcuts', () => {
+  it('starts a new desktop from the built-in snapshot without privacy vault or bookmarks', () => {
     vi.stubGlobal('localStorage', memoryStorage());
     try {
       const desktop = loadDesktopData();
-      expect(desktop.pages[0].filter((item) => item.type === 'app')).toHaveLength(0);
-      expect(desktop.pages[0].find((item) => item.id === 'sys-drive')).toMatchObject({ type: 'system' });
+      // 首次启动即为内置桌面快照（而不是空白页）
+      const items = desktop.pages.flat();
+      expect(items.length).toBeGreaterThan(0);
+      // 快照内的网站快捷方式 / 文件夹 / 组件都是普通条目，删除后不会被迁移逻辑补回；
+      // 仅 sys-* 核心功能项保留原有的自动补回行为。
+      const userItems = items.filter((item) => item.type !== 'system');
+      expect(userItems.length).toBeGreaterThan(0);
+      expect(userItems.every((item) => item.id.startsWith('sys-'))).toBe(false);
+      // 隐私桌面与书签不随内置数据下发
+      expect(desktop.privacyVault).toBeUndefined();
+      expect(desktop.bookmarks).toBeUndefined();
+      // 内置图标占位符已全部还原为真实 dataURL
+      expect(items.every((item) => !item.iconUrl || !item.iconUrl.startsWith('@@ICON@@'))).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }

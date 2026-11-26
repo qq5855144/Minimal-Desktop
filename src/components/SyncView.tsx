@@ -27,6 +27,7 @@ import {
   saveSyncConfig,
   updateSyncConfig,
 } from '@/lib/storage';
+import { readDesktopStorage } from '@/lib/desktopPersistence';
 import { rememberWorkspaceSyncBase, uploadSyncSnapshot } from '@/lib/syncCoordinator';
 import { buildSyncSnapshot, SYNC_DEFAULT_WALLPAPER_MARKER } from '@/lib/syncSnapshot';
 import { preserveSyncStateForReconnect } from '@/lib/syncTarget';
@@ -110,52 +111,6 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       window.removeEventListener('storage', refreshConfig);
     };
   }, [open]);
-
-  // 一键连接：验证 Token + 自动创建仓库
-  const handleConnect = useCallback(async () => {
-    const tok = tokenInput.trim();
-    if (!tok) { toast.error('请输入 GitHub Token'); return; }
-    setConnecting(true); setStatusMsg(null);
-    try {
-      // 1. 验证 Token
-      const user = await verifyToken(tok);
-      if (!user) {
-        setStatusMsg({ type: 'error', msg: 'Token 无效，请检查后重试' });
-        toast.error('Token 无效');
-        return;
-      }
-      // 2. 确保数据仓库存在（检查或自动创建）
-      const repoResult = await ensureRepo(tok, user.login, DEFAULT_REPO);
-      if (!repoResult.ok) {
-        setStatusMsg({ type: 'error', msg: repoResult.message });
-        toast.error(repoResult.message);
-        return;
-      }
-      const branch = repoResult.branch || 'main';
-      const connection: SyncConfig = {
-        ...DEFAULT_CONFIG, token: tok, owner: user.login,
-        repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
-        rememberToken: remember,
-        // 新仓库没有远端备份，可直接以初始 HEAD 为基线；已有仓库必须先由上传逻辑
-        // 确认备份文件不存在，或由用户下载确认后再建立基线。
-        lastRemoteHead: repoResult.created
-          ? await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined
-          : undefined,
-      };
-      const next = repoResult.created
-        ? connection
-        : preserveSyncStateForReconnect(connection, loadSyncConfig());
-      setConfig(next);
-      setLoggedIn(true);
-      saveSyncConfig(next);
-      const msg = repoResult.created ? `已连接 ${user.login}，数据仓库已自动创建` : `已连接 ${user.login}`;
-      toast.success(msg, { position: 'top-center' });
-      setStatusMsg({ type: 'success', msg });
-    } catch {
-      setStatusMsg({ type: 'error', msg: '连接失败，请检查网络' });
-      toast.error('连接失败，请检查网络');
-    } finally { setConnecting(false); }
-  }, [tokenInput, remember]);
 
   const handleAutoSyncToggle = useCallback(() => {
     const autoSync = !config.autoSync;
@@ -241,12 +196,16 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
     finally { setSyncing(null); }
   }, [config, savedData]);
 
-  const handleConfirmRestore = useCallback(async () => {
-    if (!pendingRestore) return;
+  /**
+   * 执行一份已下载备份的恢复流程。
+   * 手动“确认恢复”与“登录后自动恢复”共用同一实现，保证两条路径行为完全一致。
+   * 返回是否恢复成功。
+   */
+  const applyRestore = useCallback(async (target: PendingRestore): Promise<boolean> => {
     setSyncing('restore');
     let restoredBackgroundUrl: string | null = null;
     try {
-      const rawBackupSettings = pendingRestore.data.settings;
+      const rawBackupSettings = target.data.settings;
       const backupSettings = rawBackupSettings
         ? {
             ...rawBackupSettings,
@@ -256,12 +215,12 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
           }
         : undefined;
       let restoredSettings = backupSettings;
-      const background = pendingRestore.data.background;
+      const background = target.data.background;
       if (background) {
-        if (!backupSettings || !pendingRestore.backgroundFile) {
+        if (!backupSettings || !target.backgroundFile) {
           throw new Error('云端壁纸文件不完整，已取消恢复');
         }
-        restoredBackgroundUrl = URL.createObjectURL(pendingRestore.backgroundFile);
+        restoredBackgroundUrl = URL.createObjectURL(target.backgroundFile);
         restoredSettings = background.kind === 'image'
           ? {
               ...backupSettings,
@@ -279,26 +238,26 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
 
       // 先停止所有旧密钥写入，再以备份网格设置导入，避免布局被当前设备设置扭曲。
       resetPrivacyLock();
-      if (!importData(pendingRestore.data, {
+      if (!importData(target.data, {
         recordHistory: false,
         settings: restoredSettings,
       })) {
         if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
         setStatusMsg({ type: 'error', msg: '云端数据无法适配备份中的桌面布局' });
         toast.error('云端数据布局无效，未覆盖本地桌面');
-        return;
+        return false;
       }
 
       if (!await flushDesktopSave()) throw new Error('恢复的数据暂未保存，请检查本地保存提示');
 
       let backgroundSaved = true;
-      if (background && pendingRestore.backgroundFile) {
+      if (background && target.backgroundFile) {
         try {
           if (background.kind === 'image') {
-            await saveWallpaperDB(pendingRestore.backgroundFile);
+            await saveWallpaperDB(target.backgroundFile);
             await clearVideoDB();
           } else {
-            await saveVideoDB(pendingRestore.backgroundFile);
+            await saveVideoDB(target.backgroundFile);
             await clearWallpaperDB();
           }
         } catch {
@@ -310,8 +269,8 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
         await Promise.all([clearWallpaperDB(), clearVideoDB()]);
       }
 
-      if (pendingRestore.data.privacyVault) {
-        if (!savePrivacyVault(pendingRestore.data.privacyVault)) {
+      if (target.data.privacyVault) {
+        if (!savePrivacyVault(target.data.privacyVault)) {
           throw new Error('隐私桌面保存失败，请释放存储空间后重试');
         }
       } else if (!clearPrivacyVault()) {
@@ -319,19 +278,19 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       }
       const next = updateSyncConfig({
         lastSyncAt: new Date().toISOString(),
-        lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
-        lastBackupBlobSha: pendingRestore.backupBlobSha,
-        lastBackgroundSha256: pendingRestore.data.background?.sha256,
-        lastBackgroundBlobSha: pendingRestore.backgroundBlobSha,
+        lastRemoteHead: target.remoteHead ?? config.lastRemoteHead,
+        lastBackupBlobSha: target.backupBlobSha,
+        lastBackgroundSha256: target.data.background?.sha256,
+        lastBackgroundBlobSha: target.backgroundBlobSha,
         syncStatus: 'synced',
         lastSyncError: undefined,
       }) ?? {
         ...config,
         lastSyncAt: new Date().toISOString(),
-        lastRemoteHead: pendingRestore.remoteHead ?? config.lastRemoteHead,
-        lastBackupBlobSha: pendingRestore.backupBlobSha,
-        lastBackgroundSha256: pendingRestore.data.background?.sha256,
-        lastBackgroundBlobSha: pendingRestore.backgroundBlobSha,
+        lastRemoteHead: target.remoteHead ?? config.lastRemoteHead,
+        lastBackupBlobSha: target.backupBlobSha,
+        lastBackgroundSha256: target.data.background?.sha256,
+        lastBackgroundBlobSha: target.backgroundBlobSha,
         syncStatus: 'synced',
         lastSyncError: undefined,
       };
@@ -346,21 +305,130 @@ const SyncView: React.FC<SyncViewProps> = ({ open, onClose }) => {
       const message = backgroundSaved ? '云端备份已恢复' : '桌面已恢复，但壁纸保存失败，已回退默认背景';
       setStatusMsg({ type: 'success', msg: message });
       if (backgroundSaved) {
-        toast.success(pendingRestore.data.privacyVault
+        toast.success(target.data.privacyVault
           ? '已从云端恢复（隐私数据需重新解锁）'
           : '已从云端恢复', { position: 'top-center' });
       } else {
         toast.error(message, { position: 'top-center' });
       }
+      return backgroundSaved;
     } catch (error) {
       if (restoredBackgroundUrl) URL.revokeObjectURL(restoredBackgroundUrl);
       const message = error instanceof Error ? error.message : '恢复失败，请重试';
       setStatusMsg({ type: 'error', msg: message });
       toast.error(message, { position: 'top-center' });
+      return false;
     } finally {
       setSyncing(null);
     }
-  }, [config, flushDesktopSave, importData, pendingRestore, resetPrivacyLock, settings.bgImage, settings.bgVideo, updateSettings]);
+  }, [config, flushDesktopSave, importData, resetPrivacyLock, settings.bgImage, settings.bgVideo, updateSettings]);
+
+  /**
+   * 首次登录自动恢复：本地桌面仍是初始状态时，直接拉取云端备份并套用。
+   * 不弹确认框（用户刚登录，本地没有需要保护的内容），但任何失败都不得阻断登录，
+   * 也不会写入无效的连接配置。返回是否真正完成恢复。
+   */
+  const restoreOnFirstLogin = useCallback(async (tok: string, base: SyncConfig): Promise<boolean> => {
+    setSyncing('download');
+    try {
+      const result = await downloadFromGithub({ ...base, token: tok });
+      if (!result.ok || !result.data) return false;
+      const restored = await applyRestore({
+        data: result.data,
+        remoteHead: result.remoteHead,
+        backupBlobSha: result.backupBlobSha,
+        backgroundFile: result.backgroundFile,
+        backgroundBlobSha: result.backgroundBlobSha,
+        summary: summarizeDesktopDiff(savedData, result.data),
+      });
+      if (!restored) return false;
+      // 恢复期间 applyRestore 已通过 updateSyncConfig 写入基线；这里补上登录态与 Token。
+      const synced = updateSyncConfig({
+        token: tok,
+        owner: base.owner,
+        repo: base.repo,
+        branch: base.branch,
+        path: base.path,
+        fileName: base.fileName,
+        rememberToken: base.rememberToken,
+        syncStatus: 'synced',
+        lastSyncError: undefined,
+      }) ?? { ...base, syncStatus: 'synced' as const };
+      setConfig(synced);
+      setLoggedIn(true);
+      saveSyncConfig(synced);
+      setStatusMsg({ type: 'success', msg: '已连接并恢复云端桌面' });
+      toast.success(`已连接 ${base.owner}，云端桌面已自动恢复`, { position: 'top-center' });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setSyncing(null);
+    }
+  }, [applyRestore, savedData]);
+
+  // 一键连接：验证 Token + 自动创建仓库
+  // 首次登录（本地桌面仍是初始状态）时，自动从云端恢复桌面数据。
+  const handleConnect = useCallback(async () => {
+    const tok = tokenInput.trim();
+    if (!tok) { toast.error('请输入 GitHub Token'); return; }
+    setConnecting(true); setStatusMsg(null);
+    try {
+      // 1. 验证 Token
+      const user = await verifyToken(tok);
+      if (!user) {
+        setStatusMsg({ type: 'error', msg: 'Token 无效，请检查后重试' });
+        toast.error('Token 无效');
+        return;
+      }
+      // 2. 确保数据仓库存在（检查或自动创建）
+      const repoResult = await ensureRepo(tok, user.login, DEFAULT_REPO);
+      if (!repoResult.ok) {
+        setStatusMsg({ type: 'error', msg: repoResult.message });
+        toast.error(repoResult.message);
+        return;
+      }
+      const branch = repoResult.branch || 'main';
+      const connection: SyncConfig = {
+        ...DEFAULT_CONFIG, token: tok, owner: user.login,
+        repo: DEFAULT_REPO, branch, path: DEFAULT_FILE, fileName: DEFAULT_FILE,
+        rememberToken: remember,
+        // 新仓库没有远端备份，可直接以初始 HEAD 为基线；已有仓库必须先由上传逻辑
+        // 确认备份文件不存在，或由用户下载确认后再建立基线。
+        lastRemoteHead: repoResult.created
+          ? await getBranchHead(tok, user.login, DEFAULT_REPO, branch) ?? undefined
+          : undefined,
+      };
+      const next = repoResult.created
+        ? connection
+        : preserveSyncStateForReconnect(connection, loadSyncConfig());
+
+      // 首次登录且本地桌面未被改动时，先自动恢复云端桌面，再写入连接配置，
+      // 避免自动同步在恢复完成前用内置默认桌面覆盖云端备份。
+      const isInitialDesktop = readDesktopStorage() === null;
+      if (!repoResult.created && isInitialDesktop) {
+        const restored = await restoreOnFirstLogin(tok, next);
+        if (restored) {
+          setConnecting(false);
+          return;
+        }
+      }
+
+      setConfig(next);
+      setLoggedIn(true);
+      saveSyncConfig(next);
+      const msg = repoResult.created ? `已连接 ${user.login}，数据仓库已自动创建` : `已连接 ${user.login}`;
+      toast.success(msg, { position: 'top-center' });
+      setStatusMsg({ type: 'success', msg });
+    } catch {
+      setStatusMsg({ type: 'error', msg: '连接失败，请检查网络' });
+      toast.error('连接失败，请检查网络');
+    } finally { setConnecting(false); }
+  }, [tokenInput, remember, restoreOnFirstLogin]);
+
+  const handleConfirmRestore = useCallback(() => {
+    if (pendingRestore) void applyRestore(pendingRestore);
+  }, [applyRestore, pendingRestore]);
 
   const handleLogout = useCallback(() => {
     clearSyncConfig(); setConfig(DEFAULT_CONFIG); setTokenInput(''); setRemember(false);
