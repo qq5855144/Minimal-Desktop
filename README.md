@@ -10,6 +10,22 @@
 > - Cloudflare Pages：<https://mdsk.pages.dev/>
 > - GitHub Pages：<https://qq5855144.github.io/Minimal-Desktop/>
 
+## 扩展安装
+
+- **狐猴浏览器** · [在狐猴扩展商店安装 Minimal Desktop](https://store.lemur.osmangroupx.com/ext?id=eebbmnggihhbaeejkhdinnbilelbmaef)
+
+安装后打开一个新标签页，即可进入 Minimal Desktop。
+
+### 从 GitHub Release 安装
+
+在 [最新 Release](https://github.com/qq5855144/Minimal-Desktop/releases/latest) 的 **Assets** 中选择对应产物。
+
+| 浏览器 | 产物 | 安装方法 |
+| --- | --- | --- |
+| Chrome / Chromium | `minimal-desktop-extension-*.zip` | 解压后打开扩展管理页（Chrome 为 `chrome://extensions/`），开启「开发者模式」，点击「加载已解压的扩展程序」，选择含 `manifest.json` 的目录。 |
+| 支持本地 CRX 安装的 Chromium 浏览器 | `minimal-desktop-extension-*.crx` | 在浏览器的扩展管理页导入下载的 CRX 文件并确认安装。浏览器限制 CRX 侧载时，可使用上面的 ZIP 方式。 |
+| Firefox（临时测试） | `minimal-desktop-extension-*.zip` | 解压后打开 `about:debugging#/runtime/this-firefox`，点击「临时载入附加组件」，选择解压目录内的 `manifest.json`。重启 Firefox 后需重新加载。 |
+
 ## 基础操作
 
 ### 添加应用
