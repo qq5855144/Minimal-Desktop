@@ -1,12 +1,12 @@
 // ==UserScript==
-// @name         Minimal Desktop 网页剪藏
-// @namespace    https://github.com/qq5855144/Minimal-Desktop
-// @version      1.3.1
-// @description  使用可拖动的 U 形悬浮菜单打开 Minimal Desktop，或将当前网页添加到桌面、书签。
+// @name         Minimal Desktop 起始页 网页剪藏
+// @namespace    https://mdsk.pages.dev/
+// @version      1.3.4
+// @description  这是一个Minimal Desktop起始页配套脚本，功能：将当前浏览的网页添加到Minimal-Desktop起始页的桌面、书签。解决网页版起始页无法使用剪藏功能的缺陷、扩展版不需要这个脚本
 // @author       Minimal Desktop
 // @match        http://*/*
 // @match        https://*/*
-// @exclude      https://qq5855144.github.io/Minimal-Desktop/*
+// @exclude      https://mdsk.pages.dev/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @run-at       document-idle
@@ -15,7 +15,7 @@
 (() => {
   'use strict';
 
-  const DESKTOP_URL = 'https://qq5855144.github.io/Minimal-Desktop/';
+  const DESKTOP_URL = 'https://mdsk.pages.dev/';
   const POSITION_KEY = 'minimal-desktop-clipper-position-v1';
   const IDLE_DELAY = 2000;
   const BUTTON_EDGE_MARGIN = 20;
@@ -84,7 +84,7 @@
       .fallback{display:none;width:26px;height:26px;color:#fff;place-items:center;font:20px/1 system-ui;filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
       @media (prefers-reduced-motion:reduce){.clipper,.drag-handle,.action{transition:none}}
     </style>
-    <div class="clipper extend" role="group" aria-label="Minimal Desktop 网页剪藏">
+    <div class="clipper" role="group" aria-label="Minimal Desktop 网页剪藏">
       <button type="button" class="drag-handle" aria-label="展开剪藏菜单或拖动调整位置" title="拖动调整位置"><img alt="" referrerpolicy="no-referrer"><span class="fallback" aria-hidden="true">✦</span></button>
       <button type="button" class="action" data-action="home">主页</button>
       <button type="button" class="action" data-target="desktop">桌面</button>
@@ -114,7 +114,7 @@
   window.addEventListener('resize', applyPosition, { passive: true });
 
   let idleTimer;
-  let isClipperExtended = true;
+  let isClipperExtended = false;
   const extend = () => {
     if (!isClipperExtended) {
       isClipperExtended = true;
@@ -214,5 +214,4 @@
   });
 
   (document.body || document.documentElement).append(host);
-  scheduleRetract(3000);
 })();
